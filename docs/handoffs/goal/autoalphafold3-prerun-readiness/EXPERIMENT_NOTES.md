@@ -11,3 +11,11 @@ Synthetic unit tests may use in-memory scalar evidence and temporary directories
 - Pytest emitted a cache warning because the sibling worktree cannot create `.pytest_cache` under the current sandbox; this did not affect test results.
 - Ran `python3 -m pytest -p no:cacheprovider`: 81 passed, 2 skipped.
 - Ran `python3 .claude/skill-evals/run_offline_evals.py`: all 148 checks passed.
+
+## 2026-05-30: `feat/baseline-readiness`
+
+- Added only synthetic `tmp_path` baseline-readiness contract tests.
+- Ran `python3 -m pytest tests/test_baseline_readiness.py -q -p no:cacheprovider`: 21 passed.
+- Ran `python3 -m pytest -p no:cacheprovider`: 102 passed, 2 skipped.
+- Ran `python3 .claude/skill-evals/run_offline_evals.py`: all 148 checks passed.
+- No baseline metrics, benchmark artifacts, `runs/baseline/**` files, locked Volume writes, canonical ledger entries, Discovery Ledger entries, Modal runs, or autonomous search trials were created.

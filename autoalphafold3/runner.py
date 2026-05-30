@@ -9,6 +9,7 @@ cached Arrow load, GPU job, or benchmark result.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ TRIAL_ID_RE = re.compile(r"^T[0-9]{3,}$")
 ARTIFACT_MANIFEST_SCHEMA = "autoaf3.artifact_manifest.v1"
 PREDICTIONS_SCHEMA = "autoaf3.predictions.v1"
 DONE_FILENAME = "DONE"
+PREDICTIONS_FILENAME = "predictions.json"
 ALLOWED_STUB_STATUSES = {"PLANNED", "STUB_ONLY", "REAL_MODE_UNAVAILABLE"}
 
 
@@ -58,6 +60,7 @@ def artifact_manifest_shape(
 
     checked_trial_id = validate_trial_id(trial_id)
     output = Path(output_dir)
+    _require_trial_output_dir(output, checked_trial_id)
     if status not in ALLOWED_STUB_STATUSES:
         raise RunnerError(f"unsupported local runner status: {status}")
     return {
@@ -70,7 +73,7 @@ def artifact_manifest_shape(
         "features_dir": str(features_dir),
         "artifacts": {
             "artifact_manifest_json": str(output / "artifact_manifest.json"),
-            "predictions_json": str(output / "predictions.json"),
+            "predictions_json": str(output / PREDICTIONS_FILENAME),
             "training_log_json": str(output / "training_log.json"),
             "stdout_log": str(output / "stdout.log"),
             "stderr_log": str(output / "stderr.log"),
@@ -122,6 +125,7 @@ def write_artifact_manifest_stub(
 
     trial_id = validate_trial_id(str(trial_json.get("trial_id", "")))
     output = Path(output_dir)
+    _require_trial_output_dir(output, trial_id)
     output.mkdir(parents=True, exist_ok=True)
     manifest = artifact_manifest_shape(
         trial_id=trial_id,
@@ -132,6 +136,56 @@ def write_artifact_manifest_stub(
     manifest_path = output / "artifact_manifest.json"
     _atomic_write_json(manifest_path, manifest)
     return manifest
+
+
+def prediction_artifact_shape(
+    *,
+    trial_id: str,
+    split: str,
+    predictions: list[dict[str, object]],
+    source: str = "provided_coordinates",
+) -> dict[str, object]:
+    """Return a scorer-compatible prediction artifact without scoring it."""
+
+    checked_trial_id = validate_trial_id(trial_id)
+    checked_split = _validate_split(split)
+    checked_predictions = _validate_prediction_entries(predictions)
+    return {
+        "schema_version": PREDICTIONS_SCHEMA,
+        "trial_id": checked_trial_id,
+        "split": checked_split,
+        "source": source,
+        "official_benchmark_result": False,
+        "predictions": checked_predictions,
+        "disclaimer": (
+            "Prediction artifact only. This file is not a benchmark result and "
+            "does not imply that local stub code ran NanoFold training."
+        ),
+    }
+
+
+def write_prediction_artifact(
+    *,
+    trial_id: str,
+    split: str,
+    predictions: list[dict[str, object]],
+    output_dir: str | Path,
+    source: str = "provided_coordinates",
+) -> dict[str, object]:
+    """Write a canonical local prediction artifact for scorer-compatible tests."""
+
+    checked_trial_id = validate_trial_id(trial_id)
+    output = Path(output_dir)
+    _require_trial_output_dir(output, checked_trial_id)
+    output.mkdir(parents=True, exist_ok=True)
+    payload = prediction_artifact_shape(
+        trial_id=checked_trial_id,
+        split=split,
+        predictions=predictions,
+        source=source,
+    )
+    _atomic_write_json(output / PREDICTIONS_FILENAME, payload)
+    return payload
 
 
 def initialize_trial_directory(
@@ -152,6 +206,7 @@ def initialize_trial_directory(
 
     trial_id = validate_trial_id(str(trial_json.get("trial_id", "")))
     output = Path(output_dir)
+    _require_trial_output_dir(output, trial_id)
     done_marker = output / DONE_FILENAME
     if done_marker.exists() and not allow_existing_done:
         raise RunnerError(f"trial directory already completed: {output}")
@@ -212,7 +267,24 @@ def validate_artifact_manifest(manifest: dict[str, object]) -> dict[str, object]
     missing = sorted(required - artifacts.keys())
     if missing:
         raise RunnerError(f"artifact manifest missing keys: {', '.join(missing)}")
+    _require_manifest_artifacts_trial_scoped(artifacts)
     return manifest
+
+
+def validate_prediction_artifact(payload: dict[str, object]) -> dict[str, object]:
+    """Validate the local prediction artifact contract and return it unchanged."""
+
+    if payload.get("schema_version") != PREDICTIONS_SCHEMA:
+        raise RunnerError("prediction artifact schema_version mismatch")
+    validate_trial_id(str(payload.get("trial_id", "")))
+    if payload.get("official_benchmark_result") is not False:
+        raise RunnerError("prediction artifacts must not claim official benchmark status")
+    _validate_split(payload.get("split"))
+    predictions = payload.get("predictions")
+    if not isinstance(predictions, list):
+        raise RunnerError("prediction artifact must contain a predictions list")
+    _validate_prediction_entries(predictions)
+    return payload
 
 
 def run_fixed_budget_trial(
@@ -268,5 +340,71 @@ def run_final_validation(
 
 def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    tmp_path.write_text(
+        json.dumps(payload, allow_nan=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
     tmp_path.replace(path)
+
+
+def _require_trial_output_dir(output: Path, trial_id: str) -> None:
+    if output.name != trial_id:
+        raise RunnerError(f"trial artifacts must be written under a trial-scoped directory named {trial_id}")
+
+
+def _validate_prediction_entries(predictions: list[dict[str, object]]) -> list[dict[str, object]]:
+    if not predictions:
+        raise RunnerError("prediction artifact must contain at least one prediction")
+    seen: set[str] = set()
+    checked = []
+    for prediction in predictions:
+        if not isinstance(prediction, dict):
+            raise RunnerError("prediction entries must be objects")
+        target_id = prediction.get("target_id")
+        if not isinstance(target_id, str) or not target_id:
+            raise RunnerError("prediction entries require target_id")
+        if target_id in seen:
+            raise RunnerError(f"duplicate prediction target_id: {target_id}")
+        seen.add(target_id)
+        predicted_ca = _validate_predicted_ca(prediction.get("predicted_ca"), target_id=target_id)
+        checked.append({"target_id": target_id, "predicted_ca": predicted_ca})
+    return checked
+
+
+def _validate_predicted_ca(value: object, *, target_id: str) -> list[list[float]]:
+    if not isinstance(value, list) or not value:
+        raise RunnerError(f"predicted_ca must be a non-empty list for {target_id}")
+    rows = []
+    for row in value:
+        if not isinstance(row, list) or len(row) != 3:
+            raise RunnerError(f"predicted_ca must have shape (L, 3) for {target_id}")
+        try:
+            coords = [float(row[0]), float(row[1]), float(row[2])]
+        except (TypeError, ValueError) as exc:
+            raise RunnerError(f"predicted_ca is not numeric for {target_id}") from exc
+        if not all(math.isfinite(coord) for coord in coords):
+            raise RunnerError(f"predicted_ca contains non-finite coordinate for {target_id}")
+        rows.append(coords)
+    return rows
+
+
+def _validate_split(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        raise RunnerError("prediction artifact requires split")
+    return value
+
+
+def _require_manifest_artifacts_trial_scoped(artifacts: dict[str, object]) -> None:
+    manifest_path = Path(str(artifacts["artifact_manifest_json"]))
+    trial_root = manifest_path.parent
+    validate_trial_id(trial_root.name)
+    resolved_root = trial_root.resolve()
+    for key, value in artifacts.items():
+        if not isinstance(value, str):
+            raise RunnerError(f"artifact path for {key} must be a string")
+        artifact_path = Path(value)
+        if ".." in artifact_path.parts:
+            raise RunnerError(f"artifact path for {key} escapes trial directory")
+        resolved = artifact_path.resolve()
+        if resolved_root not in {resolved, *resolved.parents}:
+            raise RunnerError(f"artifact path for {key} escapes trial directory")

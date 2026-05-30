@@ -19,13 +19,13 @@
 - [x] Random split behavior is rejected for official runs.
 - [x] `max_templates=0` is enforced.
 - [x] Empty template placeholders are verified.
-- [ ] Runner writes only trial-scoped artifacts.
-- [ ] Runner creates canonical prediction artifacts.
-- [ ] Runner does not stamp official benchmark success.
+- [x] Runner writes only trial-scoped artifacts.
+- [x] Runner creates canonical prediction artifacts.
+- [x] Runner does not stamp official benchmark success.
 - [ ] Modal app uses real Modal definitions.
 - [ ] Trial workers cannot mount locked labels.
 - [ ] Scorer workers can mount locked labels.
-- [ ] Scorer-only path can score real prediction artifacts.
+- [x] Scorer-only path can score real prediction artifacts.
 - [ ] Fold Cartographer emits canonical targets.
 - [ ] Orchestrator normalizes Modal errors to `INFRA_FAIL`.
 - [ ] Ledger validates lifecycle transitions.

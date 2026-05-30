@@ -120,3 +120,36 @@ Validation:
 - Passed: `rg -n "/Users/|naveenramasamy" autoalphafold3 scripts configs` with no matches.
 - Passed: `python3 -m pytest -p no:cacheprovider`.
 - Passed: `python3 .claude/skill-evals/run_offline_evals.py`.
+
+## PR 3 Grounding: `feat/trial-runtime`
+
+Read-only grounding covered `autoalphafold3/runner.py`,
+`autoalphafold3/locked_scorer.py`, `tests/test_runner_and_locked_scorer.py`,
+`autoalphafold3/benchmark_contract.md`, and the canonical spec's per-trial
+artifact contract.
+
+Best-practice approach:
+
+- Keep trial artifact behavior in `autoalphafold3/runner.py`; do not push
+  scorer parsing or Modal concerns into the local runner.
+- Enforce that runner-owned artifact paths stay under the specific
+  `/runs/trials/<trial_id>`-style trial directory.
+- Add a canonical prediction artifact writer for caller-supplied coordinates
+  using schema `autoaf3.predictions.v1`; this writer must validate target IDs,
+  duplicate predictions, split, and `(L, 3)` shape before writing.
+- Preserve the explicit local stub guard: no checkpoint, no fake NanoFold run,
+  no fake benchmark result, and `real_training_performed: false`.
+- Use the existing scorer-only wrapper to prove runner-written prediction
+  artifacts are scorer-compatible on the local smoke manifest.
+
+Validation:
+
+- Passed: `python3 -m pytest -p no:cacheprovider tests/test_runner_and_locked_scorer.py -q`.
+- Passed: `python3 -m pytest -p no:cacheprovider tests/test_modal_and_demo.py tests/test_local_contracts.py -q`.
+- Passed: `python3 -m pytest -p no:cacheprovider` (`66 passed, 2 skipped`).
+
+Validation:
+
+- Passed: `python3 -m pytest -p no:cacheprovider tests/test_runner_and_locked_scorer.py tests/test_local_contracts.py -q`.
+- Passed: `python3 -m pytest -p no:cacheprovider` (`66 passed, 2 skipped`).
+- Passed: `python3 .claude/skill-evals/run_offline_evals.py` (`148 checks passed`).

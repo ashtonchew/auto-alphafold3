@@ -2,6 +2,7 @@ biopython
 mlflow
 modal>=1.0.0
 numpy
+openai
 pydantic
 pyarrow>=16.0.0
 pymongo

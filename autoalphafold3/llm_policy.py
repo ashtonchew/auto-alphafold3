@@ -17,6 +17,7 @@ ReasoningEffort = Literal["none", "low", "medium", "high"]
 ServiceTier = Literal["auto", "default", "priority", "flex"]
 TextVerbosity = Literal["low", "medium", "high"]
 WebSearchContextSize = Literal["low", "medium", "high"]
+DEFAULT_LLM_MODEL = "gpt-5.4-mini"
 
 
 class AgentSearchPhase(StrEnum):
@@ -32,7 +33,7 @@ class LLMPhasePolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     phase: AgentSearchPhase
-    model: str = Field(default="gpt-5.5", min_length=1)
+    model: str = Field(default=DEFAULT_LLM_MODEL, min_length=1)
     service_tier: ServiceTier = "priority"
     reasoning_effort: ReasoningEffort
     text_verbosity: TextVerbosity = "low"
@@ -49,8 +50,8 @@ class LLMPhasePolicy(BaseModel):
         if self.phase == AgentSearchPhase.PATCH_PLANNING:
             if self.web_search_enabled:
                 raise ValueError("patch planning must not use web search")
-            if self.reasoning_effort != "medium":
-                raise ValueError("patch planning uses medium reasoning")
+            if self.reasoning_effort != "low":
+                raise ValueError("patch planning uses low reasoning")
         return self
 
     def to_responses_create_kwargs(self) -> dict[str, Any]:
@@ -95,7 +96,7 @@ class LLMPhasePolicy(BaseModel):
         }
 
 
-def default_llm_phase_policies(model: str = "gpt-5.5") -> dict[AgentSearchPhase, LLMPhasePolicy]:
+def default_llm_phase_policies(model: str = DEFAULT_LLM_MODEL) -> dict[AgentSearchPhase, LLMPhasePolicy]:
     """Return the project default LLM settings for autonomous search phases."""
 
     return {
@@ -112,14 +113,14 @@ def default_llm_phase_policies(model: str = "gpt-5.5") -> dict[AgentSearchPhase,
             phase=AgentSearchPhase.PATCH_PLANNING,
             model=model,
             service_tier="priority",
-            reasoning_effort="medium",
+            reasoning_effort="low",
             text_verbosity="low",
             web_search_enabled=False,
         ),
     }
 
 
-def default_llm_phase_policy(phase: AgentSearchPhase | str, model: str = "gpt-5.5") -> LLMPhasePolicy:
+def default_llm_phase_policy(phase: AgentSearchPhase | str, model: str = DEFAULT_LLM_MODEL) -> LLMPhasePolicy:
     """Return the default policy for one phase."""
 
     normalized = AgentSearchPhase(phase)

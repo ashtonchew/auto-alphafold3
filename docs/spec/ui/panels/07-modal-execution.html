@@ -27,38 +27,39 @@
     <div class="block-title">Latest execution mode <span class="right"><span class="spill ok">sampler burst</span></span></div>
     <div class="block-sub">Deploy once, call many fixed-budget jobs; scale to zero while GPT-5.5 thinks.</div>
     <div class="stats">
-      <div class="stat"><div class="label">Jobs in wave</div><div class="value num">312</div><div class="sub">all completed</div></div>
-      <div class="stat"><div class="label">Peak containers</div><div class="value green num">50</div><div class="sub">min_containers 0</div></div>
+      <div class="stat"><div class="label">Candidates</div><div class="value num">20</div><div class="sub">sampler-only · all scored</div></div>
+      <div class="stat"><div class="label">Peak containers</div><div class="value green num">6</div><div class="sub">TrialRunner cap · min 0</div></div>
       <div class="stat"><div class="label">GPU tier</div><div class="value" style="font-size:26px">A100-80GB</div><div class="sub">fixed, not agent-editable</div></div>
-      <div class="stat"><div class="label">Wave cost / time</div><div class="value num">~$0.74</div><div class="sub num">58s wall-clock</div></div>
+      <div class="stat"><div class="label">Burst cost / time</div><div class="value num">~$0.31</div><div class="sub num">~10 min wall-clock</div></div>
     </div>
   </div>
 
   <div class="section">
     <h2 class="block-title">Container count over the wave</h2>
-    <div class="block-sub">A live <span class="mono">Function.map</span> climbs toward fifty and collapses to zero in about a minute.</div>
+    <div class="block-sub">A live <span class="mono">Function.map</span> over 20 candidates, four waves at the practical cap of six containers.</div>
     <svg class="chart" viewBox="0 0 510 140" role="img" style="max-width:540px"
-      aria-label="Container count over about one minute: climbs toward fifty containers and falls back to zero.">
+      aria-label="Container count across four sampler waves, peaking near six and falling between waves.">
       <line class="ax-line" x1="34" y1="110" x2="490" y2="110"/>
-      <text class="ax-tick num" x="28" y="24" text-anchor="end">50</text>
+      <text class="ax-tick num" x="28" y="24" text-anchor="end">6</text>
       <text class="ax-tick num" x="28" y="114" text-anchor="end">0</text>
-      <rect x="40" y="108" width="22" height="2" rx="2" fill="#7fee64"/>
-      <rect x="68" y="105" width="22" height="5" rx="2" fill="#7fee64"/>
-      <rect x="96" y="94" width="22" height="16" rx="2" fill="#7fee64"/>
-      <rect x="124" y="72" width="22" height="38" rx="2" fill="#7fee64"/>
-      <rect x="152" y="41" width="22" height="69" rx="2" fill="#7fee64"/>
-      <rect x="180" y="23" width="22" height="87" rx="2" fill="#7fee64"/>
-      <rect x="208" y="20" width="22" height="90" rx="2" fill="#7fee64"/>
-      <rect x="236" y="25" width="22" height="85" rx="2" fill="#7fee64"/>
-      <rect x="264" y="44" width="22" height="66" rx="2" fill="#7fee64"/>
-      <rect x="292" y="68" width="22" height="42" rx="2" fill="#7fee64"/>
-      <rect x="320" y="89" width="22" height="21" rx="2" fill="#7fee64"/>
-      <rect x="348" y="100" width="22" height="10" rx="2" fill="#7fee64"/>
-      <rect x="376" y="105" width="22" height="5" rx="2" fill="#7fee64"/>
-      <rect x="404" y="108" width="22" height="2" rx="2" fill="#7fee64"/>
-      <text class="ax-label" x="40" y="128">spawn</text>
-      <text class="ax-label" x="220" y="128" text-anchor="middle">~50 containers</text>
-      <text class="ax-label" x="490" y="128" text-anchor="end">scale to 0 · ~1 min</text>
+      <rect x="40" y="65" width="22" height="45" rx="2" fill="#7fee64"/>
+      <rect x="68" y="20" width="22" height="90" rx="2" fill="#7fee64"/>
+      <rect x="96" y="50" width="22" height="60" rx="2" fill="#7fee64"/>
+      <rect x="124" y="95" width="22" height="15" rx="2" fill="#7fee64"/>
+      <rect x="152" y="50" width="22" height="60" rx="2" fill="#7fee64"/>
+      <rect x="180" y="20" width="22" height="90" rx="2" fill="#7fee64"/>
+      <rect x="208" y="35" width="22" height="75" rx="2" fill="#7fee64"/>
+      <rect x="236" y="80" width="22" height="30" rx="2" fill="#7fee64"/>
+      <rect x="264" y="65" width="22" height="45" rx="2" fill="#7fee64"/>
+      <rect x="292" y="20" width="22" height="90" rx="2" fill="#7fee64"/>
+      <rect x="320" y="50" width="22" height="60" rx="2" fill="#7fee64"/>
+      <rect x="348" y="95" width="22" height="15" rx="2" fill="#7fee64"/>
+      <rect x="376" y="50" width="22" height="60" rx="2" fill="#7fee64"/>
+      <rect x="404" y="20" width="22" height="90" rx="2" fill="#7fee64"/>
+      <rect x="432" y="65" width="22" height="45" rx="2" fill="#7fee64"/>
+      <text class="ax-label" x="40" y="128">wave 1</text>
+      <text class="ax-label" x="250" y="128" text-anchor="middle">~6 containers · 4 waves</text>
+      <text class="ax-label" x="490" y="128" text-anchor="end">~10 min</text>
     </svg>
   </div>
 

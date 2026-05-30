@@ -25,17 +25,17 @@ def _traj_points(html: str) -> list[dict]:
 def test_sample_board_renders_key_values() -> None:
     state = sample_state()
     html = render_board(state)
-    for needle in ("0.412", "+0.087", "baseline 0.325", "CONFIRMED", "PLACEBO_KILL", 'id="trajChart"', "Sample"):
+    for needle in ("0.343", "+0.018", "baseline 0.325", "CONFIRMED", "sampler", 'id="trajChart"', "Sample"):
         assert needle in html, needle
-    assert len(_traj_points(html)) == len(state.trajectory) == 12
+    assert len(_traj_points(html)) == len(state.trajectory) == 20
 
 
 def test_ui_state_json_contract() -> None:
     payload = sample_state().to_json()
-    assert payload["best_val_calpha_lddt"] == 0.412
+    assert payload["best_val_calpha_lddt"] == 0.343
     assert payload["is_sample"] is True
-    assert payload["counts"]["confirmed"] == 7
-    assert len(payload["trajectory"]) == 12
+    assert payload["counts"]["confirmed"] == 1
+    assert len(payload["trajectory"]) == 20
 
 
 def test_load_state_from_real_ledger(tmp_path: Path) -> None:
@@ -75,13 +75,13 @@ def test_load_state_from_real_ledger(tmp_path: Path) -> None:
 def test_no_ledger_falls_back_to_sample(tmp_path: Path) -> None:
     state = load_state(tmp_path / "empty-runs")
     assert state.is_sample is True
-    assert state.best == 0.412
+    assert state.best == 0.343
 
 
 def test_build_writes_outputs(tmp_path: Path) -> None:
     out = build(tmp_path / "ui", sample=True)
     payload = json.loads((out / "ui_state.json").read_text(encoding="utf-8"))
-    assert payload["best_val_calpha_lddt"] == 0.412
+    assert payload["best_val_calpha_lddt"] == 0.343
     # all pages + design system
     for name in ("index.html", "trials.html", "logs.html", "assets/modal.css"):
         assert (out / name).exists(), name
@@ -89,13 +89,13 @@ def test_build_writes_outputs(tmp_path: Path) -> None:
 
 def test_trials_view_renders() -> None:
     html = render_trials(sample_state())
-    for needle in ("Trials", 'id="trialsTable"', "geometry_loss", "PLACEBO_KILL", 'data-filter="killed"', 'href="index.html"'):
+    for needle in ("Trials", 'id="trialsTable"', "sampler_step_scale", "diffusion_steps", 'data-filter="killed"', 'href="index.html"'):
         assert needle in html, needle
 
 
 def test_logs_view_renders() -> None:
     html = render_logs(sample_state())
-    for needle in ('id="logFeed"', "best_val_calpha_lddt 0.412", "INFRA_FAIL", 'id="logSearch"', 'href="logs.html"'):
+    for needle in ('id="logFeed"', "best_val_calpha_lddt 0.343", "sampler burst", 'id="logSearch"', 'href="logs.html"'):
         assert needle in html, needle
 
 

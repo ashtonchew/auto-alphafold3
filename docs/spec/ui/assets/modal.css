@@ -154,6 +154,7 @@ body:has(.kill-toggle:not(:checked)) .kill { opacity: 0; }
 .sq.prov { background: transparent; border: 1.5px solid var(--ink-muted); }
 .x-mark { color: var(--red); font-weight: 700; font-size: 12px; line-height: 1; }
 .legend .spacer { flex: 1; }
+.legend .lg-note { color: var(--ink-faint); font-size: 12.5px; }
 
 /* interactive trajectory points */
 .pt { cursor: pointer; }

@@ -144,6 +144,21 @@ def test_autofold_trial_requires_structured_prediction() -> None:
         AutoFoldTrial.model_validate(valid_trial_dict(prediction="free text is not enough"))
 
 
+def test_autofold_trial_requires_prediction_axis_to_match_diagnostic_target() -> None:
+    with pytest.raises(ValidationError, match="predicted_axis must match diagnostic_target"):
+        AutoFoldTrial.model_validate(
+            valid_trial_dict(
+                diagnostic_target="local_geometry_weak",
+                prediction={
+                    "causal_component": "geometry loss ramp",
+                    "predicted_axis": "stability_compute",
+                    "predicted_direction": "down",
+                    "expected_lddt_delta_band": [0.01, 0.05],
+                },
+            )
+        )
+
+
 def test_locked_manifest_loads_and_blocks_validation_label_training_access() -> None:
     verified = load_locked_manifest(SMOKE_MANIFEST, repo_root=REPO_ROOT)
 
@@ -370,6 +385,37 @@ def test_autofold_result_discovery_status_requires_gate_evidence() -> None:
             fold_cartographer=FoldCartographerReport(signature="killed"),
             discovery=DiscoveryStatus.CONFIRMED,
             falsification=falsification.model_copy(update={"verdict": "AXIS_MISS"}),
+        )
+    with pytest.raises(ValidationError, match="CONFIRMED falsification verdict requires CONFIRMED discovery"):
+        AutoFoldResult(
+            trial_id="T043",
+            status=TrialStatus.KEEP,
+            candidate_id="candidate",
+            metrics={},
+            fold_cartographer=FoldCartographerReport(signature="suppressed_confirmed"),
+            discovery=DiscoveryStatus.UNCONFIRMED,
+            falsification=falsification,
+        )
+    killed = falsification.model_copy(update={"verdict": "AXIS_MISS"})
+    killed_result = AutoFoldResult(
+        trial_id="T044",
+        status=TrialStatus.DISCARD,
+        candidate_id="candidate",
+        metrics={},
+        fold_cartographer=FoldCartographerReport(signature="killed"),
+        discovery=DiscoveryStatus.KILLED,
+        falsification=killed,
+    )
+    assert killed_result.discovery == DiscoveryStatus.KILLED
+    with pytest.raises(ValidationError, match="non-CONFIRMED falsification verdicts require KILLED"):
+        AutoFoldResult(
+            trial_id="T045",
+            status=TrialStatus.DISCARD,
+            candidate_id="candidate",
+            metrics={},
+            fold_cartographer=FoldCartographerReport(signature="suppressed_kill"),
+            discovery=DiscoveryStatus.UNCONFIRMED,
+            falsification=killed,
         )
 
 

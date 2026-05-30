@@ -237,6 +237,18 @@ class AutoFoldTrial(BaseModel):
     def validate_trial_shape(self) -> AutoFoldTrial:
         if self.scorer_version != SCORER_VERSION:
             raise ValueError(f"scorer_version must be {SCORER_VERSION}")
+        target_axis = {
+            DiagnosticTarget.LOCAL_GEOMETRY_WEAK: FalsificationAxis.LOCAL_GEOMETRY,
+            DiagnosticTarget.LONG_RANGE_TOPOLOGY_WEAK: FalsificationAxis.LONG_RANGE_TOPOLOGY,
+            DiagnosticTarget.DISTOGRAM_GOOD_LDDT_FLAT: FalsificationAxis.DISTOGRAM_VS_3D,
+            DiagnosticTarget.STABILITY_COMPUTE: FalsificationAxis.STABILITY_COMPUTE,
+        }[self.diagnostic_target]
+        if self.prediction.predicted_axis != target_axis:
+            raise ValueError(
+                "prediction predicted_axis must match diagnostic_target "
+                f"{self.diagnostic_target.value}: expected {target_axis.value}, "
+                f"got {self.prediction.predicted_axis.value}"
+            )
         if self.trial_kind == TrialKind.SAMPLER:
             if self.checkpoint_path is None:
                 raise ValueError("sampler trials require checkpoint_path")
@@ -270,16 +282,15 @@ class AutoFoldResult(BaseModel):
 
     @model_validator(mode="after")
     def validate_discovery_status(self) -> AutoFoldResult:
-        if self.discovery == DiscoveryStatus.UNCONFIRMED:
-            return self
         if self.falsification is None:
-            raise ValueError("confirmed or killed discovery statuses require falsification evidence")
-        if self.discovery == DiscoveryStatus.CONFIRMED:
+            if self.discovery != DiscoveryStatus.UNCONFIRMED:
+                raise ValueError("confirmed or killed discovery statuses require falsification evidence")
+            return self
+        if self.falsification.verdict == FalsificationVerdict.CONFIRMED:
+            if self.discovery != DiscoveryStatus.CONFIRMED:
+                raise ValueError("CONFIRMED falsification verdict requires CONFIRMED discovery status")
             if self.status != TrialStatus.KEEP:
                 raise ValueError("confirmed discoveries require KEEP status")
-            if self.falsification.verdict != FalsificationVerdict.CONFIRMED:
-                raise ValueError("confirmed discoveries require a CONFIRMED falsification verdict")
-        if self.discovery == DiscoveryStatus.KILLED:
-            if self.falsification.verdict == FalsificationVerdict.CONFIRMED:
-                raise ValueError("killed discoveries require a non-CONFIRMED falsification verdict")
+        elif self.discovery != DiscoveryStatus.KILLED:
+            raise ValueError("non-CONFIRMED falsification verdicts require KILLED discovery status")
         return self

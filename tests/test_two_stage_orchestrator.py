@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from autoalphafold3.discovery_ledger import DiscoveryLedgerError, build_discovery_record, read_discovery_ledger
-from autoalphafold3.ledger import append_ledger, read_ledger
+from autoalphafold3.ledger import LEDGER_WRITER_ROLE, append_ledger, read_ledger
 from autoalphafold3.orchestrator import decide_stage_one_result, record_stage_one_decision
 from autoalphafold3.schema import (
     AutoFoldResult,
@@ -211,7 +211,7 @@ def test_stage_two_killed_gate_is_not_discovery(verdict: str, tmp_path: Path) ->
         }
     )
     ledger = tmp_path / "ledger.jsonl"
-    append_ledger(killed, ledger_path=ledger)
+    append_ledger(killed, ledger_path=ledger, writer_role=LEDGER_WRITER_ROLE)
 
     with pytest.raises(DiscoveryLedgerError):
         build_discovery_record(

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from autoalphafold3.ledger import LedgerWriteError, append_ledger, read_ledger
+from autoalphafold3.ledger import LEDGER_WRITER_ROLE, LedgerWriteError, append_ledger, read_ledger
 from autoalphafold3.orchestrator import poll_trial, record_trial_status, submit_trial
 from autoalphafold3.patch_policy import PatchPolicyError, validate_patch_scope
 from autoalphafold3.preflight import PreflightError, changed_paths_from_parent, run_preflight
@@ -325,8 +325,8 @@ def test_ledger_append_read_roundtrip(tmp_path: Path) -> None:
         fold_cartographer=FoldCartographerReport(signature="toy_geometry_preserved"),
     )
 
-    append_ledger(row, ledger_path=ledger_path)
-    append_ledger(row, ledger_path=ledger_path, dedupe=True)
+    append_ledger(row, ledger_path=ledger_path, writer_role=LEDGER_WRITER_ROLE)
+    append_ledger(row, ledger_path=ledger_path, dedupe=True, writer_role=LEDGER_WRITER_ROLE)
     rows = read_ledger(ledger_path=ledger_path)
 
     assert len(rows) == 1
@@ -346,6 +346,8 @@ def test_ledger_rejects_non_orchestrator_writer(tmp_path: Path) -> None:
 
     with pytest.raises(LedgerWriteError, match="writer_role=orchestrator"):
         append_ledger(row, ledger_path=ledger_path, writer_role="trial_worker")
+    with pytest.raises(TypeError, match="writer_role"):
+        append_ledger(row, ledger_path=ledger_path)  # type: ignore[call-arg]
 
     assert not ledger_path.exists()
 
@@ -361,9 +363,9 @@ def test_ledger_rejects_invalid_lifecycle_transition(tmp_path: Path) -> None:
     )
     second = first.model_copy(update={"status": TrialStatus.RUNNING})
 
-    append_ledger(first, ledger_path=ledger_path, validate_lifecycle=True)
+    append_ledger(first, ledger_path=ledger_path, validate_lifecycle=True, writer_role=LEDGER_WRITER_ROLE)
     with pytest.raises(ValueError, match="invalid lifecycle transition"):
-        append_ledger(second, ledger_path=ledger_path, validate_lifecycle=True)
+        append_ledger(second, ledger_path=ledger_path, validate_lifecycle=True, writer_role=LEDGER_WRITER_ROLE)
 
 
 def test_autofold_result_discovery_status_requires_gate_evidence() -> None:

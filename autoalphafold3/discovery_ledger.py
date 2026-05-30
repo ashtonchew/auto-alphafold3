@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
+from typing import Literal
 
 from autoalphafold3.falsification import FalsificationError, decide_falsification_verdict
 from autoalphafold3.schema import (
@@ -18,6 +19,7 @@ from autoalphafold3.schema import (
 
 DEFAULT_DISCOVERY_LEDGER = Path("runs/discovery_ledger.jsonl")
 DISCOVERY_LEDGER_WRITER_ROLE = "orchestrator"
+DiscoveryLedgerWriterRole = Literal["orchestrator"]
 REQUIRED_VERDICT_NUMBERS = (
     "gain_full",
     "gain_knockout",
@@ -67,7 +69,7 @@ def append_discovery_record(
     *,
     ledger_path: str | Path = DEFAULT_DISCOVERY_LEDGER,
     dedupe: bool = True,
-    writer_role: str = DISCOVERY_LEDGER_WRITER_ROLE,
+    writer_role: DiscoveryLedgerWriterRole,
 ) -> None:
     """Append a confirmed Discovery Ledger record with duplicate protection."""
 

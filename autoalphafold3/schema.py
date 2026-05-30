@@ -243,6 +243,8 @@ class DiscoveryRecord(BaseModel):
     def validate_confirmed_falsification(self) -> DiscoveryRecord:
         if self.falsification.verdict != FalsificationVerdict.CONFIRMED:
             raise ValueError("DiscoveryRecord requires a CONFIRMED falsification verdict")
+        if self.axis_moved != self.provenance.predicted_axis:
+            raise ValueError("DiscoveryRecord axis_moved must match provenance predicted_axis")
         return self
 
 

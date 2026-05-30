@@ -68,6 +68,7 @@ def provenance(**overrides: object) -> dict[str, object]:
             "gain_placebo": 0.0,
             "attributable_fraction": 1.0,
             "axis_delta_observed": 0.02,
+            "seed_mean": 0.548,
             "seed_std": 0.001,
         },
         "gate_thresholds": {
@@ -153,6 +154,46 @@ def test_discovery_ledger_requires_full_provenance(missing_key: str) -> None:
             design_rule="A reusable rule.",
             provenance=payload,
         )
+
+
+def test_discovery_ledger_requires_complete_verdict_numbers() -> None:
+    payload = provenance()
+    verdict_numbers = dict(payload["verdict_numbers"])
+    verdict_numbers.pop("seed_mean")
+    payload["verdict_numbers"] = verdict_numbers
+
+    with pytest.raises(DiscoveryLedgerError, match="verdict_numbers missing required keys"):
+        build_discovery_record(
+            confirmed_result(),
+            mechanism="Synthetic confirmed claim.",
+            design_rule="A reusable rule.",
+            provenance=payload,
+        )
+
+
+def test_discovery_ledger_recomputes_confirmed_verdict_from_evidence(tmp_path: Path) -> None:
+    ledger = tmp_path / "discovery.jsonl"
+    record = discovery_record()
+    payload = record.model_dump(mode="json")
+    payload["falsification"]["gain_placebo"] = 0.03
+    payload["provenance"]["verdict_numbers"]["gain_placebo"] = 0.03
+
+    with pytest.raises(DiscoveryLedgerError, match="PLACEBO_KILL"):
+        append_discovery_record(payload, ledger_path=ledger)
+
+    assert not ledger.exists()
+
+
+def test_discovery_ledger_rejects_axis_mismatch(tmp_path: Path) -> None:
+    ledger = tmp_path / "discovery.jsonl"
+    record = discovery_record()
+    payload = record.model_dump(mode="json")
+    payload["axis_moved"] = "long_range_topology"
+
+    with pytest.raises((DiscoveryLedgerError, ValidationError), match="axis_moved"):
+        append_discovery_record(payload, ledger_path=ledger)
+
+    assert not ledger.exists()
 
 
 def test_discovery_ledger_jsonl_is_stable(tmp_path: Path) -> None:

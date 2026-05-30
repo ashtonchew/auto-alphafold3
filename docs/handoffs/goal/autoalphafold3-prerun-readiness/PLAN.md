@@ -70,3 +70,20 @@ Best-practice approach:
 - Return an explicit not-ready report when the baseline lock is missing. Do not default current best to `0.0`.
 - Add `current_best_from_baseline_and_ledger(...)` that starts from a ready baseline and only upgrades to valid `KEEP` rows with finite higher scores.
 - Defer readiness CLI aggregation to `feat/pre-run-readiness-cli`.
+
+## PR 3: `feat/discovery-ledger`
+
+Grounding was performed with two read-only subagents:
+
+- Discovery/spec grounding: implement confirmed-only Discovery Ledger schema and helpers with full provenance and no worker write authority.
+- Test grounding: use `tmp_path` JSONL fixtures only, reject provisional `KEEP` and killed gate evidence, require stable JSONL, and add patch-policy denial for the implemented write path.
+
+Best-practice approach:
+
+- Add strict `DiscoveryProvenance` and `DiscoveryRecord` schemas in `autoalphafold3/schema.py`.
+- Add `build_discovery_record(...)`, `append_discovery_record(...)`, `read_discovery_ledger(...)`, and `validate_discovery_record(...)` helpers in a dedicated `autoalphafold3/discovery_ledger.py` module.
+- Require `AutoFoldResult.discovery=CONFIRMED`, `status=KEEP`, and `falsification.verdict=CONFIRMED`; a provisional `KEEP` is never a discovery.
+- Require provenance fields: git SHA, scorer version, primary metric, manifest hashes, feature fingerprints, baseline/current-best reference, pre-registered axis/direction/component, verdict numbers, and gate thresholds.
+- Use deterministic JSONL writes with exact duplicate idempotency and conflicting duplicate rejection.
+- Lock `autoalphafold3/discovery_ledger.py` and canonical `runs/discovery_ledger.jsonl` paths in patch-policy coverage before search.
+- Do not write real Discovery Ledger records, benchmark artifacts, baseline metrics, canonical ledgers, or `runs/**` files during tests.

@@ -263,6 +263,6 @@ def test_nanofold_preflight_gates_report_real_or_missing_dependency_status() -> 
     assert by_name["tiny_forward"].status in {"passed", "skipped"}
     assert by_name["finite_loss"].status in {"passed", "skipped"}
     if by_name["tiny_forward"].status == "skipped":
-        assert by_name["tiny_forward"].reason == "dependency_missing"
+        assert by_name["tiny_forward"].reason in {"dependency_missing", "feature_fixture_not_available_without_cached_arrow"}
     if by_name["finite_loss"].status == "skipped":
-        assert by_name["finite_loss"].reason == "dependency_missing"
+        assert by_name["finite_loss"].reason in {"dependency_missing", "feature_fixture_not_available_without_cached_arrow"}

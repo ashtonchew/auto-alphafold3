@@ -180,6 +180,20 @@ python -m autoalphafold3.agent calibrate-gate \
   --approve I_APPROVE_GATE_CALIBRATION
 ```
 
+Produce a minimal real frozen checkpoint for sampler-only trials:
+
+```bash
+python -m autoalphafold3.agent run-one-batch-checkpoint --mode dry-run
+python -m autoalphafold3.agent run-one-batch-checkpoint \
+  --mode modal \
+  --approve I_APPROVE_ONE_BATCH_CHECKPOINT
+```
+
+This performs exactly one NanoFold training batch with `diffusion_steps=1` and
+`max_templates=0`, writes a real `checkpoint.pt` on the Modal data Volume, and
+records `checkpoint_manifest.json`. It is a frozen checkpoint seed, not a
+benchmark or quality claim.
+
 Submit a future approved trial:
 
 ```bash

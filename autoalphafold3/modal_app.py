@@ -634,6 +634,19 @@ if modal is not None:
             return result
 
         @modal.method()
+        def run_checkpoint(self, trial_json: dict[str, Any]) -> dict[str, Any]:
+            from autoalphafold3.checkpoint_training import run_one_batch_nanofold_checkpoint
+
+            validate_execution_payload(trial_json, role=WorkerRole.TRIAL.value)
+            result = run_one_batch_nanofold_checkpoint(
+                trial_json,
+                features_dir=FEATURES_MOUNT,
+                output_dir=trial_artifact_dir(str(trial_json["trial_id"])),
+            )
+            data_volume.commit()
+            return result
+
+        @modal.method()
         def run_gate_control(self, control_payload: dict[str, Any], seed: int) -> dict[str, Any]:
             validate_execution_payload(control_payload, role=WorkerRole.TRIAL.value)
             if control_payload.get("calibration_control") is True:

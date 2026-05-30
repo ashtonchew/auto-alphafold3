@@ -56,6 +56,20 @@ app and writes only `runs/modal_event_authority.json`. It does not submit
 trials, start autonomous search, write `runs/baseline/**`, write the canonical
 ledger, or write the Discovery Ledger.
 
+## One-Batch Checkpoint
+
+Sampler-only trials require a frozen checkpoint. The minimum approved path is
+the one-batch checkpoint runbook:
+
+```bash
+python -m autoalphafold3.agent run-one-batch-checkpoint \
+  --mode modal \
+  --approve I_APPROVE_ONE_BATCH_CHECKPOINT
+```
+
+This uses `TrialRunner.run_checkpoint` and writes only trial-scoped checkpoint
+artifacts under `autoalphafold3-data:/runs/trials/T010/`.
+
 ## Verified May 30, 2026 Asset Preconditions
 
 These data and lock-boundary conditions are already part of the hackathon-start contract:

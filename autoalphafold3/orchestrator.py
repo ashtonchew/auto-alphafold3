@@ -181,6 +181,15 @@ def decide_stage_one_result(
         return row.model_copy(update={"discovery": DiscoveryStatus.UNCONFIRMED})
     if row.status == TrialStatus.FAIL:
         return row.model_copy(update={"discovery": DiscoveryStatus.UNCONFIRMED})
+    if row.status != TrialStatus.SCORED:
+        return row.model_copy(
+            update={
+                "status": TrialStatus.FAIL,
+                "discovery": DiscoveryStatus.UNCONFIRMED,
+                "failure_signature": row.failure_signature or "stage_one_status_not_scored",
+                "postmortem": row.postmortem or "Stage-one decision requires a SCORED result row.",
+            }
+        )
 
     score = _stage_one_score(row)
     if score is None:
@@ -189,7 +198,7 @@ def decide_stage_one_result(
                 "status": TrialStatus.FAIL,
                 "discovery": DiscoveryStatus.UNCONFIRMED,
                 "failure_signature": row.failure_signature or "stage_one_score_missing",
-                "postmortem": row.postmortem or "Stage-one decision requires a finite best_val_calpha_lddt.",
+                "postmortem": row.postmortem or "Stage-one decision requires best_val_calpha_lddt in [0, 1].",
             }
         )
     best = current_best_from_baseline_and_ledger(
@@ -253,10 +262,14 @@ def modal_infra_failure_result(*, trial_id: str, candidate_id: str, exc: BaseExc
 
 def _stage_one_score(row: AutoFoldResult) -> float | None:
     score = row.metrics.get(PRIMARY_METRIC)
+    if isinstance(score, bool):
+        return None
     if not isinstance(score, int | float):
         return None
     value = float(score)
     if not math.isfinite(value):
+        return None
+    if value < 0.0 or value > 1.0:
         return None
     return value
 

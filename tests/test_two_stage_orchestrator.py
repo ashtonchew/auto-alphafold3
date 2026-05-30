@@ -115,6 +115,31 @@ def test_stage_one_fail_when_candidate_score_is_invalid(tmp_path: Path) -> None:
     assert decision.failure_signature == "stage_one_score_missing"
 
 
+@pytest.mark.parametrize("score", [-0.01, 1.01, True])
+def test_stage_one_fail_when_candidate_score_is_invalid_value(tmp_path: Path, score: object) -> None:
+    baseline = write_baseline_lock(tmp_path)
+
+    decision = decide_stage_one_result(
+        scored_result(score=score),
+        repo_root=tmp_path,
+        baseline_dir=baseline.relative_to(tmp_path),
+        ledger_path="ledger.jsonl",
+    )
+
+    assert decision.status == TrialStatus.FAIL
+    assert decision.failure_signature == "stage_one_score_missing"
+
+
+def test_stage_one_fail_when_result_is_not_scored(tmp_path: Path) -> None:
+    result = scored_result(score=0.99).model_copy(update={"status": TrialStatus.PREFLIGHT_PASSED})
+
+    decision = decide_stage_one_result(result, repo_root=tmp_path, baseline_dir="missing")
+
+    assert decision.status == TrialStatus.FAIL
+    assert decision.discovery == DiscoveryStatus.UNCONFIRMED
+    assert decision.failure_signature == "stage_one_status_not_scored"
+
+
 def test_stage_one_preserves_infra_fail_without_baseline_lookup(tmp_path: Path) -> None:
     result = AutoFoldResult(
         trial_id="T401",
@@ -221,6 +246,14 @@ def _provenance() -> dict[str, object]:
         "causal_component": "geometry loss ramp",
         "predicted_axis": "local_geometry",
         "predicted_direction": "up",
-        "verdict_numbers": {"gain_full": 0.03, "seed_std": 0.001},
+        "verdict_numbers": {
+            "gain_full": 0.03,
+            "gain_knockout": 0.0,
+            "gain_placebo": 0.0,
+            "attributable_fraction": 1.0,
+            "axis_delta_observed": 0.02,
+            "seed_mean": 0.45,
+            "seed_std": 0.001,
+        },
         "gate_thresholds": {"tau_attribution": 0.5, "rho_placebo": 0.5, "k_seed": 2.0},
     }

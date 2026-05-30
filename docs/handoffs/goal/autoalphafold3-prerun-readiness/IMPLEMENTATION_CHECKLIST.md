@@ -20,9 +20,9 @@
 - [ ] Tiny forward-pass gate is implemented or explicitly blocks live readiness when dependencies/assets are unavailable.
 - [ ] One-batch finite-loss gate is implemented or explicitly blocks live readiness when dependencies/assets are unavailable.
 - [x] Scorer dry-run schema gate is tested.
-- [ ] Baseline lock reader implemented.
-- [ ] Missing or incomplete baseline lock fails readiness honestly.
-- [ ] No fake baseline metrics created.
+- [x] Baseline lock reader implemented.
+- [x] Missing or incomplete baseline lock fails readiness honestly.
+- [x] No fake baseline metrics created.
 - [ ] Discovery Ledger helper implemented.
 - [ ] Discovery Ledger rejects non-CONFIRMED records.
 - [ ] Discovery provenance includes git SHA, scorer version, feature/manifest hashes, axis, verdict numbers, and design rule.

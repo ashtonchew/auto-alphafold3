@@ -54,3 +54,19 @@ Updated PR #14 guardrail:
 
 - The readiness CLI must not treat gate calibration placeholders as search-ready. Autonomous search remains blocked until known-null and known-positive Falsification Gate calibration is complete, or the report names the exact human-approved live calibration action still pending.
 - Optional live readiness is read-only/smoke by default and must not write `runs/baseline/**`, locked Volumes, canonical ledgers, Discovery Ledger entries, benchmark artifacts, or baseline metrics without a separate human-approved baseline-lock procedure.
+
+## PR 2: `feat/baseline-readiness`
+
+Grounding was performed with two read-only subagents:
+
+- Baseline/spec grounding: implement a pure local baseline lock reader/validator that checks real readiness evidence and refuses to invent a current best when the baseline is missing.
+- Test grounding: use only `tmp_path` synthetic contract payloads, never toy smoke scorer outputs as official baseline evidence, and do not write under repo `runs/` or `runs/baseline/`.
+
+Best-practice approach:
+
+- Add a small `autoalphafold3/baseline_readiness.py` module with strict report objects and no scorer, Modal, or locked-label access.
+- Validate baseline `metrics.json`, `error_report.json`, and feature-fingerprint evidence without creating or mutating those artifacts.
+- Require official evidence: `official_benchmark_result=true`, `split=public_val_small`, `primary_metric=best_val_calpha_lddt`, `scorer_version=calpha_lddt_v1`, finite score in `[0, 1]`, manifest hashes, feature fingerprints, and `max_templates=0`.
+- Return an explicit not-ready report when the baseline lock is missing. Do not default current best to `0.0`.
+- Add `current_best_from_baseline_and_ledger(...)` that starts from a ready baseline and only upgrades to valid `KEEP` rows with finite higher scores.
+- Defer readiness CLI aggregation to `feat/pre-run-readiness-cli`.

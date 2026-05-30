@@ -412,7 +412,7 @@ def test_locked_scorer_scores_arrow_labels_as_official_with_locked_state(tmp_pat
     }
     (manifests / "public_val_small.json").write_text(json.dumps(manifest), encoding="utf-8")
     (manifests / "train_tiny.json").write_text(json.dumps({**manifest, "entries": []}), encoding="utf-8")
-    (locked / "scorer_version.txt").write_text("calpha_lddt_v1", encoding="utf-8")
+    (locked / "scorer_version.txt").write_text("event-small-bootstrap-2026-05-30", encoding="utf-8")
     artifact_dir = tmp_path / "T901"
     write_prediction_artifact(
         trial_id="T901",
@@ -429,6 +429,8 @@ def test_locked_scorer_scores_arrow_labels_as_official_with_locked_state(tmp_pat
     )
 
     assert result["status"] == "SCORED"
+    assert result["scorer_version"] == "calpha_lddt_v1"
+    assert result["locked_asset_version"] == "event-small-bootstrap-2026-05-30"
     assert result["official_benchmark_result"] is True
     assert result["max_templates"] == 0
     assert result["label_hashes"]["public_val_small"] == sha256_file(label_path)

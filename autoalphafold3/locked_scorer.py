@@ -113,7 +113,8 @@ def score_trial_artifacts(
     label_paths = sorted({entry.label_path for entry in verified.manifest.entries})
     payload = {
         "schema_version": "autoaf3.metrics.v1",
-        "scorer_version": _read_scorer_version(root, scorer_version_path),
+        "scorer_version": SCORER_VERSION,
+        "locked_asset_version": _read_locked_asset_version(root, scorer_version_path),
         "primary_metric": PRIMARY_METRIC,
         "status": status,
         "trial_id": artifact_root.name,
@@ -288,15 +289,15 @@ def _label_hash_payload(*, root: Path, label_paths: list[str]) -> dict[str, str]
     return payload
 
 
-def _read_scorer_version(root: Path, scorer_version_path: str | Path | None) -> str:
+def _read_locked_asset_version(root: Path, scorer_version_path: str | Path | None) -> str | None:
     if scorer_version_path is None:
-        return SCORER_VERSION
+        return None
     path = Path(scorer_version_path)
     if not path.is_absolute():
         path = root / path
     if not path.exists():
-        return SCORER_VERSION
-    return path.read_text(encoding="utf-8").strip() or SCORER_VERSION
+        return None
+    return path.read_text(encoding="utf-8").strip() or None
 
 
 def _failure_payload(

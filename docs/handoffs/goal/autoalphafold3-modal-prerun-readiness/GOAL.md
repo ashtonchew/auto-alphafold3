@@ -26,9 +26,42 @@ Follow-up readiness hardening PRs are also merged:
 - PR #28 `fix: harden modal gate and ledger boundaries`
 - PR #29 `fix: add human baseline lock command`
 - PR #31 `fix: support live Modal asset handoff audit`
+- PR #38 `feat: add approved gate calibration command`
+- PR #40 `Add LLM phase policy`
 
-Local `main` was fast-forwarded after PR #31. The worktree was clean after the
-pull.
+The current readiness-live branch was rebased onto PR #40.
+
+## Current State: Live Baseline Locked
+
+The approved pre-search readiness actions made major progress:
+
+- local NanoFold fixture materialization completed with approval token
+  `I_APPROVE_LOCAL_NANOFOLD_FIXTURE`;
+- local gates now pass on the approved local-only fixture:
+  `parameter_count`, `tiny_forward`, and `finite_loss`;
+- Modal asset audit passed with `--search-ready`;
+- the Modal app deployed successfully after fixing deploy-time Volume mount,
+  source packaging, scorer dependency, and locked manifest shape issues;
+- the real Modal baseline ran with approval token `I_APPROVE_BASELINE_RUN`;
+- the baseline lock dry-run passed;
+- `lock-baseline` wrote the real locked baseline under `runs/baseline/**`.
+
+Locked baseline evidence:
+
+- trial id: `T000`;
+- candidate id: `baseline_auto_tiny`;
+- split: `public_val_small`;
+- primary metric: `best_val_calpha_lddt`;
+- score: `0.07941230438543605`;
+- scorer version: `calpha_lddt_v1`;
+- locked asset version: `event-small-bootstrap-2026-05-30`;
+- `official_benchmark_result=true`;
+- `local_only=false`;
+- `max_templates=0`.
+
+This baseline is no-LLM deterministic baseline evidence. It was produced by the
+Modal trial/scorer path and locked through the approved baseline-lock procedure;
+no autonomous search was started.
 
 ## Operational Check Results
 
@@ -52,33 +85,23 @@ Readiness report still blocks autonomous search:
 
 Observed result: `autonomous_search_ready: false`.
 
-The report currently classifies one item as `PASS_MOCKED_MODAL` and four items
-as `PENDING_HUMAN_LIVE_ACTION`.
+The report now passes baseline lock and local gates. It still blocks autonomous
+search because real Falsification Gate calibration evidence is missing.
 
 ## Remaining Human/Live Blockers
 
-1. Real baseline lock is missing.
-   `runs/` contains no real baseline source artifacts. The committed
-   `lock-baseline` command can freeze already-produced evidence, but it does
-   not run NanoFold, score a baseline, or create baseline metrics.
-
-2. Modal event authority is not deployed.
-   `modal app list --env main` showed no deployed app. The deploy plan points
-   to `modal deploy autoalphafold3/modal_app.py`, but deployment is a real
-   infrastructure/cost action and the runbook says cost/resource tiers and
-   baseline readiness must be reviewed first.
-
-3. Local tiny-forward and finite-loss gates still need an approved cached Arrow
-   fixture path.
-   Torch is installed and parameter counting passes. The remaining issue is
-   that the local readiness gate cannot yet consume approved helper Arrow files
-   from Modal or another approved cache.
-
-4. Falsification Gate calibration evidence is missing.
+1. Falsification Gate calibration evidence is missing.
    The readiness report correctly refuses to accept a missing
-   `runs/falsification_gate_calibration.json`. No committed command currently
-   runs known-null and known-positive calibration and writes real calibration
-   evidence.
+   `runs/falsification_gate_calibration.json`. The committed `calibrate-gate`
+   command can validate and freeze real known-null and known-positive evidence,
+   but no committed command currently produces that evidence. Hand-writing it
+   would be fake gate evidence.
+
+2. Readiness still reports Modal event authority as a pending live action in
+   the offline report. The Modal app was deployed during the baseline run, but
+   the readiness report does not currently persist a live deployment proof
+   artifact. Autonomous search must remain blocked until the explicit search
+   readiness action verifies event authority and gate calibration is complete.
 
 ## Done Standard
 

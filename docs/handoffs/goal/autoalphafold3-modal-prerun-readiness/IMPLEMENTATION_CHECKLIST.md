@@ -20,25 +20,30 @@
       source artifacts for `lock-baseline`.
 - [x] Human-approved `calibrate-gate` command added to write calibration only
       from known-null and known-positive real evidence records.
+- [x] Approved local NanoFold fixture materialized for this checkout.
+- [x] Local `parameter_count`, `tiny_forward`, and `finite_loss` readiness
+      gates pass on approved local-only fixture evidence.
+- [x] Modal app deployed for the approved baseline run without changing GPU
+      type, timeouts, Volumes, max containers, min containers, warm pools, or
+      cost caps.
+- [x] Real Modal baseline run completed:
+      `run-baseline --mode modal --approve I_APPROVE_BASELINE_RUN`.
+- [x] Baseline lock dry-run passed.
+- [x] Real baseline lock completed through `lock-baseline`; the only mutation
+      under `runs/baseline/**` was made by that command.
 - [x] Autonomous search remained blocked.
 - [x] No fake baseline metrics, fake Modal runs, fake gate verdicts, fake
       discovery records, or fake benchmark artifacts were created.
 
-## Pending Infrastructure
-
 ## Pending Human Live Actions
 
-- [ ] Review Modal deployment cost/resource tier and approve or defer deploy.
-- [ ] Deploy Modal event authority after approval.
-- [ ] Materialize the local-only NanoFold fixture only with the exact approval
-      token if local gate evidence is needed in this checkout.
-- [ ] Produce real baseline source artifacts through the approved baseline
-      procedure: `run-baseline --mode modal --approve I_APPROVE_BASELINE_RUN`.
-- [ ] Run `lock-baseline --dry-run` on the real baseline source artifacts.
-- [ ] Run `lock-baseline --approve` only if dry-run passes and approval is
-      explicit.
+- [ ] Produce real known-null and known-positive Falsification Gate calibration
+      evidence. Current committed code validates/freezes evidence but does not
+      produce it.
 - [ ] Run real Falsification Gate calibration:
       `calibrate-gate --mode from-evidence --approve I_APPROVE_GATE_CALIBRATION`.
+- [ ] Persist or verify Modal event authority for autonomous search readiness
+      after calibration is complete.
 - [ ] Approve autonomous search start only after readiness is no longer blocked.
 
 ## Validation To Rerun After Next PRs

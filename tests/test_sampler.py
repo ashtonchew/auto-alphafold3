@@ -55,7 +55,7 @@ def test_run_sampler_trial_loads_checkpoint_and_writes_predictions(tmp_path: Pat
     assert artifact_manifest["runner_mode"] == "frozen_checkpoint_sampler"
     assert predictions["source"] == "frozen_checkpoint_nanofold_sampler"
     assert predictions["max_templates"] == 0
-    assert predictions["predictions"][0]["target_id"] == "tiny_features_0"
+    assert predictions["predictions"][0]["target_id"] == "TARGET_0_A"
     assert len(predictions["predictions"][0]["predicted_ca"]) > 0
     assert (output / "DONE").exists()
 

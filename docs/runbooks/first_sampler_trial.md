@@ -58,3 +58,27 @@ The sampler worker must continue to:
 
 Only after that live smoke passes should autonomous search submit a sampler
 candidate burst.
+
+## Live Smoke Result
+
+After PR #45 merged, `T011` was submitted as the first live sampler smoke. It
+proved the worker could write sampler artifacts, but the first implementation
+only emitted one prediction and the locked scorer reported missing public
+targets.
+
+The follow-up smoke `T012` used the same frozen checkpoint with complete
+`public_val_small` target coverage:
+
+- trial id: `T012`
+- checkpoint path: `/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt`
+- sampler artifacts: `/mnt/autoalphafold3/runs/trials/T012/`
+- prediction count: `16`
+- scorer status: `SCORED`
+- `best_val_calpha_lddt`: `0.008276756926787072`
+- `num_targets`: `16`
+- `num_scored_targets`: `16`
+- `num_failed_targets`: `0`
+- `official_benchmark_result`: `true`
+
+This is a successful live smoke of the sampler/scorer path. It is not a
+discovery, not a provisional KEEP, and not autonomous search.

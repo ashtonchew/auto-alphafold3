@@ -34,6 +34,6 @@
 - [x] Targeted tests cover each implemented boundary.
 - [x] `python3 -m pytest -p no:cacheprovider` passes.
 - [x] `python3 .claude/skill-evals/run_offline_evals.py` passes.
-- [ ] Four stacked PRs are open, or a fifth is justified in `PLAN.md`.
+- [x] Four stacked PRs are open, or a fifth is justified in `PLAN.md`.
 - [x] No fake benchmark/data artifacts were created.
 - [x] Autonomous search trials were not started.

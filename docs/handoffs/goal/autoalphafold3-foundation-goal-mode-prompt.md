@@ -42,6 +42,16 @@ Implement the complete foundation needed before autonomous search can begin.
 This is infrastructure implementation only. Do not start the hackathon search
 loop or submit research trials.
 
+### Successor Goal
+
+After this foundation goal is complete, use
+`docs/handoffs/goal/autoalphafold3-prerun-readiness-goal-mode-prompt.md` for
+the next implementation wave. That successor goal covers canonical spec
+Sections 2-7 up to, but not including, autonomous research search: structured
+pre-registration, Falsification Gate contracts, baseline readiness, two-stage
+orchestration, confirmed-only Discovery Ledger, fakeable Modal gate fanout, and
+pre-run readiness reporting.
+
 ### Required First Steps
 
 1. Pull latest `main`:

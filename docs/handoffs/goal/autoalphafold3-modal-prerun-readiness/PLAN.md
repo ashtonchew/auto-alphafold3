@@ -22,22 +22,23 @@ live evidence or additional infrastructure commands.
 
 ### 1. Approved Local Fixture Materialization
 
-Add a small PR that lets local readiness gates consume approved cached Arrow
-fixtures without fabricating data.
+Added a small PR path that lets local readiness gates consume an approved
+local-only cached Arrow fixture without fabricating benchmark data.
 
-Recommended shape:
+Implemented shape:
 
-- read-only Modal Volume fetch or explicit approved local cache path,
+- exact approval-token command:
+  `python3 -m autoalphafold3.agent materialize-local-fixture --approve I_APPROVE_LOCAL_NANOFOLD_FIXTURE`,
 - no writes to `runs/baseline/**`, canonical ledger, Discovery Ledger, or
   benchmark artifacts,
-- preserve exact Arrow bytes and metadata provenance,
-- rerun readiness so `tiny_forward` and `finite_loss` can pass or fail on real
-  evidence.
+- deterministic local-only Arrow fixture with metadata provenance,
+- `local_only=true`, `official_benchmark_result=false`, and `max_templates=0`,
+- readiness gates can pass or fail on the fixture after materialization.
 
-Why it cannot be done by hand now:
+Still required:
 
-- the readiness report has no committed path that turns the verified Modal
-  helper Arrow files into approved local gate fixtures.
+- run the command only when the exact approval action is intended for this
+  checkout.
 
 ### 2. Real Baseline Runner
 
@@ -102,13 +103,13 @@ The current `autoalphafold3.agent` commands are:
 - `audit-modal-assets`
 - `readiness-report`
 - `lock-baseline`
+- `materialize-local-fixture`
 
 Not currently present:
 
 - `run-baseline`
 - `deploy`
 - `calibrate-gate`
-- approved local fixture materialization command
 
 ## Recommended Order
 

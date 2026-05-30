@@ -8,6 +8,7 @@ from pathlib import Path
 
 from autoalphafold3.orchestrator import poll_trial, submit_trial
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
+from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.modal_assets import (
     ModalAssetAuditError,
@@ -62,6 +63,12 @@ def main(argv: list[str] | None = None) -> int:
     baseline_lock_parser.add_argument("--baseline-dir", default="runs/baseline")
     baseline_lock_parser.add_argument("--approve", required=True)
     baseline_lock_parser.add_argument("--dry-run", action="store_true")
+
+    fixture_parser = subparsers.add_parser("materialize-local-fixture")
+    fixture_parser.add_argument("--repo-root", default=".")
+    fixture_parser.add_argument("--output-dir", default="data/toy/nanofold_fixture")
+    fixture_parser.add_argument("--approve", required=True)
+    fixture_parser.add_argument("--overwrite", action="store_true")
 
     args = parser.parse_args(argv)
     if args.command == "submit":
@@ -130,6 +137,19 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
             return 0
+    if args.command == "materialize-local-fixture":
+        try:
+            result = materialize_local_nanofold_fixture(
+                repo_root=args.repo_root,
+                output_dir=args.output_dir,
+                approval=args.approve,
+                overwrite=args.overwrite,
+            )
+        except LocalFixtureError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
     return 2
 
 

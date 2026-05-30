@@ -35,3 +35,23 @@ Do not run these during the locked hackathon search loop or without explicit app
 - full mmCIF/MSA feature rebuilding
 - real Arrow feature generation
 - real baseline training
+
+## Local Preflight Fixture
+
+The local `tiny_forward` and `finite_loss` readiness gates may use a
+deterministic local-only Arrow fixture. This fixture is not benchmark data, not
+a Modal run, not a baseline source, and not search evidence. It exists only so
+the NanoFold parser/model path can be exercised without downloads or full
+feature rebuilding.
+
+Materialize it only with the exact approval token:
+
+```bash
+python3 -m autoalphafold3.agent materialize-local-fixture \
+  --approve I_APPROVE_LOCAL_NANOFOLD_FIXTURE
+```
+
+The command writes under `data/toy/nanofold_fixture/`, records
+`local_only=true`, `official_benchmark_result=false`, and `max_templates=0` in
+fixture provenance, and does not write `runs/`, baseline artifacts, ledgers, or
+Discovery Ledger records.

@@ -115,6 +115,8 @@ Validation:
 - Passed: `python3 -m pytest -p no:cacheprovider tests/test_nanofold_adapter.py tests/test_local_contracts.py -q`.
 - Passed: `python3 -m pytest -p no:cacheprovider tests/test_modal_and_demo.py tests/test_prepare_nanofold_data.py -q`.
 - Passed: `python3 -m pytest -p no:cacheprovider tests/test_runner_and_locked_scorer.py -q`.
+- Passed: `python3 -m pytest -p no:cacheprovider` (`61 passed, 2 skipped`).
+- Passed: `python3 .claude/skill-evals/run_offline_evals.py` (`148 checks passed`).
 - Passed: `rg -n "/Users/|naveenramasamy" autoalphafold3 scripts configs` with no matches.
 - Passed: `python3 -m pytest -p no:cacheprovider`.
 - Passed: `python3 .claude/skill-evals/run_offline_evals.py`.

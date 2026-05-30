@@ -153,3 +153,5 @@ Validation:
 - Passed: `python3 -m pytest -p no:cacheprovider tests/test_runner_and_locked_scorer.py tests/test_local_contracts.py -q`.
 - Passed: `python3 -m pytest -p no:cacheprovider` (`66 passed, 2 skipped`).
 - Passed: `python3 .claude/skill-evals/run_offline_evals.py` (`148 checks passed`).
+- Passed: `python3 -m pytest -p no:cacheprovider` (`66 passed, 2 skipped`).
+- Passed: `python3 .claude/skill-evals/run_offline_evals.py` (`148 checks passed`).

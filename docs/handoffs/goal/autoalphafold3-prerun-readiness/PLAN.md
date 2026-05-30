@@ -47,4 +47,10 @@ Best-practice approach:
 - Add pure gate math in `autoalphafold3/falsification.py`, rejecting missing, non-finite, or incomplete control evidence rather than inventing verdicts.
 - Extend `AutoFoldResult` with discovery/falsification fields while preserving the rule that a provisional `KEEP` is not a confirmed discovery.
 - Add focused tests under `tests/test_falsification.py` plus fixture updates in existing local/Modal contract tests.
+- Lock implemented falsification verdict logic from future search edits by adding `autoalphafold3/falsification.py` to patch-policy denial coverage and testing that rejection. Future PRs must do the same for implemented gate-control construction, thresholds, and Discovery Ledger write paths.
 - Do not touch `autoalphafold3/modal_app.py`, `autoalphafold3/scorer/**`, public validation manifests, labels, fingerprints, cached features, or `runs/baseline/**`.
+
+Updated PR #14 guardrail:
+
+- The readiness CLI must not treat gate calibration placeholders as search-ready. Autonomous search remains blocked until known-null and known-positive Falsification Gate calibration is complete, or the report names the exact human-approved live calibration action still pending.
+- Optional live readiness is read-only/smoke by default and must not write `runs/baseline/**`, locked Volumes, canonical ledgers, Discovery Ledger entries, benchmark artifacts, or baseline metrics without a separate human-approved baseline-lock procedure.

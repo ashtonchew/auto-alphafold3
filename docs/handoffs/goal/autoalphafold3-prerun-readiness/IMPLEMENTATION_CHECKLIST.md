@@ -1,7 +1,9 @@
 # AutoAlphaFold3 Pre-Run Readiness Checklist
 
-- [x] Latest `main` fetched and foundation stack rebased before this successor goal.
+- [x] Latest `main` fetched and foundation stack safety recorded.
 - [x] Existing foundation PR state recorded.
+- [x] Branch ownership and clean worktree state verified before any rebase.
+- [x] Rebase skipped or stopped when branch ownership/user-work safety is unclear.
 - [x] Prompt-addition PR opened separately as PR #14.
 - [x] Required docs and `modal-docs` skill read.
 - [x] Structured pre-registration schema implemented.
@@ -9,6 +11,15 @@
 - [x] Falsification plan/result schemas implemented.
 - [x] All five gate verdicts covered by pure local tests.
 - [x] Gate verdict math rejects missing scored controls.
+- [ ] Gate thresholds and verdict logic are frozen before autonomous search.
+- [ ] Gate control construction, thresholds, verdict logic, and Discovery Ledger writes are added to locked patch-policy coverage after implementation.
+- [x] Patch-policy tests reject search edits to implemented falsification controls.
+- [x] Forbidden-file patch scope gate is tested.
+- [x] Config schema gate is tested.
+- [x] Parameter-count cap gate is tested.
+- [ ] Tiny forward-pass gate is implemented or explicitly blocks live readiness when dependencies/assets are unavailable.
+- [ ] One-batch finite-loss gate is implemented or explicitly blocks live readiness when dependencies/assets are unavailable.
+- [x] Scorer dry-run schema gate is tested.
 - [ ] Baseline lock reader implemented.
 - [ ] Missing or incomplete baseline lock fails readiness honestly.
 - [ ] No fake baseline metrics created.
@@ -25,6 +36,9 @@
 - [ ] Scorer-only path remains the locked-label boundary.
 - [ ] Readiness CLI/report implemented.
 - [ ] Readiness report distinguishes local offline checks from human-approved live Modal/baseline actions.
+- [ ] Readiness report blocks autonomous search until known-null and known-positive Falsification Gate calibration is complete, or marks the exact human-approved live calibration action as pending.
+- [ ] Optional live readiness remains read-only/smoke unless a separate human-approved baseline-lock procedure is invoked.
+- [ ] Optional live readiness cannot write `runs/baseline/**`, locked Volumes, canonical ledgers, Discovery Ledger entries, benchmark artifacts, or baseline metrics without that separate approval.
 - [ ] `python3 -m pytest -p no:cacheprovider` passes.
 - [ ] `python3 .claude/skill-evals/run_offline_evals.py` passes.
 - [x] No fake benchmark/data/gate/discovery artifacts were created.

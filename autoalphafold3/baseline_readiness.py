@@ -305,7 +305,9 @@ def _validate_feature_fingerprints(fingerprints: dict[str, object], problems: li
         return False
     files = fingerprints.get("files")
     if not isinstance(files, dict):
-        problems.append("baseline feature_fingerprints.json must contain a files object")
+        files = fingerprints.get("data_files")
+    if not isinstance(files, dict):
+        problems.append("baseline feature_fingerprints.json must contain a files or data_files object")
         return False
     valid = True
     for path in REQUIRED_FEATURE_FINGERPRINTS:
@@ -377,7 +379,7 @@ def _has_zero_templates(
 def _is_zero_template_evidence(value: object) -> bool:
     if value == 0:
         return True
-    if isinstance(value, str) and value in {"0", "max_templates=0", "no_templates"}:
+    if isinstance(value, str) and (value in {"0", "max_templates=0", "no_templates"} or "max_templates=0" in value):
         return True
     if isinstance(value, dict) and value.get("max_templates") == 0:
         return True

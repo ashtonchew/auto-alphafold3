@@ -9,6 +9,7 @@ from pathlib import Path
 from autoalphafold3.orchestrator import poll_trial, submit_trial
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
 from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
+from autoalphafold3.gate_calibration import GateCalibrationError, calibrate_gate
 from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.modal_assets import (
@@ -72,6 +73,14 @@ def main(argv: list[str] | None = None) -> int:
     baseline_run_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
     baseline_run_parser.add_argument("--modal-env", default=None)
     baseline_run_parser.add_argument("--approve", default=None)
+
+    calibrate_parser = subparsers.add_parser("calibrate-gate")
+    calibrate_parser.add_argument("--repo-root", default=".")
+    calibrate_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
+    calibrate_parser.add_argument("--known-null-evidence", default=None)
+    calibrate_parser.add_argument("--known-positive-evidence", default=None)
+    calibrate_parser.add_argument("--mode", choices=("dry-run", "from-evidence"), default="dry-run")
+    calibrate_parser.add_argument("--approve", default=None)
 
     fixture_parser = subparsers.add_parser("materialize-local-fixture")
     fixture_parser.add_argument("--repo-root", default=".")
@@ -157,6 +166,21 @@ def main(argv: list[str] | None = None) -> int:
                 modal_env=args.modal_env,
             )
         except BaselineRunError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "calibrate-gate":
+        try:
+            result = calibrate_gate(
+                repo_root=args.repo_root,
+                calibration_path=args.calibration_path,
+                known_null_evidence=args.known_null_evidence,
+                known_positive_evidence=args.known_positive_evidence,
+                approval=args.approve,
+                mode=args.mode,
+            )
+        except GateCalibrationError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))

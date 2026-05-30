@@ -82,20 +82,25 @@ Why it should not be treated as done now:
 
 ### 4. Falsification Gate Calibration Runner
 
-Add a small PR for known-null and known-positive gate calibration.
+Added a small PR path for known-null and known-positive gate calibration.
 
-Recommended shape:
+Implemented shape:
 
-- explicit command with dry-run/readiness mode first,
-- read-only or smoke Modal controls unless separately approved,
-- writes `runs/falsification_gate_calibration.json` only from real successful
-  calibration evidence,
+- `calibrate-gate --mode dry-run` prints the required evidence contract without
+  side effects,
+- `calibrate-gate --mode from-evidence --approve I_APPROVE_GATE_CALIBRATION`
+  writes `runs/falsification_gate_calibration.json`,
+- the command requires complete known-null and known-positive evidence records,
+- known-null evidence must be killed by the gate,
+- known-positive evidence must be `CONFIRMED`,
+- synthetic fixture evidence is refused,
 - readiness remains blocked if calibration is absent or incomplete.
 
-Why it cannot be done now:
+Still required:
 
-- there is no committed calibration command,
-- creating the calibration evidence file manually would be fake gate evidence.
+- produce the real known-null and known-positive evidence records after baseline
+  and Modal authority are ready,
+- run the command with explicit approval.
 
 ## Current Command Surface
 
@@ -108,12 +113,12 @@ The current `autoalphafold3.agent` commands are:
 - `readiness-report`
 - `lock-baseline`
 - `run-baseline`
+- `calibrate-gate`
 - `materialize-local-fixture`
 
 Not currently present:
 
 - `deploy`
-- `calibrate-gate`
 
 ## Recommended Order
 

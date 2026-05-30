@@ -14,14 +14,14 @@
 - [x] Local `main` fast-forwarded after PR #31.
 - [x] Live Modal asset handoff audit passed.
 - [x] Readiness report run after PR #31.
+- [x] Approved local fixture materialization command added for `tiny_forward`
+      and `finite_loss` local gates.
 - [x] Autonomous search remained blocked.
 - [x] No fake baseline metrics, fake Modal runs, fake gate verdicts, fake
       discovery records, or fake benchmark artifacts were created.
 
 ## Pending Infrastructure
 
-- [ ] Add approved local fixture materialization for `tiny_forward` and
-      `finite_loss`.
 - [ ] Add a real human-approved baseline runner that produces source artifacts
       for `lock-baseline`.
 - [ ] Add a real Falsification Gate calibration command for known-null and
@@ -31,6 +31,8 @@
 
 - [ ] Review Modal deployment cost/resource tier and approve or defer deploy.
 - [ ] Deploy Modal event authority after approval.
+- [ ] Materialize the local-only NanoFold fixture only with the exact approval
+      token if local gate evidence is needed in this checkout.
 - [ ] Produce real baseline source artifacts through the approved baseline
       procedure.
 - [ ] Run `lock-baseline --dry-run` on the real baseline source artifacts.

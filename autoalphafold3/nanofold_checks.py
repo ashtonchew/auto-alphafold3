@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from autoalphafold3.config_contract import validate_config_file
+from autoalphafold3.local_fixtures import default_fixture_path, validate_local_nanofold_fixture
 from autoalphafold3.nanofold_adapter import NANOFOLD_PATH, import_smoke_summary, load_nanofold_config
 
 GateStatus = Literal["passed", "failed", "skipped"]
@@ -40,8 +41,8 @@ def run_nanofold_preflight_gates(
     import_summary = import_smoke_summary(repo_root=repo_root)
     return [
         parameter_count_gate(config_path=config_path, repo_root=repo_root, import_summary=import_summary),
-        tiny_forward_gate(repo_root=repo_root, import_summary=import_summary),
-        finite_loss_gate(repo_root=repo_root, import_summary=import_summary),
+        tiny_forward_gate(config_path=config_path, repo_root=repo_root, import_summary=import_summary),
+        finite_loss_gate(config_path=config_path, repo_root=repo_root, import_summary=import_summary),
     ]
 
 
@@ -110,10 +111,11 @@ def parameter_count_gate(
 
 def tiny_forward_gate(
     *,
+    config_path: str | Path = "configs/nanofold_dev_cpu_smoke.json",
     repo_root: str | Path = ".",
     import_summary: dict[str, object] | None = None,
 ) -> NanoFoldGateResult:
-    """Report readiness for a future tiny forward pass gate."""
+    """Run a tiny NanoFold forward pass when an approved local fixture exists."""
 
     if import_summary is None:
         import_summary = import_smoke_summary(repo_root=repo_root)
@@ -125,20 +127,41 @@ def tiny_forward_gate(
             reason="dependency_missing",
             details={"module": model_import},
         )
+    fixture_report = validate_local_nanofold_fixture(
+        fixture_path=default_fixture_path(repo_root),
+        repo_root=repo_root,
+    )
+    if fixture_report.status != "PASS":
+        return NanoFoldGateResult(
+            name="tiny_forward",
+            status="skipped",
+            reason="feature_fixture_not_available_without_cached_arrow",
+            details={"fixture": fixture_report.to_dict()},
+        )
+    try:
+        loss_report = _run_tiny_nanofold_loss(config_path=config_path, repo_root=repo_root)
+    except Exception as exc:  # noqa: BLE001 - preflight must report runtime failures as evidence.
+        return NanoFoldGateResult(
+            name="tiny_forward",
+            status="failed",
+            reason="tiny_forward_error",
+            details={"error_type": type(exc).__name__, "error": str(exc), "fixture": fixture_report.to_dict()},
+        )
     return NanoFoldGateResult(
         name="tiny_forward",
-        status="skipped",
-        reason="feature_fixture_not_available_without_cached_arrow",
-        details={"requires": "minimal NanoFold feature batch or cached Arrow fixture"},
+        status="passed",
+        reason="forward_loss_finite",
+        details={"fixture": fixture_report.to_dict(), "losses": loss_report},
     )
 
 
 def finite_loss_gate(
     *,
+    config_path: str | Path = "configs/nanofold_dev_cpu_smoke.json",
     repo_root: str | Path = ".",
     import_summary: dict[str, object] | None = None,
 ) -> NanoFoldGateResult:
-    """Report readiness for a future one-batch finite-loss gate."""
+    """Run a one-batch finite-loss gate when an approved local fixture exists."""
 
     if import_summary is None:
         import_summary = import_smoke_summary(repo_root=repo_root)
@@ -150,11 +173,31 @@ def finite_loss_gate(
             reason="dependency_missing",
             details={"module": trainer_import},
         )
+    fixture_report = validate_local_nanofold_fixture(
+        fixture_path=default_fixture_path(repo_root),
+        repo_root=repo_root,
+    )
+    if fixture_report.status != "PASS":
+        return NanoFoldGateResult(
+            name="finite_loss",
+            status="skipped",
+            reason="feature_fixture_not_available_without_cached_arrow",
+            details={"fixture": fixture_report.to_dict()},
+        )
+    try:
+        loss_report = _run_tiny_nanofold_loss(config_path=config_path, repo_root=repo_root)
+    except Exception as exc:  # noqa: BLE001 - preflight must report runtime failures as evidence.
+        return NanoFoldGateResult(
+            name="finite_loss",
+            status="failed",
+            reason="finite_loss_error",
+            details={"error_type": type(exc).__name__, "error": str(exc), "fixture": fixture_report.to_dict()},
+        )
     return NanoFoldGateResult(
         name="finite_loss",
-        status="skipped",
-        reason="feature_fixture_not_available_without_cached_arrow",
-        details={"requires": "minimal NanoFold train batch or cached Arrow fixture"},
+        status="passed",
+        reason="total_loss_finite",
+        details={"fixture": fixture_report.to_dict(), "losses": loss_report},
     )
 
 
@@ -164,3 +207,38 @@ def _module_status(import_summary: dict[str, object], module: str) -> dict[str, 
         if isinstance(row, dict) and row.get("module") == module:
             return row
     return {"module": module, "ok": False, "error_type": "NotFound", "error": "module status missing"}
+
+
+def _run_tiny_nanofold_loss(*, config_path: str | Path, repo_root: str | Path) -> dict[str, float]:
+    import math
+    import sys
+
+    import torch
+
+    root = Path(repo_root)
+    nanofold_root = str(root / NANOFOLD_PATH)
+    if nanofold_root not in sys.path:
+        sys.path.insert(0, nanofold_root)
+
+    from nanofold.train.chain_dataset import ChainDataset
+    from nanofold.train.model.nanofold import Nanofold
+
+    torch.manual_seed(0)
+    config = load_nanofold_config(config_path, repo_root=root)
+    train, _held_out = ChainDataset.construct_datasets(
+        default_fixture_path(root),
+        0.5,
+        config["residue_crop_size"],
+        config["num_msa_samples"],
+    )
+    features = next(iter(train))
+    model = Nanofold.from_config(config)
+    model.train()
+    losses = model(features)
+    report: dict[str, float] = {}
+    for key in ("mse_loss", "lddt_loss", "diffusion_loss", "dist_loss", "total_loss"):
+        value = float(losses[key].detach().cpu())
+        if not math.isfinite(value):
+            raise ValueError(f"{key} is not finite")
+        report[key] = value
+    return report

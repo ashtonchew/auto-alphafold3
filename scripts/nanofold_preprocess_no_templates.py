@@ -18,9 +18,34 @@ import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
-for candidate in (Path.cwd(), Path("/app")):
-    if (candidate / "nanofold").exists():
-        sys.path.insert(0, str(candidate))
+from autoalphafold3.nanofold_adapter import nanofold_root
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def nanofold_source_candidates() -> list[Path]:
+    """Return possible NanoFold source roots without personal absolute paths."""
+
+    candidates: list[Path] = []
+    for repo_root in (Path.cwd(), REPO_ROOT, Path("/app")):
+        try:
+            candidates.append(nanofold_root(repo_root=repo_root))
+        except ValueError:
+            continue
+    candidates.extend([Path.cwd(), Path("/app")])
+    return candidates
+
+
+def add_nanofold_to_path() -> None:
+    """Add the pinned NanoFold checkout to sys.path for upstream imports."""
+
+    for candidate in nanofold_source_candidates():
+        if (candidate / "nanofold").exists():
+            sys.path.insert(0, str(candidate))
+            return
+
+
+add_nanofold_to_path()
 
 from nanofold.preprocess.db import DBManager
 from nanofold.preprocess.hhblits import HHblitsRunner
@@ -42,8 +67,8 @@ def parse_args() -> argparse.Namespace:
         "--manifest",
         action="append",
         type=Path,
-        default=[],
-        help="Optional locked manifest JSON. Repeat to include multiple splits.",
+        required=True,
+        help="Locked manifest JSON. Repeat for train and public-validation splits.",
     )
     parser.add_argument(
         "--reset-db",
@@ -65,13 +90,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_allowed_ids(manifest_paths: list[Path]) -> set[tuple[str, str]] | None:
+def load_allowed_ids(manifest_paths: list[Path]) -> set[tuple[str, str]]:
     if not manifest_paths:
-        return None
+        raise SystemExit("explicit --manifest is required for no-template NanoFold preprocessing")
     allowed: set[tuple[str, str]] = set()
     for path in manifest_paths:
         with path.open() as f:
-            entries = json.load(f)
+            payload = json.load(f)
+            entries = payload.get("entries", []) if isinstance(payload, dict) else payload
         for entry in entries:
             allowed.add((entry["pdb_id"].lower(), entry["chain_id"]))
     return allowed

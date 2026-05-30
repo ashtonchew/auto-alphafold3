@@ -8,9 +8,34 @@ import json
 import sys
 from pathlib import Path
 
-for candidate in (Path.cwd(), Path("/app"), Path("/Users/naveenramasamy/src/nanofold")):
-    if (candidate / "nanofold").exists():
-        sys.path.insert(0, str(candidate))
+from autoalphafold3.nanofold_adapter import nanofold_root
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def nanofold_source_candidates() -> list[Path]:
+    """Return possible NanoFold source roots without personal absolute paths."""
+
+    candidates: list[Path] = []
+    for repo_root in (Path.cwd(), REPO_ROOT, Path("/app")):
+        try:
+            candidates.append(nanofold_root(repo_root=repo_root))
+        except ValueError:
+            continue
+    candidates.extend([Path.cwd(), Path("/app")])
+    return candidates
+
+
+def add_nanofold_to_path() -> None:
+    """Add the pinned NanoFold checkout to sys.path for upstream imports."""
+
+    for candidate in nanofold_source_candidates():
+        if (candidate / "nanofold").exists():
+            sys.path.insert(0, str(candidate))
+            return
+
+
+add_nanofold_to_path()
 
 import pyarrow as pa
 
@@ -37,9 +62,24 @@ def load_manifest_records(paths: list[Path]) -> set[str]:
     records: set[str] = set()
     for path in paths:
         with path.open() as f:
-            for entry in json.load(f):
+            payload = json.load(f)
+            entries = payload.get("entries", []) if isinstance(payload, dict) else payload
+            for entry in entries:
                 records.add(f"{entry['pdb_id'].upper()}_{entry['chain_id']}")
     return records
+
+
+def find_chain_dataset_source() -> Path | None:
+    """Find the pinned NanoFold ChainDataset source for source-only verification."""
+
+    return next(
+        (
+            candidate / "nanofold/train/chain_dataset.py"
+            for candidate in nanofold_source_candidates()
+            if (candidate / "nanofold/train/chain_dataset.py").exists()
+        ),
+        None,
+    )
 
 
 def main() -> None:
@@ -87,14 +127,7 @@ def main() -> None:
             raise SystemExit(f"MSA column {field}_data has an empty record")
 
     if ChainDataset is None:
-        chain_dataset_path = next(
-            (
-                candidate / "nanofold/train/chain_dataset.py"
-                for candidate in (Path.cwd(), Path("/app"), Path("/Users/naveenramasamy/src/nanofold"))
-                if (candidate / "nanofold/train/chain_dataset.py").exists()
-            ),
-            None,
-        )
+        chain_dataset_path = find_chain_dataset_source()
         if chain_dataset_path is None:
             raise SystemExit("ChainDataset unavailable and source file not found for inspection")
         chain_dataset_source = chain_dataset_path.read_text()

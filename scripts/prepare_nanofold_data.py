@@ -298,8 +298,23 @@ def selected_splits(config: dict[str, Any], smoke: bool) -> dict[str, int]:
     return counts
 
 
+def require_no_template_policy(config: dict[str, Any]) -> None:
+    """Require dataset configs to preserve the official no-template contract."""
+
+    template_search = config.get("template_search")
+    if not isinstance(template_search, dict):
+        raise SystemExit("Config missing template_search policy")
+    if template_search.get("max_templates") != 0:
+        raise SystemExit("Official NanoFold-style AlphaFold3-lite runs require max_templates=0")
+    if template_search.get("enabled_for_full") is not False:
+        raise SystemExit("Template search must be disabled for full official runs")
+    if template_search.get("database") is not None:
+        raise SystemExit("Template database must be null for the no-template benchmark")
+
+
 def select(args: argparse.Namespace) -> None:
     config = read_json(args.config)
+    require_no_template_policy(config)
     dirs = dataset_dirs(args.out)
     counts = selected_splits(config, args.smoke)
     total_needed = sum(counts.values())
@@ -581,6 +596,7 @@ def split_feature_rows(
 def preprocess(args: argparse.Namespace) -> None:
     pa, ipc = require_pyarrow()
     config = read_json(args.config)
+    require_no_template_policy(config)
     dirs = dataset_dirs(args.out)
     manifests = sorted(dirs["manifests"].glob("*.json"))
     if not manifests:
@@ -725,6 +741,7 @@ def modal_upload(args: argparse.Namespace) -> None:
 
 def nanofold_command(args: argparse.Namespace) -> None:
     config = read_json(args.config)
+    require_no_template_policy(config)
     db_paths = config["database_paths"]
     modal_volume = config.get("modal_volume", {})
     locked_volume = config.get("locked_volume", {})

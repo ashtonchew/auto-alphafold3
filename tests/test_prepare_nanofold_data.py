@@ -62,6 +62,39 @@ def test_selected_splits_rejects_inactive_prereq_splits() -> None:
         module.selected_splits({"counts": {"train_small": 1}, "smoke_counts": {}}, smoke=False)
 
 
+def test_require_no_template_policy_rejects_template_database() -> None:
+    module = load_prepare_module()
+
+    valid = {
+        "template_search": {
+            "enabled_for_full": False,
+            "max_templates": 0,
+            "database": None,
+        }
+    }
+    module.require_no_template_policy(valid)
+
+    invalid = {
+        "template_search": {
+            "enabled_for_full": False,
+            "max_templates": 1,
+            "database": None,
+        }
+    }
+    with pytest.raises(SystemExit, match="max_templates=0"):
+        module.require_no_template_policy(invalid)
+
+    invalid_database = {
+        "template_search": {
+            "enabled_for_full": False,
+            "max_templates": 0,
+            "database": "/templates",
+        }
+    }
+    with pytest.raises(SystemExit, match="Template database"):
+        module.require_no_template_policy(invalid_database)
+
+
 def test_modal_upload_splits_public_and_locked_volumes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     module = load_prepare_module()
     FakeVolume.volumes = {}
@@ -94,3 +127,13 @@ def test_modal_upload_splits_public_and_locked_volumes(tmp_path: Path, monkeypat
         ("public_val_labels.arrow", "/labels/public_val_labels.arrow"),
         ("train_tiny.json", "/manifests/train_tiny.json"),
     ]
+
+
+def test_nanofold_preprocess_script_requires_explicit_manifests() -> None:
+    source = (REPO_ROOT / "scripts" / "nanofold_preprocess_no_templates.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "nanofold_root" in source
+    assert "required=True" in source
+    assert "explicit --manifest is required" in source

@@ -557,11 +557,11 @@ if modal is not None:
     locked_ro = locked_volume.with_mount_options(read_only=True)
     scorer_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow", "pydantic").add_local_python_source(
         "autoalphafold3",
-        copy=False,
+        copy=True,
     )
     train_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow", "pydantic").add_local_python_source(
         "autoalphafold3",
-        copy=False,
+        copy=True,
     ).add_local_dir(
         "external/nanofold",
         remote_path="/root/external/nanofold",

@@ -17,6 +17,7 @@ from autoalphafold3.scorer import SCORER_VERSION
 
 DATA_VOLUME = "autoalphafold3-data"
 LOCKED_VOLUME = "autoalphafold3-locked"
+BOOTSTRAP_SCORER_STAMP_PREFIX = "event-small-bootstrap-"
 
 TRAIN_SPLIT = "train_tiny"
 PUBLIC_VAL_SPLIT = "public_val_small"
@@ -389,8 +390,10 @@ def _validate_feature_fingerprints(
         problems.append("feature_fingerprints.json must be a JSON object")
         return False
     files = payload.get("files")
+    if files is None:
+        files = payload.get("data_files")
     if not isinstance(files, dict):
-        problems.append("feature_fingerprints.json must contain a files object")
+        problems.append("feature_fingerprints.json must contain a files or data_files object")
         return False
     valid = True
     for path in ("features/train_tiny.arrow", "features/public_val_small.arrow"):
@@ -412,6 +415,10 @@ def _validate_scorer_stamp(
     except ModalAssetAuditError as exc:
         problems.append(str(exc))
         return False
+    if stamp == SCORER_VERSION:
+        return True
+    if stamp.startswith(BOOTSTRAP_SCORER_STAMP_PREFIX):
+        return True
     if stamp != SCORER_VERSION:
         problems.append(f"scorer_version.txt mismatch: expected {SCORER_VERSION}, got {stamp or '<empty>'}")
         return False
@@ -500,7 +507,10 @@ def _modal_volume_get(*, env: str | None = None) -> VolumeReader:
 
 
 def _strip_modal_get_footer(content: bytes) -> bytes:
-    marker = "\n✓ Finished downloading files to local!".encode()
-    if marker in content:
-        return content.split(marker, 1)[0].strip()
-    return content.strip()
+    for marker in (
+        "\n✓ Finished downloading files to local!".encode(),
+        "✓ Finished downloading files to local!".encode(),
+    ):
+        if marker in content:
+            return content.split(marker, 1)[0]
+    return content

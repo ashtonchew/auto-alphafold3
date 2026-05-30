@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from autoalphafold3.orchestrator import poll_trial, submit_trial
+from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.modal_assets import (
     ModalAssetAuditError,
@@ -54,6 +55,13 @@ def main(argv: list[str] | None = None) -> int:
     readiness_parser.add_argument("--pending-human-calibration-action", default=None)
     readiness_parser.add_argument("--include-live-smoke", action="store_true")
     readiness_parser.add_argument("--human-approved-live-smoke-action", default=None)
+
+    baseline_lock_parser = subparsers.add_parser("lock-baseline")
+    baseline_lock_parser.add_argument("--source-dir", required=True)
+    baseline_lock_parser.add_argument("--feature-fingerprints", required=True)
+    baseline_lock_parser.add_argument("--baseline-dir", default="runs/baseline")
+    baseline_lock_parser.add_argument("--approve", required=True)
+    baseline_lock_parser.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(argv)
     if args.command == "submit":
@@ -107,6 +115,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
         return readiness_exit_code(report)
+    if args.command == "lock-baseline":
+        try:
+            result = lock_baseline_from_scored_artifacts(
+                source_dir=args.source_dir,
+                feature_fingerprints_path=args.feature_fingerprints,
+                baseline_dir=args.baseline_dir,
+                approval=args.approve,
+                dry_run=args.dry_run,
+            )
+        except BaselineLockError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        else:
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            return 0
     return 2
 
 

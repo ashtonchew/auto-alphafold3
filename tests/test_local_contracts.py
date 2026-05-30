@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from autoalphafold3.ledger import append_ledger, read_ledger
+from autoalphafold3.ledger import LedgerWriteError, append_ledger, read_ledger
 from autoalphafold3.orchestrator import poll_trial, record_trial_status, submit_trial
 from autoalphafold3.patch_policy import PatchPolicyError, validate_patch_scope
 from autoalphafold3.preflight import PreflightError, changed_paths_from_parent, run_preflight
@@ -325,6 +325,22 @@ def test_ledger_append_read_roundtrip(tmp_path: Path) -> None:
     assert len(rows) == 1
     assert rows[0].trial_id == "T001"
     assert rows[0].status == TrialStatus.PREFLIGHT_PASSED
+
+
+def test_ledger_rejects_non_orchestrator_writer(tmp_path: Path) -> None:
+    ledger_path = tmp_path / "ledger.jsonl"
+    row = AutoFoldResult(
+        trial_id="T001",
+        status=TrialStatus.PREFLIGHT_PASSED,
+        candidate_id="worker_attempt",
+        metrics={},
+        fold_cartographer=FoldCartographerReport(signature="worker_attempt"),
+    )
+
+    with pytest.raises(LedgerWriteError, match="writer_role=orchestrator"):
+        append_ledger(row, ledger_path=ledger_path, writer_role="trial_worker")
+
+    assert not ledger_path.exists()
 
 
 def test_ledger_rejects_invalid_lifecycle_transition(tmp_path: Path) -> None:

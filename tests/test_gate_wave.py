@@ -14,7 +14,9 @@ from autoalphafold3.gate_wave import (
     GateControlKind,
     GateWaveError,
     build_gate_wave_controls,
+    require_scored_gate_wave,
     run_gate_wave,
+    run_gate_wave_with_timeout,
     run_modal_gate_wave,
 )
 from autoalphafold3.patch_policy import PatchPolicyError, validate_patch_scope
@@ -41,7 +43,7 @@ def base_payload() -> dict[str, object]:
 
 
 def test_gate_wave_builds_orchestrator_owned_bounded_controls() -> None:
-    controls = build_gate_wave_controls(plan=plan(n_seeds=2), base_payload=base_payload())
+    controls = build_gate_wave_controls(plan=plan(n_seeds=2), base_payload=base_payload(), timeout_seconds=123)
 
     assert [control.control_kind for control in controls] == [
         GateControlKind.KNOCKOUT,
@@ -52,6 +54,8 @@ def test_gate_wave_builds_orchestrator_owned_bounded_controls() -> None:
     ]
     assert {control.authored_by for control in controls} == {"orchestrator"}
     assert all(control.payload["max_templates"] == 0 for control in controls)
+    assert all(control.timeout_seconds == 123 for control in controls)
+    assert all(control.payload["timeout_seconds"] == 123 for control in controls)
 
 
 def test_gate_wave_rejects_unbounded_seed_count_before_modal_submission() -> None:
@@ -104,6 +108,7 @@ def test_gate_wave_modal_adapter_uses_required_starmap_exception_contract() -> N
             self,
             inputs: list[tuple[dict[str, object], int]],
             *,
+            kwargs: dict[str, object],
             order_outputs: bool,
             return_exceptions: bool,
             wrap_returned_exceptions: bool | None,
@@ -111,6 +116,7 @@ def test_gate_wave_modal_adapter_uses_required_starmap_exception_contract() -> N
             self.calls.append(
                 {
                     "inputs": inputs,
+                    "kwargs": kwargs,
                     "order_outputs": order_outputs,
                     "return_exceptions": return_exceptions,
                     "wrap_returned_exceptions": wrap_returned_exceptions,
@@ -131,10 +137,12 @@ def test_gate_wave_modal_adapter_uses_required_starmap_exception_contract() -> N
     report = run_gate_wave(function, controls)
 
     assert report.status == TrialStatus.SCORED
+    assert function.calls[0]["kwargs"] == {"aggregate_timeout_seconds": 2400}
     assert function.calls[0]["order_outputs"] is True
     assert function.calls[0]["return_exceptions"] is True
     assert function.calls[0]["wrap_returned_exceptions"] is False
     assert function.calls[0]["inputs"][0][0]["control_kind"] == "knockout"
+    assert require_scored_gate_wave(report) == report
 
 
 def test_gate_wave_returned_exception_normalizes_to_control_infra_fail() -> None:
@@ -162,6 +170,63 @@ def test_gate_wave_returned_exception_normalizes_to_control_infra_fail() -> None
     assert report.status == TrialStatus.INFRA_FAIL
     assert report.controls[1].status == TrialStatus.INFRA_FAIL
     assert report.controls[1].failure_signature == "modal_RuntimeError"
+    with pytest.raises(GateWaveError, match="SCORED"):
+        require_scored_gate_wave(report)
+
+
+def test_gate_wave_requires_positive_aggregate_timeout_before_modal_submission() -> None:
+    class FakeFunction:
+        called = False
+
+        def starmap(self, inputs: list[tuple[dict[str, object], int]], **kwargs: object) -> list[object]:
+            self.called = True
+            return []
+
+    function = FakeFunction()
+
+    with pytest.raises(GateWaveError, match="aggregate_timeout_seconds"):
+        run_gate_wave_with_timeout(
+            function,
+            build_gate_wave_controls(plan=plan(n_seeds=1), base_payload=base_payload()),
+            aggregate_timeout_seconds=0,
+        )
+
+    assert function.called is False
+
+
+def test_gate_wave_rejects_requested_timeout_over_aggregate_before_modal_submission() -> None:
+    class FakeFunction:
+        called = False
+
+        def starmap(self, inputs: list[tuple[dict[str, object], int]], **kwargs: object) -> list[object]:
+            self.called = True
+            return []
+
+    function = FakeFunction()
+    controls = build_gate_wave_controls(
+        plan=plan(n_seeds=1),
+        base_payload=base_payload(),
+        timeout_seconds=600,
+    )
+
+    with pytest.raises(GateWaveError, match="requested timeout"):
+        run_gate_wave_with_timeout(function, controls, aggregate_timeout_seconds=599)
+
+    assert function.called is False
+
+
+def test_gate_wave_cancel_failure_normalizes_to_infra_fail() -> None:
+    class ModalCancelled(BaseException):
+        pass
+
+    class FakeFunction:
+        def starmap(self, inputs: list[tuple[dict[str, object], int]], **kwargs: object) -> list[object]:
+            raise ModalCancelled("cancelled by remote platform")
+
+    report = run_gate_wave(FakeFunction(), build_gate_wave_controls(plan=plan(n_seeds=1), base_payload=base_payload()))
+
+    assert report.status == TrialStatus.INFRA_FAIL
+    assert {row.failure_signature for row in report.controls} == {"modal_starmap_ModalCancelled"}
 
 
 def test_gate_wave_lookup_failure_normalizes_to_infra_fail() -> None:
@@ -192,11 +257,13 @@ def test_gate_wave_modal_adapter_looks_up_trial_runner_method() -> None:
             self,
             inputs: list[tuple[dict[str, object], int]],
             *,
+            kwargs: dict[str, object],
             order_outputs: bool,
             return_exceptions: bool,
             wrap_returned_exceptions: bool | None,
         ) -> list[dict[str, object]]:
             self.calls.append(inputs)
+            assert kwargs == {"aggregate_timeout_seconds": 2400}
             assert order_outputs is True
             assert return_exceptions is True
             assert wrap_returned_exceptions is False
@@ -269,6 +336,27 @@ def test_gate_wave_requires_all_control_kinds() -> None:
 
     with pytest.raises(GateWaveError, match="seed_rerun"):
         run_gate_wave(object(), missing_seed)  # type: ignore[arg-type]
+
+
+def test_gate_wave_scored_validator_rejects_missing_evidence() -> None:
+    controls = build_gate_wave_controls(plan=plan(n_seeds=1), base_payload=base_payload())
+
+    class FakeFunction:
+        def starmap(self, inputs: list[tuple[dict[str, object], int]], **kwargs: object) -> list[dict[str, object]]:
+            return [
+                {
+                    "status": "SCORED",
+                    "metrics": {"best_val_calpha_lddt": 0.5},
+                    "fold_cartographer": {"signature": "gate_control_scored", "summary": {}, "buckets": {}},
+                }
+                for _payload, _seed in inputs
+            ]
+
+    report = run_gate_wave(FakeFunction(), controls)
+    incomplete = report.model_copy(update={"controls": report.controls[:-1]})
+
+    with pytest.raises(GateWaveError, match="seed_rerun"):
+        require_scored_gate_wave(incomplete)
 
 
 def test_gate_wave_control_schema_rejects_agent_authoring() -> None:

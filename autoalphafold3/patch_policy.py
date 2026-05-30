@@ -44,6 +44,7 @@ DENIED_EXACT = {
     "autoalphafold3/discovery_ledger.py",
     "autoalphafold3/falsification.py",
     "autoalphafold3/gate_wave.py",
+    "autoalphafold3/ledger.py",
     "runs/ledger.jsonl",
     "autoalphafold3/modal_app.py",
     "autoalphafold3/orchestrator.py",

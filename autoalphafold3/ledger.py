@@ -8,6 +8,11 @@ from pathlib import Path
 from autoalphafold3.schema import AutoFoldResult, TrialStatus
 
 DEFAULT_LEDGER = Path("runs/ledger.jsonl")
+LEDGER_WRITER_ROLE = "orchestrator"
+
+
+class LedgerWriteError(ValueError):
+    """Raised when a non-authoritative actor attempts a ledger write."""
 
 
 def append_ledger(
@@ -16,9 +21,11 @@ def append_ledger(
     ledger_path: str | Path = DEFAULT_LEDGER,
     dedupe: bool = False,
     validate_lifecycle: bool = False,
+    writer_role: str = LEDGER_WRITER_ROLE,
 ) -> None:
     """Append a validated canonical result row to the JSONL ledger."""
 
+    _require_orchestrator_writer(writer_role)
     result = row if isinstance(row, AutoFoldResult) else AutoFoldResult.model_validate(row)
     path = Path(ledger_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -51,6 +58,11 @@ def validate_ledger_row(row: dict[str, object]) -> AutoFoldResult:
     """Validate one prospective ledger row."""
 
     return AutoFoldResult.model_validate(row)
+
+
+def _require_orchestrator_writer(writer_role: str) -> None:
+    if writer_role != LEDGER_WRITER_ROLE:
+        raise LedgerWriteError("canonical ledger writes require writer_role=orchestrator")
 
 
 def latest_result_for_trial(trial_id: str, *, ledger_path: str | Path = DEFAULT_LEDGER) -> AutoFoldResult | None:

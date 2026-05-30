@@ -7,6 +7,7 @@ import pytest
 
 from autoalphafold3.config_contract import validate_config_file
 from autoalphafold3.modal_app import (
+    MODAL_OBJECT_CONTRACTS,
     RESOURCE_TIERS,
     final_validate_seed,
     healthcheck,
@@ -209,7 +210,13 @@ def test_modal_control_plane_static_contract() -> None:
     assert "/mnt/autoalphafold3-locked" in status["mounts"]["scorer_workers"]
     assert RESOURCE_TIERS["trial"].gpu == "A100-80GB"
     assert RESOURCE_TIERS["trial"].max_containers == 6
-    assert RESOURCE_TIERS["trial"].min_containers == 0
+    assert RESOURCE_TIERS["trial"].min_containers == 1
+    assert RESOURCE_TIERS["trial"].scaledown_window == 300
+    assert RESOURCE_TIERS["score_trial"].min_containers == 1
+    assert RESOURCE_TIERS["score_trial"].scaledown_window == 600
+    assert MODAL_OBJECT_CONTRACTS["Scorer"]["concurrent"] == {"max_inputs": 4, "target_inputs": 2}
+    assert MODAL_OBJECT_CONTRACTS["TrialRunner"]["reads_locked_labels"] is False
+    assert MODAL_OBJECT_CONTRACTS["Scorer"]["reads_locked_labels"] is True
     assert str(trial_dir("T123")) == "/mnt/autoalphafold3-runs/trials/T123"
     assert worker_artifact_paths("T123")["artifact_manifest_json"] == (
         "/mnt/autoalphafold3-runs/trials/T123/artifact_manifest.json"

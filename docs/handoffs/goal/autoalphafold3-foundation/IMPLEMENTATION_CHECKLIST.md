@@ -22,18 +22,18 @@
 - [x] Runner writes only trial-scoped artifacts.
 - [x] Runner creates canonical prediction artifacts.
 - [x] Runner does not stamp official benchmark success.
-- [ ] Modal app uses real Modal definitions.
-- [ ] Trial workers cannot mount locked labels.
-- [ ] Scorer workers can mount locked labels.
+- [x] Modal app uses real Modal definitions.
+- [x] Trial workers cannot mount locked labels.
+- [x] Scorer workers can mount locked labels.
 - [x] Scorer-only path can score real prediction artifacts.
-- [ ] Fold Cartographer emits canonical targets.
-- [ ] Orchestrator normalizes Modal errors to `INFRA_FAIL`.
-- [ ] Ledger validates lifecycle transitions.
-- [ ] Ledger writes remain append-only.
-- [ ] CLI exposes strict preflight/git-diff enforcement.
+- [x] Fold Cartographer emits canonical targets.
+- [x] Orchestrator normalizes Modal errors to `INFRA_FAIL`.
+- [x] Ledger validates lifecycle transitions.
+- [x] Ledger writes remain append-only.
+- [x] CLI exposes strict preflight/git-diff enforcement.
 - [x] Targeted tests cover each implemented boundary.
 - [x] `python3 -m pytest -p no:cacheprovider` passes.
 - [x] `python3 .claude/skill-evals/run_offline_evals.py` passes.
-- [ ] Four stacked PRs are open, or a fifth is justified in `PLAN.md`.
+- [x] Four stacked PRs are open, or a fifth is justified in `PLAN.md`.
 - [x] No fake benchmark/data artifacts were created.
 - [x] Autonomous search trials were not started.

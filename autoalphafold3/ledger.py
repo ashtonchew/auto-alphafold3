@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from autoalphafold3.schema import AutoFoldResult
+from autoalphafold3.schema import AutoFoldResult, TrialStatus
 
 DEFAULT_LEDGER = Path("runs/ledger.jsonl")
 
@@ -15,6 +15,7 @@ def append_ledger(
     *,
     ledger_path: str | Path = DEFAULT_LEDGER,
     dedupe: bool = False,
+    validate_lifecycle: bool = False,
 ) -> None:
     """Append a validated canonical result row to the JSONL ledger."""
 
@@ -23,6 +24,8 @@ def append_ledger(
     path.parent.mkdir(parents=True, exist_ok=True)
     if dedupe and _has_duplicate_row(result, ledger_path=path):
         return
+    if validate_lifecycle:
+        validate_lifecycle_transition(read_ledger(ledger_path=path), result)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(result.model_dump(mode="json"), sort_keys=True) + "\n")
 
@@ -57,6 +60,33 @@ def latest_result_for_trial(trial_id: str, *, ledger_path: str | Path = DEFAULT_
         if row.trial_id == trial_id:
             return row
     return None
+
+
+ALLOWED_TRANSITIONS: dict[TrialStatus, set[TrialStatus]] = {
+    TrialStatus.DRAFT: {TrialStatus.PREFLIGHT_PASSED, TrialStatus.FAIL, TrialStatus.INFRA_FAIL, TrialStatus.ARCHIVED},
+    TrialStatus.PREFLIGHT_PASSED: {TrialStatus.SUBMITTED, TrialStatus.FAIL, TrialStatus.INFRA_FAIL, TrialStatus.ARCHIVED},
+    TrialStatus.SUBMITTED: {TrialStatus.RUNNING, TrialStatus.FAIL, TrialStatus.INFRA_FAIL},
+    TrialStatus.RUNNING: {TrialStatus.SCORED, TrialStatus.FAIL, TrialStatus.INFRA_FAIL},
+    TrialStatus.SCORED: {TrialStatus.KEEP, TrialStatus.DISCARD, TrialStatus.FAIL, TrialStatus.ARCHIVED},
+    TrialStatus.KEEP: {TrialStatus.ARCHIVED},
+    TrialStatus.DISCARD: {TrialStatus.ARCHIVED},
+    TrialStatus.FAIL: {TrialStatus.ARCHIVED},
+    TrialStatus.INFRA_FAIL: {TrialStatus.ARCHIVED},
+    TrialStatus.ARCHIVED: set(),
+}
+
+
+def validate_lifecycle_transition(existing_rows: list[AutoFoldResult], row: AutoFoldResult) -> None:
+    """Require lifecycle rows for one trial to move forward only."""
+
+    previous = next((item for item in reversed(existing_rows) if item.trial_id == row.trial_id), None)
+    if previous is None:
+        return
+    if previous.status == row.status:
+        return
+    allowed = ALLOWED_TRANSITIONS.get(previous.status, set())
+    if row.status not in allowed:
+        raise ValueError(f"invalid lifecycle transition for {row.trial_id}: {previous.status} -> {row.status}")
 
 
 def _has_duplicate_row(result: AutoFoldResult, *, ledger_path: Path) -> bool:

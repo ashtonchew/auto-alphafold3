@@ -76,8 +76,18 @@ def _submit_modal(trial_payload: dict[str, object], *, repo_root: str | Path, le
         append_ledger(result, ledger_path=Path(repo_root) / ledger_path, dedupe=True)
         return f"{MODAL_CALL_PREFIX}:INFRA_FAIL:{trial_payload['trial_id']}"
 
-    fn = modal.Function.from_name(APP_NAME, "run_trial")
-    call = fn.spawn(trial_payload)
+    try:
+        runner_cls = modal.Cls.from_name(APP_NAME, "TrialRunner")
+        runner = runner_cls()
+        call = runner.run.spawn(trial_payload)
+    except Exception as exc:  # noqa: BLE001 - external Modal failures normalize to INFRA_FAIL.
+        result = modal_infra_failure_result(
+            trial_id=str(trial_payload["trial_id"]),
+            candidate_id="modal_submission",
+            exc=exc,
+        )
+        append_ledger(result, ledger_path=Path(repo_root) / ledger_path, dedupe=True, validate_lifecycle=True)
+        return f"{MODAL_CALL_PREFIX}:INFRA_FAIL:{trial_payload['trial_id']}"
     return f"{MODAL_CALL_PREFIX}:{call.object_id}"
 
 
@@ -119,10 +129,17 @@ def _poll_modal(call_id: str, *, repo_root: str | Path, ledger_path: str | Path)
             failure_signature="modal_sdk_missing",
             postmortem="Modal poll requested, but the Modal SDK is not installed.",
         )
-    call = modal.FunctionCall.from_id(object_id)
-    payload = call.get(timeout=0)
-    result = AutoFoldResult.model_validate(payload)
-    append_ledger(result, ledger_path=Path(repo_root) / ledger_path, dedupe=True)
+    try:
+        call = modal.FunctionCall.from_id(object_id)
+        payload = call.get(timeout=0)
+        result = AutoFoldResult.model_validate(payload)
+    except Exception as exc:  # noqa: BLE001 - polling failures are infrastructure failures.
+        result = modal_infra_failure_result(
+            trial_id="UNKNOWN",
+            candidate_id="modal_poll",
+            exc=exc,
+        )
+    append_ledger(result, ledger_path=Path(repo_root) / ledger_path, dedupe=True, validate_lifecycle=True)
     return result
 
 
@@ -135,8 +152,23 @@ def record_trial_status(
     """Validate and append one lifecycle transition with duplicate protection."""
 
     row = result if isinstance(result, AutoFoldResult) else AutoFoldResult.model_validate(result)
-    append_ledger(row, ledger_path=Path(repo_root) / ledger_path, dedupe=True)
+    append_ledger(row, ledger_path=Path(repo_root) / ledger_path, dedupe=True, validate_lifecycle=True)
     return row
+
+
+def modal_infra_failure_result(*, trial_id: str, candidate_id: str, exc: BaseException) -> AutoFoldResult:
+    """Normalize external Modal errors into the canonical INFRA_FAIL status."""
+
+    signature = f"modal_{type(exc).__name__}"
+    return AutoFoldResult(
+        trial_id=trial_id,
+        status=TrialStatus.INFRA_FAIL,
+        candidate_id=candidate_id,
+        metrics={},
+        fold_cartographer=FoldCartographerReport(signature=signature),
+        failure_signature=signature,
+        postmortem=f"Modal infrastructure failure: {exc}",
+    )
 
 
 def cancel_trial(call_id: str) -> AutoFoldResult:

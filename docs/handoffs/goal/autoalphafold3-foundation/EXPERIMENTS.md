@@ -19,3 +19,6 @@ manifests, Modal app, preflight, ledger gates, and final readiness checks.
 - Passed: PR 3 runner/scorer and local contract targeted tests.
 - Passed: full local tests after PR 3.
 - Passed: offline skill evals after PR 3.
+- Passed: PR 4 Modal/orchestrator/ledger targeted tests.
+- Passed: full local tests after PR 4.
+- Passed: offline skill evals after PR 4.

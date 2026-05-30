@@ -17,16 +17,21 @@ def summarize_fold_cartographer(results: Iterable[CalphaLddtResult]) -> dict[str
 
     if nan_residues:
         signature = "nan_prediction_instability"
+        canonical_target = "stability_compute"
     elif mean_score >= 0.95:
         signature = "toy_geometry_preserved"
+        canonical_target = "local_geometry_weak"
     elif mean_score >= 0.5:
         signature = "toy_geometry_degraded"
+        canonical_target = "local_geometry_weak"
     else:
         signature = "toy_geometry_failed"
+        canonical_target = "local_geometry_weak"
 
     return {
         "signature": signature,
         "summary": {
+            "canonical_target": canonical_target,
             "mean_target_calpha_lddt": mean_score,
             "nan_prediction_residue_count": nan_residues,
             "num_targets": len(result_list),

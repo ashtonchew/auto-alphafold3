@@ -89,15 +89,55 @@ class ModalResourceTier:
     startup_timeout_s: int
     max_containers: int
     min_containers: int = 0
+    scaledown_window: int | None = None
     retries: int = 0
 
 
 RESOURCE_TIERS = {
     "dry_run": ModalResourceTier(gpu=None, timeout_s=60, startup_timeout_s=60, max_containers=0),
-    "trial": ModalResourceTier(gpu="A100-80GB", timeout_s=2700, startup_timeout_s=600, max_containers=6),
-    "sampler": ModalResourceTier(gpu="A100", timeout_s=300, startup_timeout_s=300, max_containers=50),
-    "score_trial": ModalResourceTier(gpu=None, timeout_s=600, startup_timeout_s=60, max_containers=10),
+    "trial": ModalResourceTier(
+        gpu="A100-80GB",
+        timeout_s=2700,
+        startup_timeout_s=600,
+        max_containers=6,
+        min_containers=1,
+        scaledown_window=300,
+    ),
+    "sampler": ModalResourceTier(gpu="A100", timeout_s=300, startup_timeout_s=300, max_containers=50, scaledown_window=20),
+    "score_trial": ModalResourceTier(
+        gpu=None,
+        timeout_s=600,
+        startup_timeout_s=60,
+        max_containers=10,
+        min_containers=1,
+        scaledown_window=600,
+    ),
     "final_validation": ModalResourceTier(gpu="H100", timeout_s=5400, startup_timeout_s=900, max_containers=5),
+}
+
+MODAL_OBJECT_CONTRACTS = {
+    "Scorer": {
+        "kind": "cls",
+        "tier": "score_trial",
+        "enable_memory_snapshot": True,
+        "cpu": 2.0,
+        "min_containers": 1,
+        "scaledown_window": 600,
+        "concurrent": {"max_inputs": 4, "target_inputs": 2},
+        "mounts": "scorer_workers",
+        "reads_locked_labels": True,
+    },
+    "TrialRunner": {
+        "kind": "cls",
+        "tier": "trial",
+        "enable_memory_snapshot": True,
+        "gpu": "A100-80GB",
+        "min_containers": 1,
+        "scaledown_window": 300,
+        "max_containers": 6,
+        "mounts": "trial_workers",
+        "reads_locked_labels": False,
+    },
 }
 
 
@@ -130,6 +170,7 @@ def healthcheck() -> dict[str, Any]:
         },
         "resource_tiers": {name: tier.__dict__ for name, tier in RESOURCE_TIERS.items()},
         "function_contracts": FUNCTION_CONTRACTS,
+        "modal_object_contracts": MODAL_OBJECT_CONTRACTS,
         "contract": (
             "trial/sampler/debug workers do not mount locked labels; scorer-only "
             "workers mount autoalphafold3-locked and return metrics"
@@ -161,6 +202,7 @@ def modal_deploy_plan() -> dict[str, Any]:
         },
         "resource_tiers": {name: tier.__dict__ for name, tier in RESOURCE_TIERS.items()},
         "function_contracts": FUNCTION_CONTRACTS,
+        "modal_object_contracts": MODAL_OBJECT_CONTRACTS,
         "official_training_function": "run_trial",
         "official_training_gpu": RESOURCE_TIERS["trial"].gpu,
         "official_validation_split": "public_val_small",
@@ -179,6 +221,12 @@ def trial_dir(trial_id: str) -> PurePosixPath:
     if "/" in trial_id or ".." in trial_id:
         raise ValueError(f"unsafe trial_id: {trial_id}")
     return PurePosixPath(RUNS_MOUNT) / "trials" / trial_id
+
+
+def trial_artifact_dir(trial_id: str) -> str:
+    """Return the trial artifact directory as a POSIX path string."""
+
+    return str(trial_dir(trial_id))
 
 
 def worker_artifact_paths(trial_id: str) -> dict[str, str]:
@@ -281,3 +329,92 @@ def debug_sandbox_entry(payload: dict[str, Any] | None = None) -> dict[str, Any]
         "reason": "debug_sandbox_not_deployed_in_local_environment",
         "payload_keys": sorted((payload or {}).keys()),
     }
+
+
+try:
+    import modal
+except ModuleNotFoundError:
+    modal = None  # type: ignore[assignment]
+
+
+if modal is not None:
+    data_volume = modal.Volume.from_name(DATA_VOLUME, create_if_missing=False)
+    locked_volume = modal.Volume.from_name(LOCKED_VOLUME, create_if_missing=False)
+    runs_ro = data_volume.with_mount_options(read_only=True, sub_path="/runs")
+    runs_rw = data_volume.with_mount_options(sub_path="/runs")
+    features_ro = data_volume.with_mount_options(read_only=True, sub_path="/features")
+    locked_ro = locked_volume.with_mount_options(read_only=True)
+    scorer_image = modal.Image.debian_slim().pip_install("numpy").add_local_python_source(
+        "autoalphafold3",
+        copy=False,
+    )
+    train_image = modal.Image.debian_slim().pip_install("numpy").add_local_python_source(
+        "autoalphafold3",
+        copy=False,
+    ).add_local_dir(
+        "external/nanofold",
+        remote_path="/root/external/nanofold",
+        copy=False,
+    )
+    app = modal.App(APP_NAME)
+
+    @app.cls(
+        image=scorer_image,
+        cpu=2.0,
+        enable_memory_snapshot=True,
+        min_containers=1,
+        scaledown_window=600,
+        timeout=RESOURCE_TIERS["score_trial"].timeout_s,
+        max_containers=RESOURCE_TIERS["score_trial"].max_containers,
+        volumes={RUNS_MOUNT: runs_ro, LOCKED_MOUNT: locked_ro},
+    )
+    @modal.concurrent(max_inputs=4, target_inputs=2)
+    class Scorer:
+        """Scorer-only Modal class; locked labels are mounted only here."""
+
+        @modal.enter(snap=True)
+        def load_locked_state(self) -> None:
+            runs_ro.reload()
+            locked_ro.reload()
+            from autoalphafold3.locked_scorer import load_locked_state
+
+            self._locked = load_locked_state(LOCKED_MOUNT)
+
+        @modal.method()
+        def score(self, trial_id: str) -> dict[str, Any]:
+            from autoalphafold3.locked_scorer import score_trial_artifacts
+
+            return score_trial_artifacts(
+                artifact_dir=trial_artifact_dir(trial_id),
+                split="public_val_small",
+                locked=self._locked,
+            )
+
+    @app.cls(
+        image=train_image,
+        gpu=RESOURCE_TIERS["trial"].gpu,
+        enable_memory_snapshot=True,
+        min_containers=1,
+        scaledown_window=300,
+        timeout=RESOURCE_TIERS["trial"].timeout_s,
+        max_containers=RESOURCE_TIERS["trial"].max_containers,
+        volumes={FEATURES_MOUNT: features_ro, RUNS_MOUNT: runs_rw},
+    )
+    class TrialRunner:
+        """Trial worker class; public features and trial runs only."""
+
+        @modal.enter(snap=True)
+        def cpu_init(self) -> None:
+            self.runner_ready = True
+
+        @modal.method()
+        def run(self, trial_json: dict[str, Any]) -> dict[str, Any]:
+            from autoalphafold3.runner import run_fixed_budget_trial
+
+            return run_fixed_budget_trial(
+                trial_json,
+                features_dir=FEATURES_MOUNT,
+                output_dir=trial_artifact_dir(str(trial_json["trial_id"])),
+            )
+else:
+    app = None

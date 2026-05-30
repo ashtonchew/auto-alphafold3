@@ -1,0 +1,21 @@
+{
+  "manifest_kind": "local_smoke_only",
+  "schema_version": "autoaf3.manifest.v1",
+  "description": "Toy manifest for local contract tests. This is not an official benchmark split.",
+  "entries": [
+    {
+      "target_id": "smoke_A",
+      "pdb_id": "SMOK",
+      "chain_id": "A",
+      "sequence_sha256": "63c1dd951ffedf6f7fd968ad4efa39b8ed584f162f46e715114ee184f8de9201",
+      "feature_sha256": "cb459b99c1eca3ab01af37b9645094b654cd5c7efbe1591545b2c290bc8fa39f",
+      "label_sha256": "eea8295dcd13e0a2ee3cac388e21e94beb39ab782267907d63eabb911ca1634c",
+      "length": 4,
+      "msa_depth_bucket": "toy_1",
+      "length_bucket": "toy_4",
+      "split": "smoke",
+      "feature_path": "data/toy/features/smoke_A.json",
+      "label_path": "data/toy/labels/smoke_A.json"
+    }
+  ]
+}

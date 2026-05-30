@@ -1,0 +1,147 @@
+"""Typed contracts for local auto-AlphaFold3 trial orchestration."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from enum import StrEnum
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+PRIMARY_METRIC = "best_val_calpha_lddt"
+SCORER_VERSION = "calpha_lddt_v1"
+
+
+class TrialKind(StrEnum):
+    """Kinds of trials accepted by the local control plane."""
+
+    TRAINING = "training"
+    SAMPLER = "sampler"
+    DEBUG = "debug"
+    FINAL_VALIDATION = "final_validation"
+
+
+class BudgetTier(StrEnum):
+    """Fixed budget tiers. The dry-run tier is local-only and never calls Modal."""
+
+    DRY_RUN = "dry_run"
+    SMOKE = "smoke"
+    TRIAL = "trial"
+    SAMPLER = "sampler"
+    DEBUG = "debug"
+    FINAL = "final"
+
+
+class MoveFamily(StrEnum):
+    """Search move families from the handoff."""
+
+    WIDTH_DEPTH = "width_depth"
+    PAIRFORMER_ATTENTION = "pairformer_attention"
+    DIFFUSION_SCHEDULE = "diffusion_schedule"
+    DIFFUSION_SAMPLER_GOLF = "diffusion_sampler_golf"
+    RECYCLING = "recycling"
+    AUXILIARY_LOSS = "auxiliary_loss"
+    GEOMETRY_LOSS = "geometry_loss"
+    CURRICULUM = "curriculum"
+    OPTIMIZER_SCHEDULER = "optimizer_scheduler"
+    FEATURE_HANDLING = "feature_handling"
+    MEMORY_RUNTIME = "memory_runtime"
+
+
+class DiagnosticTarget(StrEnum):
+    """Fold Cartographer diagnostic targets from `program.md`."""
+
+    LOCAL_GEOMETRY_WEAK = "local_geometry_weak"
+    LONG_RANGE_TOPOLOGY_WEAK = "long_range_topology_weak"
+    DISTOGRAM_GOOD_LDDT_FLAT = "distogram_good_lddt_flat"
+    STABILITY_COMPUTE = "stability_compute"
+
+
+class TrialStatus(StrEnum):
+    """Lifecycle and outcome statuses for future AutoFold trials."""
+
+    DRAFT = "DRAFT"
+    PREFLIGHT_PASSED = "PREFLIGHT_PASSED"
+    SUBMITTED = "SUBMITTED"
+    RUNNING = "RUNNING"
+    SCORED = "SCORED"
+    KEEP = "KEEP"
+    DISCARD = "DISCARD"
+    FAIL = "FAIL"
+    INFRA_FAIL = "INFRA_FAIL"
+    ARCHIVED = "ARCHIVED"
+
+
+class FoldCartographerReport(BaseModel):
+    """Aggregated diagnostics emitted beside the primary scalar."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    signature: str
+    summary: dict[str, object] = Field(default_factory=dict)
+    buckets: dict[str, object] = Field(default_factory=dict)
+
+
+class AutoFoldTrial(BaseModel):
+    """Typed trial request crossing the agent/orchestrator trust boundary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trial_id: str = Field(pattern=r"^T[0-9]{3,}$")
+    parent_commit: str = Field(min_length=7)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    agent_session_id: str = Field(min_length=1)
+    trial_kind: TrialKind
+    hypothesis: str = Field(min_length=1)
+    move_family: MoveFamily
+    diagnostic_target: DiagnosticTarget
+    prediction: str = Field(min_length=1)
+    patch_path: str | None = None
+    config_path: str
+    budget: BudgetTier
+    seed: int = Field(ge=0)
+    n_res: int | None = Field(default=None, ge=1)
+    max_steps: int | None = Field(default=None, ge=1)
+    max_wall_minutes: int = Field(ge=1)
+    manifest_hashes: dict[str, str] = Field(default_factory=dict)
+    scorer_version: str = SCORER_VERSION
+    primary_metric: Literal["best_val_calpha_lddt"] = PRIMARY_METRIC
+    param_cap: int = Field(ge=1)
+    gpu_memory_cap: float = Field(ge=0.0)
+    cost_cap: float = Field(ge=0.0)
+    timeout_cap: int = Field(ge=1)
+    artifact_dir: str | None = None
+    checkpoint_path: str | None = None
+
+    @model_validator(mode="after")
+    def validate_trial_shape(self) -> AutoFoldTrial:
+        if self.scorer_version != SCORER_VERSION:
+            raise ValueError(f"scorer_version must be {SCORER_VERSION}")
+        if self.trial_kind == TrialKind.SAMPLER:
+            if self.checkpoint_path is None:
+                raise ValueError("sampler trials require checkpoint_path")
+            if self.max_steps is not None:
+                raise ValueError("sampler trials must not set training max_steps")
+        elif self.trial_kind in {TrialKind.TRAINING, TrialKind.DEBUG, TrialKind.FINAL_VALIDATION}:
+            if self.max_steps is None:
+                raise ValueError(f"{self.trial_kind.value} trials require max_steps")
+        if self.budget == BudgetTier.DRY_RUN and self.gpu_memory_cap != 0.0:
+            raise ValueError("dry_run budget must use gpu_memory_cap=0.0")
+        return self
+
+
+class AutoFoldResult(BaseModel):
+    """Canonical local result shape for dry-run and future Modal trials."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "autoaf3.result.v1"
+    trial_id: str
+    status: TrialStatus
+    candidate_id: str
+    primary_metric: Literal["best_val_calpha_lddt"] = PRIMARY_METRIC
+    metrics: dict[str, object] = Field(default_factory=dict)
+    fold_cartographer: FoldCartographerReport
+    artifacts: dict[str, str] = Field(default_factory=dict)
+    failure_signature: str | None = None
+    postmortem: str = ""

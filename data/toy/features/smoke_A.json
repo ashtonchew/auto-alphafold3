@@ -1,0 +1,7 @@
+{
+  "fixture_kind": "local_smoke_feature",
+  "target_id": "smoke_A",
+  "sequence": "AAAA",
+  "msa_depth_bucket": "toy_1",
+  "length_bucket": "toy_4"
+}

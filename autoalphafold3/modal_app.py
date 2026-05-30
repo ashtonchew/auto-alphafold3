@@ -555,11 +555,11 @@ if modal is not None:
     runs_rw = data_volume.with_mount_options(sub_path="/runs")
     trials_ro = data_volume.with_mount_options(read_only=True, sub_path="/runs/trials")
     locked_ro = locked_volume.with_mount_options(read_only=True)
-    scorer_image = modal.Image.debian_slim().pip_install("numpy").add_local_python_source(
+    scorer_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow").add_local_python_source(
         "autoalphafold3",
         copy=False,
     )
-    train_image = modal.Image.debian_slim().pip_install("numpy").add_local_python_source(
+    train_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow").add_local_python_source(
         "autoalphafold3",
         copy=False,
     ).add_local_dir(
@@ -599,6 +599,7 @@ if modal is not None:
                 artifact_dir=trial_artifact_dir(trial_id),
                 split="public_val_small",
                 locked=self._locked,
+                write_outputs=False,
             )
 
     @app.cls(
@@ -623,11 +624,13 @@ if modal is not None:
             from autoalphafold3.runner import run_fixed_budget_trial
 
             validate_execution_payload(trial_json, role=WorkerRole.TRIAL.value)
-            return run_fixed_budget_trial(
+            result = run_fixed_budget_trial(
                 trial_json,
                 features_dir=FEATURES_MOUNT,
                 output_dir=trial_artifact_dir(str(trial_json["trial_id"])),
             )
+            data_volume.commit()
+            return result
 
         @modal.method()
         def run_gate_control(self, control_payload: dict[str, Any], seed: int) -> dict[str, Any]:

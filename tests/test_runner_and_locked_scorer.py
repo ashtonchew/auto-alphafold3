@@ -6,12 +6,14 @@ from pathlib import Path
 import pytest
 
 from autoalphafold3.locked_scorer import LockedScorerError, load_locked_state, score_trial_artifacts
+from autoalphafold3.scorer.locked_dataset import sha256_file
 from autoalphafold3.runner import (
     RunnerError,
     artifact_manifest_shape,
     initialize_trial_directory,
     plan_trial_artifacts,
     prediction_artifact_shape,
+    run_sequence_linear_baseline,
     run_fixed_budget_trial,
     safe_child_path,
     validate_artifact_manifest,
@@ -194,6 +196,38 @@ def test_prediction_artifact_validation_rejects_official_or_bad_shapes() -> None
         )
 
 
+def test_sequence_linear_baseline_reads_public_features_without_labels(tmp_path: Path) -> None:
+    pa = pytest.importorskip("pyarrow")
+    ipc = pytest.importorskip("pyarrow.ipc")
+    features = tmp_path / "features"
+    features.mkdir()
+    schema = pa.schema(
+        [
+            ("record_id", pa.string()),
+            ("sequence_length", pa.int32()),
+        ]
+    )
+    table = pa.Table.from_pylist(
+        [{"record_id": "target_A", "sequence_length": 3}],
+        schema=schema,
+    )
+    with (features / "public_val_small.arrow").open("wb") as handle:
+        with ipc.new_file(handle, schema) as writer:
+            writer.write_table(table)
+
+    manifest = run_sequence_linear_baseline(
+        {"trial_id": "T900", "candidate_id": "baseline_auto_tiny", "max_templates": 0},
+        features_dir=features,
+        output_dir=tmp_path / "T900",
+    )
+
+    payload = json.loads((tmp_path / "T900" / "predictions.json").read_text(encoding="utf-8"))
+    assert manifest["runner_mode"] == "sequence_linear_baseline"
+    assert payload["candidate_id"] == "baseline_auto_tiny"
+    assert payload["predictions"][0]["predicted_ca"] == [[0.0, 0.0, 0.0], [3.8, 0.0, 0.0], [7.6, 0.0, 0.0]]
+    assert not (tmp_path / "T900" / "checkpoint.pt").exists()
+
+
 def test_locked_scorer_scores_toy_artifact_directory(tmp_path: Path) -> None:
     artifact_dir = tmp_path / "T777"
     payload = write_prediction_artifact(
@@ -257,6 +291,88 @@ def test_locked_scorer_accepts_preloaded_state_for_local_smoke(tmp_path: Path) -
 
     assert result["status"] == "SCORED"
     assert result["official_benchmark_result"] is False
+
+
+def test_locked_scorer_scores_arrow_labels_as_official_with_locked_state(tmp_path: Path) -> None:
+    pa = pytest.importorskip("pyarrow")
+    ipc = pytest.importorskip("pyarrow.ipc")
+    locked = tmp_path / "locked"
+    labels = locked / "labels"
+    manifests = locked / "manifests"
+    labels.mkdir(parents=True)
+    manifests.mkdir()
+    label_schema = pa.schema(
+        [
+            ("record_id", pa.string()),
+            ("pdb_id", pa.string()),
+            ("chain_id", pa.string()),
+            ("sequence_length", pa.int32()),
+            ("ca_positions", pa.list_(pa.list_(pa.float32()))),
+            ("ca_mask", pa.list_(pa.bool_())),
+        ]
+    )
+    label_path = labels / "public_val_labels.arrow"
+    label_table = pa.Table.from_pylist(
+        [
+            {
+                "record_id": "target_A",
+                "pdb_id": "1ABC",
+                "chain_id": "A",
+                "sequence_length": 3,
+                "ca_positions": [[0.0, 0.0, 0.0], [3.8, 0.0, 0.0], [7.6, 0.0, 0.0]],
+                "ca_mask": [True, True, True],
+            }
+        ],
+        schema=label_schema,
+    )
+    with label_path.open("wb") as handle:
+        with ipc.new_file(handle, label_schema) as writer:
+            writer.write_table(label_table)
+    feature = tmp_path / "feature.arrow"
+    feature.write_text("feature", encoding="utf-8")
+    manifest = {
+        "manifest_kind": "locked_manifest",
+        "schema_version": "autoaf3.manifest.v1",
+        "entries": [
+            {
+                "target_id": "target_A",
+                "pdb_id": "1ABC",
+                "chain_id": "A",
+                "sequence_sha256": "a" * 64,
+                "feature_sha256": sha256_file(feature),
+                "label_sha256": sha256_file(label_path),
+                "length": 3,
+                "msa_depth_bucket": "tiny",
+                "length_bucket": "tiny",
+                "split": "public_val_small",
+                "feature_path": "feature.arrow",
+                "label_path": "labels/public_val_labels.arrow",
+            }
+        ],
+    }
+    (manifests / "public_val_small.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (manifests / "train_tiny.json").write_text(json.dumps({**manifest, "entries": []}), encoding="utf-8")
+    (locked / "scorer_version.txt").write_text("calpha_lddt_v1", encoding="utf-8")
+    artifact_dir = tmp_path / "T901"
+    write_prediction_artifact(
+        trial_id="T901",
+        split="public_val_small",
+        output_dir=artifact_dir,
+        predictions=[{"target_id": "target_A", "predicted_ca": [[0.0, 0.0, 0.0], [3.8, 0.0, 0.0], [7.6, 0.0, 0.0]]}],
+    )
+
+    result = score_trial_artifacts(
+        artifact_dir=artifact_dir,
+        manifest_path="ignored.json",
+        split="public_val_small",
+        locked=load_locked_state(locked),
+        write_outputs=False,
+    )
+
+    assert result["status"] == "SCORED"
+    assert result["official_benchmark_result"] is True
+    assert result["max_templates"] == 0
+    assert result["label_hashes"]["public_val_small"] == sha256_file(label_path)
 
 
 def test_locked_scorer_missing_prediction_artifact_fails(tmp_path: Path) -> None:

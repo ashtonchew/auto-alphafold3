@@ -96,6 +96,15 @@ Use the project skills as narrow operating modes:
 
 Skill evals must pass before autonomous research starts. Evals are synthetic and local: no Modal calls, no GPUs, no hidden validation, no gate edits, and no real trial submission. Run static/offline checks first, fan out sampled live evals on small fast models, and reserve stronger adjudication for failed or ambiguous outputs.
 
+## LLM Phase Policy
+
+The Modal-hosted harness must load `autoalphafold3.llm_policy.default_llm_phase_policies()` rather than relying on OpenAI Agents SDK defaults.
+
+- Hypothesis generation uses Priority processing, web search enabled, `reasoning.effort="low"`, and low verbosity.
+- Patch planning uses Priority processing, web search disabled, `reasoning.effort="medium"`, and low verbosity.
+
+Hypothesis generation may use the web to broaden candidate ideas and cite current outside context. Patch planning must stay repo-local so implementation choices are grounded in the allowed edit surface, benchmark contract, diagnostics, and current code.
+
 ## Trial Lifecycle
 
 ```text

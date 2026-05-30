@@ -45,6 +45,20 @@ Each trial follows a deliberate path:
 
 The primary optimization target is always `best_val_calpha_lddt`. Diagnostics guide hypotheses while the primary metric remains the decision point.
 
+## LLM Phase Policy
+
+The future Modal-hosted OpenAI Agents SDK harness must use the repo policy in `autoalphafold3/llm_policy.py` instead of relying on SDK defaults. The default model target is `gpt-5.5`, with Priority processing for both search phases:
+
+- `hypothesis_generation`: web search enabled, reasoning effort `low`, text verbosity `low`.
+- `patch_planning`: web search disabled, reasoning effort `medium`, text verbosity `low`.
+
+Inspect the concrete kwargs/spec with:
+
+```bash
+python -m autoalphafold3.agent llm-policy --format responses
+python -m autoalphafold3.agent llm-policy --format agents-sdk
+```
+
 ## Current Status
 
 This repository is a scaffold with real contracts and local tests. It should be read as infrastructure, contracts, and smoke fixtures rather than a completed benchmark run.

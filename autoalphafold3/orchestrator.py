@@ -7,15 +7,21 @@ fails as `INFRA_FAIL` when the Modal SDK is unavailable.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
+from autoalphafold3.baseline_readiness import (
+    BaselineReadinessError,
+    current_best_from_baseline_and_ledger,
+)
 from autoalphafold3.ledger import append_ledger, latest_result_for_trial, read_ledger
 from autoalphafold3.modal_app import APP_NAME
 from autoalphafold3.preflight import run_preflight
-from autoalphafold3.schema import AutoFoldResult, FoldCartographerReport, TrialStatus
+from autoalphafold3.schema import AutoFoldResult, DiscoveryStatus, FoldCartographerReport, PRIMARY_METRIC, TrialStatus
 
 LOCAL_CALL_PREFIX = "dryrun"
 MODAL_CALL_PREFIX = "modal"
+DEFAULT_KEEP_DELTA = 0.001
 
 
 def submit_trial(
@@ -156,6 +162,80 @@ def record_trial_status(
     return row
 
 
+def decide_stage_one_result(
+    scored: AutoFoldResult | dict[str, object],
+    *,
+    repo_root: str | Path = ".",
+    baseline_dir: str | Path = "runs/baseline",
+    ledger_path: str | Path = "runs/ledger.jsonl",
+    keep_delta: float = DEFAULT_KEEP_DELTA,
+) -> AutoFoldResult:
+    """Decide provisional KEEP/DISCARD/FAIL/INFRA_FAIL from one scored result.
+
+    This does not run the Falsification Gate and never writes the Discovery
+    Ledger. A KEEP returned here is provisional and gate-required.
+    """
+
+    row = scored if isinstance(scored, AutoFoldResult) else AutoFoldResult.model_validate(scored)
+    if row.status == TrialStatus.INFRA_FAIL:
+        return row.model_copy(update={"discovery": DiscoveryStatus.UNCONFIRMED})
+    if row.status == TrialStatus.FAIL:
+        return row.model_copy(update={"discovery": DiscoveryStatus.UNCONFIRMED})
+
+    score = _stage_one_score(row)
+    if score is None:
+        return row.model_copy(
+            update={
+                "status": TrialStatus.FAIL,
+                "discovery": DiscoveryStatus.UNCONFIRMED,
+                "failure_signature": row.failure_signature or "stage_one_score_missing",
+                "postmortem": row.postmortem or "Stage-one decision requires a finite best_val_calpha_lddt.",
+            }
+        )
+    best = current_best_from_baseline_and_ledger(
+        baseline_dir=Path(repo_root) / baseline_dir,
+        ledger_path=Path(repo_root) / ledger_path,
+    )
+    if score > best.score + keep_delta:
+        return row.model_copy(
+            update={
+                "status": TrialStatus.KEEP,
+                "discovery": DiscoveryStatus.UNCONFIRMED,
+                "falsification": None,
+                "postmortem": row.postmortem or "Provisional KEEP; Falsification Gate evidence required before discovery.",
+            }
+        )
+    return row.model_copy(
+        update={
+            "status": TrialStatus.DISCARD,
+            "discovery": DiscoveryStatus.UNCONFIRMED,
+            "falsification": None,
+            "postmortem": row.postmortem or "Stage-one score did not clear current-best threshold.",
+        }
+    )
+
+
+def record_stage_one_decision(
+    scored: AutoFoldResult | dict[str, object],
+    *,
+    repo_root: str | Path = ".",
+    baseline_dir: str | Path = "runs/baseline",
+    ledger_path: str | Path = "runs/ledger.jsonl",
+    keep_delta: float = DEFAULT_KEEP_DELTA,
+) -> AutoFoldResult:
+    """Decide and append a stage-one lifecycle row to the canonical ledger."""
+
+    decision = decide_stage_one_result(
+        scored,
+        repo_root=repo_root,
+        baseline_dir=baseline_dir,
+        ledger_path=ledger_path,
+        keep_delta=keep_delta,
+    )
+    append_ledger(decision, ledger_path=Path(repo_root) / ledger_path, dedupe=True, validate_lifecycle=True)
+    return decision
+
+
 def modal_infra_failure_result(*, trial_id: str, candidate_id: str, exc: BaseException) -> AutoFoldResult:
     """Normalize external Modal errors into the canonical INFRA_FAIL status."""
 
@@ -169,6 +249,16 @@ def modal_infra_failure_result(*, trial_id: str, candidate_id: str, exc: BaseExc
         failure_signature=signature,
         postmortem=f"Modal infrastructure failure: {exc}",
     )
+
+
+def _stage_one_score(row: AutoFoldResult) -> float | None:
+    score = row.metrics.get(PRIMARY_METRIC)
+    if not isinstance(score, int | float):
+        return None
+    value = float(score)
+    if not math.isfinite(value):
+        return None
+    return value
 
 
 def cancel_trial(call_id: str) -> AutoFoldResult:

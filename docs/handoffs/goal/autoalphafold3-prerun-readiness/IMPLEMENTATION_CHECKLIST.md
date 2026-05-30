@@ -26,12 +26,12 @@
 - [x] Discovery Ledger helper implemented.
 - [x] Discovery Ledger rejects non-CONFIRMED records.
 - [x] Discovery provenance includes git SHA, scorer version, feature/manifest hashes, axis, verdict numbers, and design rule.
-- [ ] Stage-one threshold decision implemented.
+- [x] Stage-one threshold decision implemented.
 - [x] Provisional KEEP cannot enter Discovery Ledger.
 - [ ] Gate controls are orchestrator-authored.
 - [ ] Modal gate-wave adapter is fakeable in tests.
 - [ ] Gate `starmap` uses `return_exceptions=True` and `wrap_returned_exceptions=False`.
-- [ ] Modal lookup/spawn/poll failures normalize to `INFRA_FAIL`.
+- [x] Modal lookup/spawn/poll failures normalize to `INFRA_FAIL`.
 - [ ] Trial workers still cannot mount locked labels.
 - [ ] Scorer-only path remains the locked-label boundary.
 - [ ] Readiness CLI/report implemented.

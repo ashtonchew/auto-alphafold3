@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from autoalphafold3.locked_scorer import LockedScorerError, load_locked_state, score_trial_artifacts
-from autoalphafold3.scorer.locked_dataset import sha256_file
+from autoalphafold3.scorer.locked_dataset import load_locked_manifest, sha256_file
 from autoalphafold3.runner import (
     RunnerError,
     artifact_manifest_shape,
@@ -23,6 +23,36 @@ from autoalphafold3.runner import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_locked_manifest_loader_accepts_legacy_entry_list(tmp_path: Path) -> None:
+    feature = tmp_path / "feature.arrow"
+    label = tmp_path / "label.arrow"
+    feature.write_text("feature", encoding="utf-8")
+    label.write_text("label", encoding="utf-8")
+    manifest = [
+        {
+            "target_id": "target_A",
+            "pdb_id": "1ABC",
+            "chain_id": "A",
+            "sequence_sha256": "a" * 64,
+            "feature_sha256": sha256_file(feature),
+            "label_sha256": sha256_file(label),
+            "length": 3,
+            "msa_depth_bucket": "tiny",
+            "length_bucket": "tiny",
+            "split": "public_val_small",
+            "feature_path": "feature.arrow",
+            "label_path": "label.arrow",
+        }
+    ]
+    path = tmp_path / "public_val_small.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    loaded = load_locked_manifest(path.name, repo_root=tmp_path, verify_assets=True)
+
+    assert loaded.manifest.schema_version == "autoaf3.manifest.v1"
+    assert loaded.manifest.entries[0].target_id == "target_A"
 
 
 def _write_toy_predictions(artifact_dir: Path, *, split: str = "smoke") -> Path:

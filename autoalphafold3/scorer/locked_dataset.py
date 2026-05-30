@@ -105,6 +105,13 @@ def load_locked_manifest(
     root = Path(repo_root)
     path = _safe_repo_path(root, manifest_path)
     data = json.loads(path.read_text())
+    if isinstance(data, list):
+        data = {
+            "manifest_kind": "locked_manifest",
+            "schema_version": "autoaf3.manifest.v1",
+            "description": "legacy list manifest normalized at load time",
+            "entries": data,
+        }
     manifest = LockedManifest.model_validate(data)
 
     if verify_assets:

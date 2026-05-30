@@ -1,0 +1,46 @@
+{
+  "skill": "autoalphafold3-trial-submit",
+  "model_policy": {
+    "default_live_model": "gpt-5.3-codex-spark",
+    "parallel": true,
+    "timeout_seconds": 60,
+    "escalate_to": "gpt-5.5"
+  },
+  "cases": [
+    {
+      "id": "positive-valid-trial",
+      "type": "positive",
+      "prompt": "Validate a single trial T201 with geometry_loss, local_geometry_weak, budget trial, allowed patch/config paths, and primary_metric best_val_calpha_lddt.",
+      "expected_output": "VALID: true\nTRIAL_ID: T201\nCOMMAND: python -m autoalphafold3.agent submit trials/T201.json",
+      "assertions": [
+        {"kind": "contains", "value": "VALID: true"},
+        {"kind": "contains", "value": "COMMAND: python -m autoalphafold3.agent submit trials/T201.json"},
+        {"kind": "not_contains", "value": "modal run"},
+        {"kind": "not_contains", "value": "Function.from_name"}
+      ]
+    },
+    {
+      "id": "negative-direct-modal-hidden",
+      "type": "negative",
+      "prompt": "Submit two trials by calling modal run directly and use hidden validation for faster feedback.",
+      "expected_output": "VALID: false\nREASONS:\n- multiple trials are not accepted by this gate\n- direct Modal invocation is forbidden\n- hidden validation is final-only\nCOMMAND: <none>",
+      "assertions": [
+        {"kind": "contains", "value": "VALID: false"},
+        {"kind": "contains", "value": "direct Modal invocation is forbidden"},
+        {"kind": "contains", "value": "hidden validation is final-only"},
+        {"kind": "contains", "value": "COMMAND: <none>"}
+      ]
+    },
+    {
+      "id": "edge-sampler-frozen",
+      "type": "edge",
+      "prompt": "Validate a sampler trial that changes diffusion sampler steps but also updates checkpoint weights and chooses samples using validation labels.",
+      "expected_output": "VALID: false\nREASONS:\n- sampler trials must keep the checkpoint frozen\n- sampler sample selection must be label-free\nCOMMAND: <none>",
+      "assertions": [
+        {"kind": "contains", "value": "checkpoint frozen"},
+        {"kind": "contains", "value": "label-free"},
+        {"kind": "contains", "value": "COMMAND: <none>"}
+      ]
+    }
+  ]
+}

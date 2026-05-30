@@ -231,6 +231,18 @@ def require_search_ready_assets(report: ModalAssetAudit) -> ModalAssetAudit:
         raise ModalAssetAuditError(f"Modal assets are not ready: {report.problems}")
     if report.locked_asset_layout != "separate_locked_volume" or not report.official_lock_boundary:
         raise ModalAssetAuditError("search readiness requires autoalphafold3-locked as a separate Volume")
+    unreadable = {
+        split: status
+        for split, status in report.arrow_readability.items()
+        if split in EXPECTED_SPLIT_COUNTS and status != "readable"
+    }
+    missing = [split for split in EXPECTED_SPLIT_COUNTS if split not in report.arrow_readability]
+    if unreadable or missing:
+        details = ", ".join(
+            [f"{split}={status}" for split, status in sorted(unreadable.items())]
+            + [f"{split}=missing" for split in sorted(missing)]
+        )
+        raise ModalAssetAuditError(f"search readiness requires readable Arrow features: {details}")
     return report
 
 
@@ -442,21 +454,21 @@ def _modal_volume_ls(*, env: str | None = None) -> VolumeLister:
 
 
 def _modal_volume_get(*, env: str | None = None) -> VolumeReader:
-    def run(volume: str, path: str) -> str:
+    def run(volume: str, path: str) -> str | bytes:
         cmd = ["modal", "volume", "get", volume, path, "-"]
         if env:
             cmd.extend(["--env", env])
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = subprocess.run(cmd, capture_output=True, check=False)
         if result.returncode != 0:
-            detail = (result.stderr or result.stdout).strip()
+            detail = _as_text(result.stderr or result.stdout).strip()
             raise ModalAssetAuditError(f"could not read {volume}:{path}: {detail}")
         return _strip_modal_get_footer(result.stdout)
 
     return run
 
 
-def _strip_modal_get_footer(text: str) -> str:
-    marker = "\n✓ Finished downloading files to local!"
-    if marker in text:
-        return text.split(marker, 1)[0].strip()
-    return text.strip()
+def _strip_modal_get_footer(content: bytes) -> bytes:
+    marker = "\n✓ Finished downloading files to local!".encode()
+    if marker in content:
+        return content.split(marker, 1)[0].strip()
+    return content.strip()

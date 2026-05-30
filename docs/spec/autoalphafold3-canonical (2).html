@@ -903,6 +903,45 @@ def run_gate(candidate, parent_lddt, plan) -&gt; "FalsificationResult":
     return build_result(locals())
 </code></pre>
   <p>The gate fires only on provisional KEEPs, which are rare, and most controls are inference-only, so the marginal cost is small. The full ceremony is also a scope dial: under time pressure, run it on the single best mechanism and show one clean kill alongside it.</p>
+
+  <h3>5.10 &nbsp;Trace observability with Raindrop Workshop</h3>
+  <p>The implementation surface of auto-AlphaFold3 is an agent loop with unusually structured outputs: GPT-5.5 must emit a typed <code>Prediction</code> (<code>causal_component</code>, <code>predicted_axis</code>, <code>predicted_direction</code>, <code>expected_lddt_delta_band</code>) before every trial, and the orchestrator constructs knock-out patches and placebo selections from that claim (&sect;5.9). Building this against a print-log-and-retry feedback loop wastes the prep window; building it against streamed traces of every agent and orchestrator call cuts iteration time and surfaces silent failures that traditional logging hides. <a href="https://github.com/raindrop-ai/workshop">Raindrop Workshop</a> is the local OpenTelemetry-compatible trace receiver this subsection adopts for build-time observability.</p>
+
+  <p><strong>What Workshop is.</strong> An open-source local daemon (MIT-licensed) that listens on <code>localhost:5899</code>, ingests OTLP-formatted spans from the agent and orchestrator, renders them live in a browser UI, and exposes the same trace store to coding agents over MCP. A span captures a single event in the loop (an LLM call, a tool call, an orchestrator decision) with its inputs, outputs, model identity, timing, and any error. A trace is the timeline of spans for one wave. Claude Code or Codex connected to the MCP server can read those traces, search them, write evals against them, and replay any captured LLM call with mutated inputs against the original input state. The replay primitive &mdash; re-running just one captured LLM call locally and for free, with a swapped prompt or model &mdash; is the rare feature; recording-only competitors do not offer it.</p>
+
+  <p><strong>Why this project specifically benefits.</strong> Three implementation surfaces in this spec are agent-shaped and therefore opaque to traditional file logging:</p>
+  <ul>
+    <li><strong>The pre-registration step.</strong> A malformed <code>Prediction</code> &mdash; null axis, a made-up move family, a magnitude band wider than the contract allows &mdash; shows up only as a downstream orchestrator exception, with no record of what the agent saw to produce it. Workshop captures the system prompt, the diagnostic context, the ledger tail, and the exact output for every <code>agent_propose</code> call. Root-causing a malformed prediction collapses from "re-run with extra prints" to "scroll back to the span."</li>
+    <li><strong>The Falsification Gate construction.</strong> The orchestrator builds the knock-out patch and selects the placebo family deterministically from the agent's <code>causal_component</code> claim. When construction fails (component name not present in the patch, placebo family invalid, matched-magnitude target unsatisfiable), the trace shows which agent claim triggered it and why the deterministic logic rejected it.</li>
+    <li><strong>The stuck-rule and rotation logic.</strong> Spec &sect;14 mandates rotating move families after eight consecutive non-improving trials. Whether the agent is actually obeying this rule, or quietly looping inside one family, is invisible from the ledger alone &mdash; the ledger only records outcomes, not the reasoning sequence that produced them. A sequence of <code>agent_propose</code> spans makes the violation immediate.</li>
+  </ul>
+
+  <p>The Workshop UI is also the only live surface that lets a judge inspect one wave's reasoning unfold span by span during the demo, rather than reading a postmortem ledger row.</p>
+
+  <p class="code-label">setup &mdash; one-time per developer</p>
+<pre><code># Install the daemon
+curl -fsSL https://raindrop.sh/install | bash
+
+# Configure and launch (writes .env, starts daemon, opens browser at localhost:5899)
+raindrop workshop setup
+
+# From inside Claude Code or Codex during the build, instrument the agent surface
+/instrument-agent
+
+# Register the MCP server so the coding agent can query traces
+claude mcp add raindrop --transport http https://mcp.raindrop.ai/mcp
+</code></pre>
+
+  <p><strong>Instrumented surface.</strong> The <code>/instrument-agent</code> command wires Raindrop's SDK into the existing entry points; no custom OTLP plumbing is required. Spans emitted by the autoresearch loop include <code>agent_propose</code> (the LLM call that produces the <code>Prediction</code>), <code>preflight</code> (each gate from &sect;5.8, with the GPU-requiring checks as child spans), <code>trial_spawn</code> (the Modal <code>Function.spawn</code> call and its returned <code>FunctionCall.object_id</code>), <code>scorer</code> (the locked scorer call and its returned metrics), <code>cartographer_classify</code> (diagnostic routing), <code>gate_wave</code> (the Falsification Gate parent span, with <code>knockout</code>, <code>placebo</code>, <code>axis_check</code>, and <code>seed_rerun</code> as children), and <code>verdict</code> (the final classification). Every span carries the relevant <code>trial_id</code>, git SHA, scorer version, and feature hash so any trace can be cross-referenced with the canonical ledger.</p>
+
+  <div class="callout">
+    <div class="callout-label">Boundary</div>
+    <p>Workshop observes the <em>agent loop and the orchestrator</em>, not the Modal GPU compute itself. Cold-start latency, container scheduling, Volume I/O contention, and CUDA-level behavior remain the province of the Modal dashboard (<code>modal.com/apps</code>), <code>modal app stats</code>, and standard Python logging from inside trial workers. Workshop and Modal observability complement each other; neither replaces the other. Likewise, Workshop is a build-time and rehearsal-time tool; the locked benchmark contract (&sect;4, &sect;6) and the falsification gate (&sect;5.9) remain the source of truth for what counts as a discovery.</p>
+  </div>
+
+  <p><strong>MCP-driven triage during the build.</strong> Once the MCP server is registered, the coding agent can ask structured questions of the trace store: "across the last twenty <code>agent_propose</code> calls, what fraction selected the diagnostic axis flagged dominant by the latest Cartographer report?"; "find every wave where the gate verdict was <code>KNOCKOUT_SURVIVES</code> and group by the claimed <code>causal_component</code>"; "show every span where the predicted axis did not move and the agent did not log a postmortem." Each query returns evidence the coding agent uses to propose targeted fixes to the agent's system prompt or the orchestrator's Python. This is the build-time analogue of the &sect;5.9 falsification loop applied to the developer experience: a recorded behavior, an automatically-written test that catches it, a patch, a re-run.</p>
+
+  <p><strong>Out of scope for this subsection.</strong> Workshop's replay-with-mutation primitive supports reasoning-fidelity probes that would complement the &sect;5.9 patch-level falsification (replaying captured <code>agent_propose</code> calls with mutated diagnostic inputs to test whether the agent's stated reasoning is grounded). Those probes are documented as a possible stretch extension to the Falsification Gate rather than a build-time requirement; the build-time benefit of Workshop stands on the trace observability and MCP triage described above and does not depend on the replay extension landing for the event.</p>
 </section>
 
 <section id="s6">

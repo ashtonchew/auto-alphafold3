@@ -48,7 +48,7 @@ def load_locked_state(locked_root: str | Path) -> LockedScorerState:
 def score_trial_artifacts(
     *,
     artifact_dir: str | Path,
-    manifest_path: str | Path,
+    manifest_path: str | Path | None = None,
     labels_path: str | Path | None = None,
     scorer_version_path: str | Path | None = None,
     repo_root: str | Path = ".",
@@ -64,6 +64,8 @@ def score_trial_artifacts(
         repo_root = locked.locked_root
         manifest_path = locked.manifest_path
         scorer_version_path = locked.scorer_version_path
+    if manifest_path is None:
+        raise LockedScorerError("manifest_path is required unless locked scorer state is supplied")
     root = Path(repo_root)
     artifact_root = _safe_artifact_dir(artifact_dir)
     prediction_path = artifact_root / PREDICTIONS_FILENAME

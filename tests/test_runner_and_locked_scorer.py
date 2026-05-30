@@ -363,7 +363,6 @@ def test_locked_scorer_scores_arrow_labels_as_official_with_locked_state(tmp_pat
 
     result = score_trial_artifacts(
         artifact_dir=artifact_dir,
-        manifest_path="ignored.json",
         split="public_val_small",
         locked=load_locked_state(locked),
         write_outputs=False,

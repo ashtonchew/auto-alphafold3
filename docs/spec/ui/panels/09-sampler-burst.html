@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sampler Burst · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 09</div>
+      <h1 class="page-title">Sampler Burst / Ensemble Moment</h1>
+      <p class="page-purpose">The live Modal moment unique to folding: a frozen checkpoint fans out over hundreds of sampler configs, returns an ensemble, then scores once.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <div class="stats">
+      <div class="stat"><div class="label">Frozen checkpoint</div><div class="value" style="font-size:24px">cand_31</div><div class="sub num">step 6,000</div></div>
+      <div class="stat"><div class="label">Samples</div><div class="value num">320</div><div class="sub">8 configs × 40 seeds</div></div>
+      <div class="stat"><div class="label">Runtime</div><div class="value num">58s</div><div class="sub num">peak 50 containers</div></div>
+      <div class="stat"><div class="label">Selected lDDT</div><div class="value green num">0.418</div><div class="sub">after locked scoring</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Sampler grid</h2>
+    <div class="block-sub"><span class="mono">sample_once.map(...)</span> over the settings below, on one frozen checkpoint.</div>
+    <div class="cfg-grid">
+      <div class="cfg"><div class="cfg-k">steps</div><div class="cfg-v num">12 · 18 · 24</div></div>
+      <div class="cfg"><div class="cfg-k">step-scale</div><div class="cfg-v num">0.8 · 1.0 · 1.2</div></div>
+      <div class="cfg"><div class="cfg-k">noise</div><div class="cfg-v num">0.6 · 0.9</div></div>
+      <div class="cfg"><div class="cfg-k">seeds</div><div class="cfg-v num">40</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Container burst</h2>
+    <svg class="chart" viewBox="0 0 510 140" role="img" style="max-width:540px"
+      aria-label="Container count over about one minute: climbs toward fifty and falls back to zero.">
+      <line class="ax-line" x1="34" y1="110" x2="490" y2="110"/>
+      <text class="ax-tick num" x="28" y="24" text-anchor="end">50</text>
+      <text class="ax-tick num" x="28" y="114" text-anchor="end">0</text>
+      <rect x="40" y="108" width="22" height="2" rx="2" fill="#7fee64"/>
+      <rect x="68" y="105" width="22" height="5" rx="2" fill="#7fee64"/>
+      <rect x="96" y="94" width="22" height="16" rx="2" fill="#7fee64"/>
+      <rect x="124" y="72" width="22" height="38" rx="2" fill="#7fee64"/>
+      <rect x="152" y="41" width="22" height="69" rx="2" fill="#7fee64"/>
+      <rect x="180" y="23" width="22" height="87" rx="2" fill="#7fee64"/>
+      <rect x="208" y="20" width="22" height="90" rx="2" fill="#7fee64"/>
+      <rect x="236" y="25" width="22" height="85" rx="2" fill="#7fee64"/>
+      <rect x="264" y="44" width="22" height="66" rx="2" fill="#7fee64"/>
+      <rect x="292" y="68" width="22" height="42" rx="2" fill="#7fee64"/>
+      <rect x="320" y="89" width="22" height="21" rx="2" fill="#7fee64"/>
+      <rect x="348" y="100" width="22" height="10" rx="2" fill="#7fee64"/>
+      <rect x="376" y="105" width="22" height="5" rx="2" fill="#7fee64"/>
+      <rect x="404" y="108" width="22" height="2" rx="2" fill="#7fee64"/>
+      <text class="ax-label" x="40" y="128">spawn</text>
+      <text class="ax-label" x="220" y="128" text-anchor="middle">~50 containers</text>
+      <text class="ax-label" x="490" y="128" text-anchor="end">scale to 0 · ~1 min</text>
+    </svg>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Selection &amp; result</h2>
+    <div class="kv">
+      <div class="kv-row"><div class="kv-k">Selection rule</div><div class="kv-v">Label-free: rank by self-consistency and confidence; labels are never read during selection.</div></div>
+      <div class="kv-row"><div class="kv-k">Ensemble</div><div class="kv-v">Rigid core tight, flexible loops smeared — a real conformational spread.</div></div>
+      <div class="kv-row"><div class="kv-k">Locked score, after selection</div><div class="kv-v num" style="color:var(--green)">0.418 Cα lDDT</div></div>
+    </div>
+    <div class="note green">Scoring happens only <b>after</b> samples are produced and one is selected without labels. The locked scorer is the only stage that reads validation labels.</div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="07-modal-execution.html">← Modal execution</a> · <a href="../evidence-board.html">Evidence board →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modal Execution · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 07</div>
+      <h1 class="page-title">Modal Execution</h1>
+      <p class="page-purpose">Make the Modal story legible without making the demo about infrastructure internals: elastic fan-out, fixed budgets, and locked mounts shown as policy.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <div class="block-title">Latest execution mode <span class="right"><span class="spill ok">sampler burst</span></span></div>
+    <div class="block-sub">Deploy once, call many fixed-budget jobs; scale to zero while GPT-5.5 thinks.</div>
+    <div class="stats">
+      <div class="stat"><div class="label">Jobs in wave</div><div class="value num">312</div><div class="sub">all completed</div></div>
+      <div class="stat"><div class="label">Peak containers</div><div class="value green num">50</div><div class="sub">min_containers 0</div></div>
+      <div class="stat"><div class="label">GPU tier</div><div class="value" style="font-size:26px">A100-80GB</div><div class="sub">fixed, not agent-editable</div></div>
+      <div class="stat"><div class="label">Wave cost / time</div><div class="value num">~$0.74</div><div class="sub num">58s wall-clock</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Container count over the wave</h2>
+    <div class="block-sub">A live <span class="mono">Function.map</span> climbs toward fifty and collapses to zero in about a minute.</div>
+    <svg class="chart" viewBox="0 0 510 140" role="img" style="max-width:540px"
+      aria-label="Container count over about one minute: climbs toward fifty containers and falls back to zero.">
+      <line class="ax-line" x1="34" y1="110" x2="490" y2="110"/>
+      <text class="ax-tick num" x="28" y="24" text-anchor="end">50</text>
+      <text class="ax-tick num" x="28" y="114" text-anchor="end">0</text>
+      <rect x="40" y="108" width="22" height="2" rx="2" fill="#7fee64"/>
+      <rect x="68" y="105" width="22" height="5" rx="2" fill="#7fee64"/>
+      <rect x="96" y="94" width="22" height="16" rx="2" fill="#7fee64"/>
+      <rect x="124" y="72" width="22" height="38" rx="2" fill="#7fee64"/>
+      <rect x="152" y="41" width="22" height="69" rx="2" fill="#7fee64"/>
+      <rect x="180" y="23" width="22" height="87" rx="2" fill="#7fee64"/>
+      <rect x="208" y="20" width="22" height="90" rx="2" fill="#7fee64"/>
+      <rect x="236" y="25" width="22" height="85" rx="2" fill="#7fee64"/>
+      <rect x="264" y="44" width="22" height="66" rx="2" fill="#7fee64"/>
+      <rect x="292" y="68" width="22" height="42" rx="2" fill="#7fee64"/>
+      <rect x="320" y="89" width="22" height="21" rx="2" fill="#7fee64"/>
+      <rect x="348" y="100" width="22" height="10" rx="2" fill="#7fee64"/>
+      <rect x="376" y="105" width="22" height="5" rx="2" fill="#7fee64"/>
+      <rect x="404" y="108" width="22" height="2" rx="2" fill="#7fee64"/>
+      <text class="ax-label" x="40" y="128">spawn</text>
+      <text class="ax-label" x="220" y="128" text-anchor="middle">~50 containers</text>
+      <text class="ax-label" x="490" y="128" text-anchor="end">scale to 0 · ~1 min</text>
+    </svg>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Volume mounts — shown as policy, not secrets</h2>
+    <table class="dtable">
+      <thead><tr><th>Volume</th><th>Mount</th><th>Access</th></tr></thead>
+      <tbody>
+        <tr><td class="c-mono">autoalphafold3-data</td><td class="c-mono">/mnt/autoalphafold3</td><td><span class="spill ok">public features · read-only</span></td></tr>
+        <tr><td class="c-mono">trial run dir</td><td class="c-mono">/mnt/autoalphafold3/runs/&lt;trial&gt;</td><td><span class="spill info">read / write, trial-scoped</span></td></tr>
+        <tr><td class="c-mono">autoalphafold3-locked</td><td class="c-mono">/mnt/autoalphafold3-locked</td><td><span class="spill warn">scorer-only · labels never mounted by workers</span></td></tr>
+      </tbody>
+    </table>
+    <div class="note">GPU type, timeouts, retries, Volumes, and <span class="mono">max_containers</span> are creator-owned. The agent submits typed trials through the orchestrator; it cannot change resource caps during search.</div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="09-sampler-burst.html">See the sampler burst →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+</body>
+</html>

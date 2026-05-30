@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trial Trajectory · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 02</div>
+      <h1 class="page-title">Trial Trajectory</h1>
+      <p class="page-purpose">Show autoresearch as a sequence, not a single result. Hover any point for its trial and score; click to select. Failed and killed trials stay visible.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <svg id="trajChart" class="chart" viewBox="0 0 720 330" role="img" style="max-width:920px"
+      aria-label="Line chart of validation C-alpha lDDT across 42 trials. The score rises from the 0.325 baseline to a best of 0.412. Most points are confirmed; two early provisional points and two killed trials are shown.">
+      <line class="grid-line" x1="60" y1="77"  x2="700" y2="77"/>
+      <line class="grid-line" x1="60" y1="151" x2="700" y2="151"/>
+      <line class="grid-line" x1="60" y1="226" x2="700" y2="226"/>
+      <text class="ax-tick num" x="50" y="81"  text-anchor="end">0.42</text>
+      <text class="ax-tick num" x="50" y="155" text-anchor="end">0.38</text>
+      <text class="ax-tick num" x="50" y="230" text-anchor="end">0.34</text>
+      <text class="ax-tick num" x="50" y="304" text-anchor="end">0.30</text>
+      <line class="ax-line" x1="60" y1="40" x2="60" y2="300"/>
+      <line class="ax-line" x1="60" y1="300" x2="700" y2="300"/>
+      <line class="base-line" x1="60" y1="254" x2="700" y2="254"/>
+      <text class="ax-tick num" x="696" y="247" text-anchor="end">baseline 0.325</text>
+      <polyline class="trace" points="60,254 91,267 138,242 185,218 247,228 325,194 388,209 466,166 528,150 606,118 669,105 700,92"/>
+      <rect class="dot-prov" x="55" y="249" width="10" height="10" rx="2"/>
+      <path  class="kill" d="M86 262 L96 272 M96 262 L86 272"/>
+      <rect class="dot-prov" x="133" y="237" width="10" height="10" rx="2"/>
+      <circle class="dot-confirmed" cx="185" cy="218" r="5.5"/>
+      <circle class="dot-confirmed" cx="247" cy="228" r="5.5"/>
+      <circle class="dot-confirmed" cx="325" cy="194" r="5.5"/>
+      <path  class="kill" d="M383 204 L393 214 M393 204 L383 214"/>
+      <circle class="dot-confirmed" cx="466" cy="166" r="5.5"/>
+      <circle class="dot-confirmed" cx="528" cy="150" r="5.5"/>
+      <circle class="dot-confirmed" cx="606" cy="118" r="5.5"/>
+      <circle class="dot-confirmed" cx="669" cy="105" r="5.5"/>
+      <circle class="dot-confirmed" cx="700" cy="92" r="5.5"/>
+      <text class="ax-label num" x="60"  y="318" text-anchor="middle">T001</text>
+      <text class="ax-label" x="380" y="318" text-anchor="middle">trial →</text>
+      <text class="ax-label num" x="700" y="318" text-anchor="middle">T042</text>
+    </svg>
+    <div class="legend">
+      <span class="lg-item"><i class="sq conf"></i> confirmed</span>
+      <span class="lg-item"><i class="sq prov"></i> provisional</span>
+      <span class="lg-item"><i class="x-mark">✕</i> killed</span>
+      <span class="spacer"></span>
+      <label class="toggle">
+        <input type="checkbox" class="kill-toggle" checked>
+        <span class="track"><span class="knob"></span></span>
+        <span>Show killed</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Selected trial <span class="mono" style="color:var(--ink-3)">T012</span> <span class="right"><span class="spill ok"><span class="pico">✓</span> CONFIRMED</span></span></h2>
+    <div class="block-sub">Each point opens its full record: hypothesis, target, intervention, score, cost, and postmortem.</div>
+    <div class="kv">
+      <div class="kv-row"><div class="kv-k">Move family</div><div class="kv-v mono">geometry_loss</div></div>
+      <div class="kv-row"><div class="kv-k">Diagnostic target</div><div class="kv-v mono">distogram_vs_3d</div></div>
+      <div class="kv-row"><div class="kv-k">Hypothesis</div><div class="kv-v">Ramping the coordinate geometry loss converts pair signal into Cα geometry, closing the 3D gap.</div></div>
+      <div class="kv-row"><div class="kv-k">best_val_calpha_lddt</div><div class="kv-v num" style="color:var(--green)">0.412 &nbsp;(+0.041)</div></div>
+      <div class="kv-row"><div class="kv-k">Runtime · peak GPU</div><div class="kv-v num">8m 12s · 38 GB</div></div>
+      <div class="kv-row"><div class="kv-k">Postmortem</div><div class="kv-v">Gap closed as predicted; gain survived knock-out, placebo, and a 3-seed rerun.</div></div>
+    </div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="../evidence-board.html">Open the full evidence board →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+<script src="../assets/board.js"></script>
+</body>
+</html>

@@ -10,7 +10,7 @@ from autoalphafold3.baseline_readiness import (
     audit_baseline_readiness,
     current_best_from_baseline_and_ledger,
 )
-from autoalphafold3.ledger import append_ledger
+from autoalphafold3.ledger import LEDGER_WRITER_ROLE, append_ledger
 from autoalphafold3.schema import AutoFoldResult, FoldCartographerReport, TrialStatus
 
 
@@ -259,9 +259,9 @@ def test_current_best_lookup_returns_baseline_when_no_keep_rows(tmp_path: Path) 
 def test_current_best_lookup_prefers_valid_keep_above_baseline(tmp_path: Path) -> None:
     baseline = write_baseline_lock(tmp_path)
     ledger = tmp_path / "ledger.jsonl"
-    append_ledger(_result("T200", TrialStatus.FAIL, 0.99), ledger_path=ledger)
-    append_ledger(_result("T201", TrialStatus.DISCARD, 0.98), ledger_path=ledger)
-    append_ledger(_result("T202", TrialStatus.KEEP, 0.43), ledger_path=ledger)
+    append_ledger(_result("T200", TrialStatus.FAIL, 0.99), ledger_path=ledger, writer_role=LEDGER_WRITER_ROLE)
+    append_ledger(_result("T201", TrialStatus.DISCARD, 0.98), ledger_path=ledger, writer_role=LEDGER_WRITER_ROLE)
+    append_ledger(_result("T202", TrialStatus.KEEP, 0.43), ledger_path=ledger, writer_role=LEDGER_WRITER_ROLE)
 
     best = current_best_from_baseline_and_ledger(baseline_dir=baseline, ledger_path=ledger)
 
@@ -273,7 +273,7 @@ def test_current_best_lookup_prefers_valid_keep_above_baseline(tmp_path: Path) -
 def test_current_best_lookup_ignores_keep_below_baseline(tmp_path: Path) -> None:
     baseline = write_baseline_lock(tmp_path)
     ledger = tmp_path / "ledger.jsonl"
-    append_ledger(_result("T203", TrialStatus.KEEP, 0.41), ledger_path=ledger)
+    append_ledger(_result("T203", TrialStatus.KEEP, 0.41), ledger_path=ledger, writer_role=LEDGER_WRITER_ROLE)
 
     best = current_best_from_baseline_and_ledger(baseline_dir=baseline, ledger_path=ledger)
 
@@ -284,7 +284,7 @@ def test_current_best_lookup_ignores_keep_below_baseline(tmp_path: Path) -> None
 def test_current_best_lookup_ignores_out_of_range_keep_score(tmp_path: Path) -> None:
     baseline = write_baseline_lock(tmp_path)
     ledger = tmp_path / "ledger.jsonl"
-    append_ledger(_result("T204", TrialStatus.KEEP, 2.0), ledger_path=ledger)
+    append_ledger(_result("T204", TrialStatus.KEEP, 2.0), ledger_path=ledger, writer_role=LEDGER_WRITER_ROLE)
 
     best = current_best_from_baseline_and_ledger(baseline_dir=baseline, ledger_path=ledger)
 

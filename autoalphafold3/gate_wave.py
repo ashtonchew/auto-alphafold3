@@ -7,7 +7,7 @@ from typing import Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from autoalphafold3.modal_app import APP_NAME
+from autoalphafold3.modal_app import APP_NAME, WorkerRole, validate_execution_payload
 from autoalphafold3.schema import (
     FalsificationPlan,
     FoldCartographerReport,
@@ -15,7 +15,7 @@ from autoalphafold3.schema import (
 )
 
 DEFAULT_GATE_CLASS = "TrialRunner"
-DEFAULT_GATE_METHOD = "run"
+DEFAULT_GATE_METHOD = "run_gate_control"
 DEFAULT_GATE_TIMEOUT_SECONDS = 600
 DEFAULT_MAX_GATE_VARIANTS = 8
 DEFAULT_GATE_AGGREGATE_TIMEOUT_SECONDS = DEFAULT_GATE_TIMEOUT_SECONDS * DEFAULT_MAX_GATE_VARIANTS
@@ -103,7 +103,6 @@ class GateWaveFunction(Protocol):
         self,
         input_iterator: Sequence[tuple[dict[str, object], int]],
         *,
-        kwargs: dict[str, object] | None = None,
         order_outputs: bool = True,
         return_exceptions: bool = False,
         wrap_returned_exceptions: bool | None = None,
@@ -195,11 +194,11 @@ def run_gate_wave_with_timeout(
         raise GateWaveError(
             f"gate requested timeout {requested_timeout}s exceeds aggregate timeout {aggregate_timeout_seconds}s"
         )
+    inputs = [(validate_execution_payload(control.payload, role=WorkerRole.TRIAL.value), control.seed) for control in bounded]
     try:
         raw_results = list(
             function.starmap(
-                [(control.payload, control.seed) for control in bounded],
-                kwargs={"aggregate_timeout_seconds": aggregate_timeout_seconds},
+                inputs,
                 order_outputs=True,
                 return_exceptions=True,
                 wrap_returned_exceptions=False,
@@ -240,31 +239,45 @@ def run_modal_gate_wave(
     return run_gate_wave(method, bounded)
 
 
-def require_scored_gate_wave(report: GateWaveReport) -> GateWaveReport:
+def require_scored_gate_wave(
+    report: GateWaveReport,
+    *,
+    expected_controls: Sequence[GateControl] | None = None,
+) -> GateWaveReport:
     """Require complete scored evidence before Falsification Gate math runs."""
 
     if report.status != TrialStatus.SCORED:
         raise GateWaveError(f"gate wave must be SCORED before verdict math: {report.status.value}")
-    controls = _validate_controls(
-        [
-            GateControl(
-                gate_id=row.gate_id,
-                candidate_trial_id=row.candidate_trial_id,
-                control_kind=row.control_kind,
-                seed=row.seed,
-                payload=row.payload,
-            )
-            for row in report.controls
-        ]
-    )
-    expected_ids = {control.gate_id for control in controls}
-    observed_ids = {row.gate_id for row in report.controls}
-    if observed_ids != expected_ids:
+    observed_ids = [row.gate_id for row in report.controls]
+    if len(set(observed_ids)) != len(observed_ids):
+        raise GateWaveError("gate wave evidence contains duplicate control ids")
+    if expected_controls is None:
+        _validate_evidence_shape(report.controls)
+        expected_ids = set(observed_ids)
+    else:
+        controls = _validate_controls(expected_controls)
+        expected_ids = {control.gate_id for control in controls}
+    observed_id_set = set(observed_ids)
+    if observed_id_set != expected_ids:
         raise GateWaveError("gate wave evidence does not match expected control ids")
     bad_statuses = [f"{row.gate_id}:{row.status.value}" for row in report.controls if row.status != TrialStatus.SCORED]
     if bad_statuses:
         raise GateWaveError(f"gate wave has unscored controls: {', '.join(bad_statuses)}")
     return report
+
+
+def _validate_evidence_shape(evidence: Sequence[GateControlEvidence]) -> None:
+    if not evidence:
+        raise GateWaveError("gate wave requires at least one control")
+    trial_ids = {row.candidate_trial_id for row in evidence}
+    if len(trial_ids) != 1:
+        raise GateWaveError("gate wave controls must share one candidate_trial_id")
+    kinds = {row.control_kind for row in evidence}
+    required = {GateControlKind.KNOCKOUT, GateControlKind.PLACEBO, GateControlKind.AXIS_CHECK, GateControlKind.SEED_RERUN}
+    missing = required - kinds
+    if missing:
+        missing_names = ", ".join(sorted(kind.value for kind in missing))
+        raise GateWaveError(f"gate wave missing required controls: {missing_names}")
 
 
 def _control_from_payload(

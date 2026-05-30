@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from autoalphafold3.discovery_ledger import (
     DiscoveryLedgerError,
+    DISCOVERY_LEDGER_WRITER_ROLE,
     append_discovery_record,
     build_discovery_record,
     read_discovery_ledger,
@@ -106,7 +107,7 @@ def test_discovery_ledger_appends_and_reads_confirmed_record(tmp_path: Path) -> 
     ledger = tmp_path / "discovery.jsonl"
     record = discovery_record()
 
-    append_discovery_record(record, ledger_path=ledger)
+    append_discovery_record(record, ledger_path=ledger, writer_role=DISCOVERY_LEDGER_WRITER_ROLE)
     rows = read_discovery_ledger(ledger_path=ledger)
 
     assert len(rows) == 1
@@ -191,7 +192,7 @@ def test_discovery_ledger_recomputes_confirmed_verdict_from_evidence(tmp_path: P
     payload["provenance"]["verdict_numbers"]["gain_placebo"] = 0.03
 
     with pytest.raises(DiscoveryLedgerError, match="PLACEBO_KILL"):
-        append_discovery_record(payload, ledger_path=ledger)
+        append_discovery_record(payload, ledger_path=ledger, writer_role=DISCOVERY_LEDGER_WRITER_ROLE)
 
     assert not ledger.exists()
 
@@ -203,7 +204,7 @@ def test_discovery_ledger_rejects_axis_mismatch(tmp_path: Path) -> None:
     payload["axis_moved"] = "long_range_topology"
 
     with pytest.raises((DiscoveryLedgerError, ValidationError), match="axis_moved"):
-        append_discovery_record(payload, ledger_path=ledger)
+        append_discovery_record(payload, ledger_path=ledger, writer_role=DISCOVERY_LEDGER_WRITER_ROLE)
 
     assert not ledger.exists()
 
@@ -212,7 +213,7 @@ def test_discovery_ledger_jsonl_is_stable(tmp_path: Path) -> None:
     ledger = tmp_path / "discovery.jsonl"
     record = discovery_record()
 
-    append_discovery_record(record, ledger_path=ledger)
+    append_discovery_record(record, ledger_path=ledger, writer_role=DISCOVERY_LEDGER_WRITER_ROLE)
     raw = ledger.read_text(encoding="utf-8")
     parsed = json.loads(raw)
 
@@ -226,13 +227,13 @@ def test_discovery_ledger_duplicate_policy(tmp_path: Path) -> None:
     ledger = tmp_path / "discovery.jsonl"
     record = discovery_record()
 
-    append_discovery_record(record, ledger_path=ledger)
-    append_discovery_record(record, ledger_path=ledger)
+    append_discovery_record(record, ledger_path=ledger, writer_role=DISCOVERY_LEDGER_WRITER_ROLE)
+    append_discovery_record(record, ledger_path=ledger, writer_role=DISCOVERY_LEDGER_WRITER_ROLE)
     assert len(read_discovery_ledger(ledger_path=ledger)) == 1
 
     conflicting = record.model_copy(update={"design_rule": "Conflicting rule."})
     with pytest.raises(DiscoveryLedgerError, match="conflicting"):
-        append_discovery_record(conflicting, ledger_path=ledger)
+        append_discovery_record(conflicting, ledger_path=ledger, writer_role=DISCOVERY_LEDGER_WRITER_ROLE)
 
 
 def test_discovery_ledger_rejects_non_orchestrator_writer(tmp_path: Path) -> None:
@@ -240,6 +241,8 @@ def test_discovery_ledger_rejects_non_orchestrator_writer(tmp_path: Path) -> Non
 
     with pytest.raises(DiscoveryLedgerError, match="writer_role=orchestrator"):
         append_discovery_record(discovery_record(), ledger_path=ledger, writer_role="trial_worker")
+    with pytest.raises(TypeError, match="writer_role"):
+        append_discovery_record(discovery_record(), ledger_path=ledger)  # type: ignore[call-arg]
 
     assert not ledger.exists()
 

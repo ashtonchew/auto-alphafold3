@@ -100,15 +100,15 @@ def test_modal_submit_and_poll_with_mocked_sdk(monkeypatch: pytest.MonkeyPatch, 
             assert payload["trial_id"] == "T010"
             return FakeCall()
 
-    class FakeRunner:
-        run = FakeRunMethod()
+    class FakeTrustedOrchestrator:
+        submit_trial = FakeRunMethod()
 
     class FakeCls:
         @staticmethod
-        def from_name(app_name: str, class_name: str) -> type[FakeRunner]:
+        def from_name(app_name: str, class_name: str) -> type[FakeTrustedOrchestrator]:
             assert app_name == "autoalphafold3-modal"
-            assert class_name == "TrialRunner"
-            return FakeRunner
+            assert class_name == "TrustedOrchestrator"
+            return FakeTrustedOrchestrator
 
     class FakeFunctionCall:
         @staticmethod

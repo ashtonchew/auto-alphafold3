@@ -7,6 +7,9 @@ import pytest
 from autoalphafold3.modal_app import (
     FORBIDDEN_EXECUTION_SECRET_ENV,
     HARNESS_SECRET_NAMES,
+    TRIALS_MOUNT,
+    TRIAL_WORKER_MOUNTS,
+    TRUSTED_ORCHESTRATOR_CLASS,
     WORKER_ROLE_CONTRACTS,
     WorkerRole,
     debug_sandbox_entry,
@@ -17,8 +20,10 @@ from autoalphafold3.modal_app import (
     run_trial,
     sample_once,
     score_trial,
+    trial_artifact_dir,
     validate_execution_payload,
     validate_worker_role_contracts,
+    worker_artifact_paths,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +40,9 @@ def test_modal_harness_and_worker_role_contracts_enforce_secret_boundary() -> No
     assert status["trusted_harness_contract"] == plan["trusted_harness_contract"]
     assert status["trusted_harness_contract"]["direct_agent_modal_run_allowed"] is False
     assert status["trusted_harness_contract"]["arbitrary_agent_sandbox_allowed"] is False
-    assert "spawn" in status["trusted_harness_contract"]["deployed_lookup_pattern"]["trial_submit"]
+    trial_submit = status["trusted_harness_contract"]["deployed_lookup_pattern"]["trial_submit"]
+    assert TRUSTED_ORCHESTRATOR_CLASS in trial_submit
+    assert "submit_trial.spawn" in trial_submit
     for role, contract in WORKER_ROLE_CONTRACTS.items():
         assert contract["plane"] == "execution"
         assert contract["allowed_secret_names"] == ()
@@ -62,6 +69,27 @@ def test_execution_payload_rejects_serialized_harness_secret_keys_recursively() 
         validate_execution_payload({"trial_id": "T123", "secrets": ["github-token"]}, role="debug")
     with pytest.raises(ValueError, match="unknown worker role"):
         validate_execution_payload({"trial_id": "T123"}, role="harness")
+
+
+def test_worker_boundaries_reject_serialized_harness_secret_keys() -> None:
+    with pytest.raises(PermissionError, match="OPENAI_API_KEY"):
+        run_trial({"trial_id": "T123", "OPENAI_API_KEY": "secret"})
+    with pytest.raises(PermissionError, match="GITHUB_TOKEN"):
+        sample_once({"trial_id": "T123", "env": {"GITHUB_TOKEN": "secret"}})
+    with pytest.raises(PermissionError, match="MODAL_TOKEN_SECRET"):
+        final_validate_seed({"trial_id": "T123", "MODAL_TOKEN_SECRET": "secret"}, seed=1)
+    with pytest.raises(PermissionError, match="DASHBOARD_TOKEN"):
+        debug_sandbox_entry({"DASHBOARD_TOKEN": "secret"})
+
+
+def test_trial_worker_mounts_are_limited_to_trial_artifacts() -> None:
+    assert TRIAL_WORKER_MOUNTS[TRIALS_MOUNT] == "autoalphafold3-data:/runs/trials:rw"
+    assert all("autoalphafold3-locked" not in spec for spec in TRIAL_WORKER_MOUNTS.values())
+    assert all(":/runs:rw" not in spec for spec in TRIAL_WORKER_MOUNTS.values())
+    assert trial_artifact_dir("T123") == f"{TRIALS_MOUNT}/T123"
+    assert all(path.startswith(f"{TRIALS_MOUNT}/T123/") for path in worker_artifact_paths("T123").values())
+    with pytest.raises(ValueError, match="unsafe trial_id"):
+        worker_artifact_paths("../ledger")
 
 
 def test_local_scaffold_contract_is_not_event_search_ready() -> None:

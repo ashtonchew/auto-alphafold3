@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from autoalphafold3.schema import AutoFoldResult, TrialStatus
 
 DEFAULT_LEDGER = Path("runs/ledger.jsonl")
 LEDGER_WRITER_ROLE = "orchestrator"
+LedgerWriterRole = Literal["orchestrator"]
 
 
 class LedgerWriteError(ValueError):
@@ -21,7 +23,7 @@ def append_ledger(
     ledger_path: str | Path = DEFAULT_LEDGER,
     dedupe: bool = False,
     validate_lifecycle: bool = False,
-    writer_role: str = LEDGER_WRITER_ROLE,
+    writer_role: LedgerWriterRole,
 ) -> None:
     """Append a validated canonical result row to the JSONL ledger."""
 

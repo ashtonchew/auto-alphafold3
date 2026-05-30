@@ -13,6 +13,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 APP_NAME = "autoalphafold3-modal"
+TRUSTED_ORCHESTRATOR_CLASS = "TrustedOrchestrator"
 
 DATA_VOLUME = "autoalphafold3-data"
 LOCKED_VOLUME = "autoalphafold3-locked"
@@ -21,6 +22,7 @@ STATUS_DICT = "autoalphafold3-status"
 DATA_MOUNT = "/mnt/autoalphafold3"
 FEATURES_MOUNT = "/mnt/autoalphafold3-features"
 RUNS_MOUNT = "/mnt/autoalphafold3-runs"
+TRIALS_MOUNT = "/mnt/autoalphafold3-trials"
 LOCKED_MOUNT = "/mnt/autoalphafold3-locked"
 
 HARNESS_SECRET_NAMES = (
@@ -42,11 +44,14 @@ FORBIDDEN_EXECUTION_SECRET_ENV = (
 
 TRIAL_WORKER_MOUNTS = {
     FEATURES_MOUNT: f"{DATA_VOLUME}:/features:ro",
-    RUNS_MOUNT: f"{DATA_VOLUME}:/runs:rw",
+    TRIALS_MOUNT: f"{DATA_VOLUME}:/runs/trials:rw",
 }
 SCORER_WORKER_MOUNTS = {
-    RUNS_MOUNT: f"{DATA_VOLUME}:/runs:ro",
+    TRIALS_MOUNT: f"{DATA_VOLUME}:/runs/trials:ro",
     LOCKED_MOUNT: f"{LOCKED_VOLUME}:/:ro",
+}
+HARNESS_MOUNTS = {
+    RUNS_MOUNT: f"{DATA_VOLUME}:/runs:rw",
 }
 PREPROCESS_MOUNTS = {
     DATA_MOUNT: f"{DATA_VOLUME}:/:rw",
@@ -128,9 +133,12 @@ TRUSTED_HARNESS_CONTRACT = {
     "direct_agent_modal_run_allowed": False,
     "arbitrary_agent_sandbox_allowed": False,
     "deployed_lookup_pattern": {
-        "trial_submit": "modal.Cls.from_name(APP_NAME, 'TrialRunner')().run.spawn(trial_json)",
+        "trial_submit": (
+            "modal.Cls.from_name(APP_NAME, 'TrustedOrchestrator')()"
+            ".submit_trial.spawn(trial_json)"
+        ),
         "poll": "modal.FunctionCall.from_id(object_id).get(timeout=0)",
-        "control_wave": "deployed function starmap over orchestrator-authored control tuples",
+        "control_wave": "TrialRunner.run_gate_control.starmap over orchestrator-authored control tuples",
     },
 }
 
@@ -266,6 +274,7 @@ def healthcheck() -> dict[str, Any]:
         "mounts": {
             "trial_workers": TRIAL_WORKER_MOUNTS,
             "scorer_workers": SCORER_WORKER_MOUNTS,
+            "harness": HARNESS_MOUNTS,
             "preprocess": PREPROCESS_MOUNTS,
         },
         "resource_tiers": {name: tier.__dict__ for name, tier in RESOURCE_TIERS.items()},
@@ -301,6 +310,7 @@ def modal_deploy_plan() -> dict[str, Any]:
         "mounts": {
             "trial_workers": TRIAL_WORKER_MOUNTS,
             "scorer_workers": SCORER_WORKER_MOUNTS,
+            "harness": HARNESS_MOUNTS,
         },
         "resource_tiers": {name: tier.__dict__ for name, tier in RESOURCE_TIERS.items()},
         "function_contracts": FUNCTION_CONTRACTS,
@@ -337,6 +347,21 @@ def validate_worker_role_contracts() -> dict[str, Any]:
             errors.append(f"{role}: non-scorer role must use trial worker mounts")
         if role == WorkerRole.SCORER.value and mounts != "scorer_workers":
             errors.append("scorer: scorer role must use scorer worker mounts")
+    if LOCKED_MOUNT in TRIAL_WORKER_MOUNTS or any(LOCKED_VOLUME in spec for spec in TRIAL_WORKER_MOUNTS.values()):
+        errors.append("trial_workers: execution workers must not mount locked assets")
+    feature_spec = TRIAL_WORKER_MOUNTS.get(FEATURES_MOUNT, "")
+    if not feature_spec.endswith(":ro"):
+        errors.append("trial_workers: feature mount must be read-only")
+    writable_trial_mounts = [
+        mount
+        for mount, spec in TRIAL_WORKER_MOUNTS.items()
+        if spec.endswith(":rw")
+    ]
+    if writable_trial_mounts != [TRIALS_MOUNT]:
+        errors.append("trial_workers: writable mount must be limited to trial artifact subpath")
+    for spec in TRIAL_WORKER_MOUNTS.values():
+        if ":/runs:rw" in spec:
+            errors.append("trial_workers: must not mount whole runs tree writable")
     return {"ok": not errors, "errors": errors}
 
 
@@ -396,7 +421,9 @@ def trial_dir(trial_id: str) -> PurePosixPath:
 
     if "/" in trial_id or ".." in trial_id:
         raise ValueError(f"unsafe trial_id: {trial_id}")
-    return PurePosixPath(RUNS_MOUNT) / "trials" / trial_id
+    from autoalphafold3.runner import validate_trial_id
+
+    return PurePosixPath(TRIALS_MOUNT) / validate_trial_id(trial_id)
 
 
 def trial_artifact_dir(trial_id: str) -> str:
@@ -428,6 +455,12 @@ def _trial_artifact_placeholder(trial_payload: dict[str, Any], *, function_name:
     fixed-budget NanoFold training/evaluation that writes artifacts only.
     """
 
+    role = {
+        "run_trial": WorkerRole.TRIAL.value,
+        "sample_once": WorkerRole.SAMPLER.value,
+        "final_validate_seed": WorkerRole.FINAL_VALIDATION.value,
+    }.get(function_name, WorkerRole.TRIAL.value)
+    validate_execution_payload(trial_payload, role=role)
     trial_id = str(trial_payload.get("trial_id", "UNKNOWN"))
     return {
         "status": "INFRA_FAIL",
@@ -459,10 +492,13 @@ def run_sampler_grid(trial_payload: dict[str, Any]) -> dict[str, Any]:
 def score_trial(trial_id: str) -> dict[str, Any]:
     """Placeholder for scorer-only public-validation scoring."""
 
+    from autoalphafold3.runner import validate_trial_id
+
+    checked_trial_id = validate_trial_id(trial_id)
     return {
         "status": "INFRA_FAIL",
         "reason": "scorer_worker_not_deployed_in_local_environment",
-        "trial_id": trial_id,
+        "trial_id": checked_trial_id,
         "scoring_mounts": SCORER_WORKER_MOUNTS,
     }
 
@@ -485,12 +521,15 @@ def final_validate_seed(trial_payload: dict[str, Any], seed: int) -> dict[str, A
 def score_final_seed(trial_id: str, seed: int, split: str = "public_val_small") -> dict[str, Any]:
     """Placeholder for scorer-only final public-validation scoring."""
 
+    from autoalphafold3.runner import validate_trial_id
+
     if split != "public_val_small":
         raise PermissionError(f"unsupported final scoring split: {split}")
+    checked_trial_id = validate_trial_id(trial_id)
     return {
         "status": "INFRA_FAIL",
         "reason": "final_scorer_worker_not_deployed_in_local_environment",
-        "trial_id": trial_id,
+        "trial_id": checked_trial_id,
         "seed": seed,
         "split": split,
         "scoring_mounts": SCORER_WORKER_MOUNTS,
@@ -500,6 +539,7 @@ def score_final_seed(trial_id: str, seed: int, split: str = "public_val_small") 
 def debug_sandbox_entry(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Placeholder for a manually triggered debug path."""
 
+    validate_execution_payload(payload or {}, role=WorkerRole.DEBUG.value)
     return {
         "status": "INFRA_FAIL",
         "reason": "debug_sandbox_not_deployed_in_local_environment",
@@ -516,8 +556,9 @@ except ModuleNotFoundError:
 if modal is not None:
     data_volume = modal.Volume.from_name(DATA_VOLUME, create_if_missing=False)
     locked_volume = modal.Volume.from_name(LOCKED_VOLUME, create_if_missing=False)
-    runs_ro = data_volume.with_mount_options(read_only=True, sub_path="/runs")
     runs_rw = data_volume.with_mount_options(sub_path="/runs")
+    trials_ro = data_volume.with_mount_options(read_only=True, sub_path="/runs/trials")
+    trials_rw = data_volume.with_mount_options(sub_path="/runs/trials")
     features_ro = data_volume.with_mount_options(read_only=True, sub_path="/features")
     locked_ro = locked_volume.with_mount_options(read_only=True)
     scorer_image = modal.Image.debian_slim().pip_install("numpy").add_local_python_source(
@@ -542,7 +583,7 @@ if modal is not None:
         scaledown_window=600,
         timeout=RESOURCE_TIERS["score_trial"].timeout_s,
         max_containers=RESOURCE_TIERS["score_trial"].max_containers,
-        volumes={RUNS_MOUNT: runs_ro, LOCKED_MOUNT: locked_ro},
+        volumes={TRIALS_MOUNT: trials_ro, LOCKED_MOUNT: locked_ro},
     )
     @modal.concurrent(max_inputs=4, target_inputs=2)
     class Scorer:
@@ -550,7 +591,7 @@ if modal is not None:
 
         @modal.enter(snap=True)
         def load_locked_state(self) -> None:
-            runs_ro.reload()
+            trials_ro.reload()
             locked_ro.reload()
             from autoalphafold3.locked_scorer import load_locked_state
 
@@ -574,7 +615,7 @@ if modal is not None:
         scaledown_window=300,
         timeout=RESOURCE_TIERS["trial"].timeout_s,
         max_containers=RESOURCE_TIERS["trial"].max_containers,
-        volumes={FEATURES_MOUNT: features_ro, RUNS_MOUNT: runs_rw},
+        volumes={FEATURES_MOUNT: features_ro, TRIALS_MOUNT: trials_rw},
     )
     class TrialRunner:
         """Trial worker class; public features and trial runs only."""
@@ -587,10 +628,43 @@ if modal is not None:
         def run(self, trial_json: dict[str, Any]) -> dict[str, Any]:
             from autoalphafold3.runner import run_fixed_budget_trial
 
+            validate_execution_payload(trial_json, role=WorkerRole.TRIAL.value)
             return run_fixed_budget_trial(
                 trial_json,
                 features_dir=FEATURES_MOUNT,
                 output_dir=trial_artifact_dir(str(trial_json["trial_id"])),
             )
+
+        @modal.method()
+        def run_gate_control(self, control_payload: dict[str, Any], seed: int) -> dict[str, Any]:
+            validate_execution_payload(control_payload, role=WorkerRole.TRIAL.value)
+            return self.run({**control_payload, "seed": seed})
+
+    @app.cls(
+        image=scorer_image,
+        cpu=1.0,
+        volumes={RUNS_MOUNT: runs_rw},
+    )
+    class TrustedOrchestrator:
+        """CPU-only trusted harness entrypoint; execution workers do not call it."""
+
+        @modal.method()
+        def submit_trial(self, trial_json: dict[str, Any]) -> dict[str, Any]:
+            validate_execution_payload(trial_json, role=WorkerRole.TRIAL.value)
+            runner = TrialRunner()
+            call = runner.run.spawn(trial_json)
+            return {
+                "trial_id": str(trial_json["trial_id"]),
+                "status": "SUBMITTED",
+                "candidate_id": "modal_trusted_orchestrator",
+                "metrics": {},
+                "fold_cartographer": {
+                    "signature": "trusted_orchestrator_submitted",
+                    "summary": {"worker_call_id": call.object_id},
+                    "buckets": {},
+                },
+                "artifacts": {"worker_call_id": call.object_id},
+                "postmortem": "Trusted orchestrator accepted and spawned the trial worker.",
+            }
 else:
     app = None

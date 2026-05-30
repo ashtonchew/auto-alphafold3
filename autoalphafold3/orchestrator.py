@@ -14,8 +14,8 @@ from autoalphafold3.baseline_readiness import (
     BaselineReadinessError,
     current_best_from_baseline_and_ledger,
 )
-from autoalphafold3.ledger import append_ledger, latest_result_for_trial, read_ledger
-from autoalphafold3.modal_app import APP_NAME
+from autoalphafold3.ledger import LEDGER_WRITER_ROLE, append_ledger, latest_result_for_trial, read_ledger
+from autoalphafold3.modal_app import APP_NAME, TRUSTED_ORCHESTRATOR_CLASS, WorkerRole, validate_execution_payload
 from autoalphafold3.preflight import run_preflight
 from autoalphafold3.schema import AutoFoldResult, DiscoveryStatus, FoldCartographerReport, PRIMARY_METRIC, TrialStatus
 
@@ -64,11 +64,12 @@ def submit_trial(
         artifacts={key: str(value) for key, value in metrics_json["artifacts"].items()},
         postmortem="Local dry-run preflight passed; Modal was not called.",
     )
-    append_ledger(result, ledger_path=Path(repo_root) / ledger_path, dedupe=True)
+    append_ledger(result, ledger_path=Path(repo_root) / ledger_path, dedupe=True, writer_role=LEDGER_WRITER_ROLE)
     return f"{LOCAL_CALL_PREFIX}:{preflight.trial.trial_id}"
 
 
 def _submit_modal(trial_payload: dict[str, object], *, repo_root: str | Path, ledger_path: str | Path) -> str:
+    validate_execution_payload(trial_payload, role=WorkerRole.TRIAL.value)
     try:
         import modal
     except ModuleNotFoundError:
@@ -81,20 +82,26 @@ def _submit_modal(trial_payload: dict[str, object], *, repo_root: str | Path, le
             failure_signature="modal_sdk_missing",
             postmortem="Modal submission requested, but the Modal SDK is not installed.",
         )
-        append_ledger(result, ledger_path=Path(repo_root) / ledger_path, dedupe=True)
+        append_ledger(result, ledger_path=Path(repo_root) / ledger_path, dedupe=True, writer_role=LEDGER_WRITER_ROLE)
         return f"{MODAL_CALL_PREFIX}:INFRA_FAIL:{trial_payload['trial_id']}"
 
     try:
-        runner_cls = modal.Cls.from_name(APP_NAME, "TrialRunner")
-        runner = runner_cls()
-        call = runner.run.spawn(trial_payload)
+        orchestrator_cls = modal.Cls.from_name(APP_NAME, TRUSTED_ORCHESTRATOR_CLASS)
+        orchestrator = orchestrator_cls()
+        call = orchestrator.submit_trial.spawn(trial_payload)
     except Exception as exc:  # noqa: BLE001 - external Modal failures normalize to INFRA_FAIL.
         result = modal_infra_failure_result(
             trial_id=str(trial_payload["trial_id"]),
             candidate_id="modal_submission",
             exc=exc,
         )
-        append_ledger(result, ledger_path=Path(repo_root) / ledger_path, dedupe=True, validate_lifecycle=True)
+        append_ledger(
+            result,
+            ledger_path=Path(repo_root) / ledger_path,
+            dedupe=True,
+            validate_lifecycle=True,
+            writer_role=LEDGER_WRITER_ROLE,
+        )
         return f"{MODAL_CALL_PREFIX}:INFRA_FAIL:{trial_payload['trial_id']}"
     return f"{MODAL_CALL_PREFIX}:{call.object_id}"
 
@@ -147,7 +154,13 @@ def _poll_modal(call_id: str, *, repo_root: str | Path, ledger_path: str | Path)
             candidate_id="modal_poll",
             exc=exc,
         )
-    append_ledger(result, ledger_path=Path(repo_root) / ledger_path, dedupe=True, validate_lifecycle=True)
+    append_ledger(
+        result,
+        ledger_path=Path(repo_root) / ledger_path,
+        dedupe=True,
+        validate_lifecycle=True,
+        writer_role=LEDGER_WRITER_ROLE,
+    )
     return result
 
 
@@ -160,7 +173,13 @@ def record_trial_status(
     """Validate and append one lifecycle transition with duplicate protection."""
 
     row = result if isinstance(result, AutoFoldResult) else AutoFoldResult.model_validate(result)
-    append_ledger(row, ledger_path=Path(repo_root) / ledger_path, dedupe=True, validate_lifecycle=True)
+    append_ledger(
+        row,
+        ledger_path=Path(repo_root) / ledger_path,
+        dedupe=True,
+        validate_lifecycle=True,
+        writer_role=LEDGER_WRITER_ROLE,
+    )
     return row
 
 
@@ -243,7 +262,13 @@ def record_stage_one_decision(
         ledger_path=ledger_path,
         keep_delta=keep_delta,
     )
-    append_ledger(decision, ledger_path=Path(repo_root) / ledger_path, dedupe=True, validate_lifecycle=True)
+    append_ledger(
+        decision,
+        ledger_path=Path(repo_root) / ledger_path,
+        dedupe=True,
+        validate_lifecycle=True,
+        writer_role=LEDGER_WRITER_ROLE,
+    )
     return decision
 
 

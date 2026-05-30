@@ -1,0 +1,6 @@
+interface:
+  display_name: "Fold Cartographer"
+  short_description: "Route folding diagnostics safely"
+  default_prompt: "Use $fold-cartographer to pick one diagnostic target from an auto-AlphaFold3 error report."
+policy:
+  allow_implicit_invocation: true

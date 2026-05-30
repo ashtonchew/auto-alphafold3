@@ -1,0 +1,6 @@
+interface:
+  display_name: "auto-AlphaFold3 Researcher"
+  short_description: "Run the safe folding research loop"
+  default_prompt: "Use $autoalphafold3-researcher to propose one safe AlphaFold3-lite trial from the latest diagnostics."
+policy:
+  allow_implicit_invocation: true

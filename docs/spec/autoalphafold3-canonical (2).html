@@ -828,10 +828,34 @@ def append_ledger(row: dict) -&gt; None:
     <li><strong>Cost caps and failure statuses.</strong> NaNs, OOMs, shape errors, timeouts, infra failures, and gate kills are first-class outcomes.</li>
   </ul>
 
-  <h3>5.4 &nbsp;Storage discipline</h3>
+  <h3>5.4 &nbsp;Agent-facing skills</h3>
+  <p>The autoresearch agent receives four narrow project skills, not the broad upstream Modal autoresearch skills. The skills expose folding-research behavior while preserving the locked benchmark and creator-designed Modal control plane.</p>
+  <ul>
+    <li><code>autoalphafold3-researcher</code>: main hypothesis loop, one diagnostic target, one move family, KEEP/DISCARD/FAIL discipline.</li>
+    <li><code>autoalphafold3-trial-submit</code>: validates exactly one <code>AutoFoldTrial</code> JSON and returns only <code>python -m autoalphafold3.agent submit trials/T###.json</code>.</li>
+    <li><code>fold-cartographer</code>: maps scorer diagnostics to exactly one canonical failure target while keeping <code>best_val_calpha_lddt</code> primary.</li>
+    <li><code>autoalphafold3-subagent-worker</code>: supports fast parallel proposal fanout; workers return bounded proposal artifacts and do not submit, integrate, call Modal, or write ledgers.</li>
+  </ul>
+
+  <p>The skills intentionally do not expose direct <code>modal run</code>, <code>modal.Function.from_name</code>, <code>modal.Sandbox.create</code>, GPU choice, Volume mutation, scorer edits, split edits, falsification-control edits, Discovery Ledger edits, or hidden-validation search. Those powers remain outside the autonomous folding researcher.</p>
+
+  <h3>5.5 &nbsp;Fast skill evals</h3>
+  <p>Before autoresearch starts, the project runs skill evals to verify that the skills do what they claim. The default eval path is optimized for wall-clock time: fan out independent cases, run static and offline fixture assertions first, use small mini/spark-class models for sampled live checks, and escalate to a stronger model only for ambiguous or failed results.</p>
+  <ul>
+    <li><strong>Offline layer.</strong> Validate skill frontmatter, linked references, UI metadata, required guardrails, forbidden-action scans, eval case coverage, and synthetic expected-output assertions.</li>
+    <li><strong>Sampled live layer.</strong> Run one or more synthetic prompts per skill with small fast agents/subagents. The prompts may not call Modal, use GPUs, touch hidden validation, edit the gate, or submit real trials.</li>
+    <li><strong>Artifacts.</strong> Store transcripts, assertion results, and recommended revisions under <code>.claude/skill-eval-workspace/iteration-N/</code>, outside the skill instructions themselves.</li>
+  </ul>
+
+  <h3>5.6 &nbsp;Implementation status — skills and evals</h3>
+  <p>The first agent-facing skill set is implemented under <code>.claude/skills/</code>. Each skill has a lean <code>SKILL.md</code>, directly linked references, UI metadata in <code>agents/openai.yaml</code>, and at least three eval cases covering positive, negative, and edge behavior. The eval cases are synthetic and local by design.</p>
+  <p>The offline eval runner, <code>.claude/skill-evals/run_offline_evals.py</code>, now checks both skill quality and fanout readiness: frontmatter, linked references, required guardrails, forbidden-action scans, eval case coverage, fixture assertions, fast-model policy, parallel policy, live-eval plan presence, prompt-builder import, per-skill prompt rendering, reference inlining, and no expected-output leakage. The latest run passed <code>148</code> checks.</p>
+  <p>Sampled live fanout was tested with <code>gpt-5.3-codex-spark</code> on synthetic prompts. The pass found and fixed two reliability gaps: unsafe researcher requests now produce an explicit <code>REFUSE</code> / <code>Human infrastructure repair mode</code> response, and forbidden subagent-worker assignments now produce an explicit <code>REFUSE</code> instead of a proposal-shaped artifact. The live prompt builder inlines <code>SKILL.md</code> plus direct references so live evals do not rely on implicit skill attachment behavior.</p>
+
+  <h3>5.7 &nbsp;Storage discipline</h3>
   <p>Workers never append to one shared ledger. Each trial worker writes into its own directory: <code>/runs/trials/T123/artifact_manifest.json</code>, <code>training_log.json</code>, <code>stdout.log</code>, <code>stderr.log</code>, <code>patch.diff</code>, checkpoint, and optional overlay-ready coordinates. Gate controls write under <code>/runs/trials/T123/falsification/</code>. The scorer-only worker reads those directories and returns metrics plus an <code>error_report</code> payload; the local orchestrator merges returned diagnostics and the computed verdict into <code>runs/ledger.jsonl</code> and, on CONFIRMED, into the Discovery Ledger. This avoids Volume write contention and keeps postmortems clean.</p>
 
-  <h3>5.5 &nbsp;Preflight gates</h3>
+  <h3>5.8 &nbsp;Preflight gates</h3>
   <ul>
     <li>Patch-scope check: forbidden files unchanged.</li>
     <li>Config schema check: all required NanoFold keys present.</li>
@@ -843,7 +867,7 @@ def append_ledger(row: dict) -&gt; None:
     <li>Only then launch fixed-budget training or sampler evaluation.</li>
   </ul>
 
-  <h3>5.6 &nbsp;Falsification gate execution</h3>
+  <h3>5.9 &nbsp;Falsification gate execution</h3>
   <p>When a trial returns a provisional KEEP, the orchestrator builds the controls and fires them as a parallel wave. The knock-out is constructed mechanically by reverting the declared <code>causal_component</code> from the candidate patch; the placebo is drawn from an unrelated move family at matched magnitude; the seed rerun repeats the candidate across <code>n_seeds</code>. For sampler-family mechanisms the controls are inference-only on the frozen checkpoint, so they are seconds long and ride the cheap path. Exceptions are treated as first-class results so a FAILed control becomes a clean kill rather than a crashed wave.</p>
 
   <p class="code-label">autoalphafold3/falsification.py — wave + verdict (locked)</p>
@@ -1521,6 +1545,24 @@ rerun. You do not author these. The verdict is one of:
 Each confirmed entry carries the axis it moves and a one-line design rule. Prefer
 hypotheses that stack on confirmed mechanisms or attack an axis no confirmed entry
 has moved yet. Do not re-litigate a mechanism the ledger already confirmed or killed.
+
+## Agent-facing skills and evals
+Use the project skills as narrow operating modes:
+- autoalphafold3-researcher: choose one diagnostic target, one move family, and
+  one falsifiable folding hypothesis.
+- fold-cartographer: map scorer diagnostics to exactly one canonical target while
+  keeping best_val_calpha_lddt as the only primary objective.
+- autoalphafold3-trial-submit: validate one AutoFoldTrial JSON and return only
+  the approved local orchestrator command.
+- autoalphafold3-subagent-worker: generate bounded proposal artifacts for
+  parallel hypothesis fanout; workers do not submit, integrate, call Modal, edit
+  locked files, or write ledgers.
+
+Skill evals must pass before autonomous research starts. Evals are synthetic and
+local: no Modal calls, no GPUs, no hidden validation, no gate edits, and no real
+trial submission. Run static/offline checks first, fan out sampled live evals on
+small fast models, and reserve stronger adjudication for failed or ambiguous
+outputs.
 
 ## You MAY edit
 - autoalphafold3/ patch modules; selected nanofold/train model/training modules

@@ -1,0 +1,6 @@
+interface:
+  display_name: "auto-AlphaFold3 Worker"
+  short_description: "Generate bounded proposal artifacts"
+  default_prompt: "Use $autoalphafold3-subagent-worker to produce one bounded AlphaFold3-lite proposal for an assigned diagnostic target."
+policy:
+  allow_implicit_invocation: true

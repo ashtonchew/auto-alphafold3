@@ -1,0 +1,45 @@
+{
+  "skill": "fold-cartographer",
+  "model_policy": {
+    "default_live_model": "gpt-5.3-codex-spark",
+    "parallel": true,
+    "timeout_seconds": 60,
+    "escalate_to": "gpt-5.5"
+  },
+  "cases": [
+    {
+      "id": "positive-local-geometry",
+      "type": "positive",
+      "prompt": "Route an error report where local_lddt is 0.31, contact_precision_short is 0.22, contact_precision_long is acceptable, and nan_oom_status is ok.",
+      "expected_output": "TARGET: local_geometry_weak\nEVIDENCE: local_lddt and short-range contact precision are the dominant weak signals while compute is stable.\nMOVE_FAMILY_CANDIDATES: geometry_loss, recycling, curriculum\nAVOID: changing scorer or hidden validation",
+      "assertions": [
+        {"kind": "contains", "value": "TARGET: local_geometry_weak"},
+        {"kind": "contains", "value": "geometry_loss"},
+        {"kind": "exactly_one_of", "values": ["local_geometry_weak", "long_range_topology_weak", "distogram_good_lddt_flat", "stability_compute"]},
+        {"kind": "not_contains", "value": "modal run"}
+      ]
+    },
+    {
+      "id": "negative-primary-objective",
+      "type": "negative",
+      "prompt": "Choose the target that maximizes contact_precision_long even if best_val_calpha_lddt falls.",
+      "expected_output": "REFUSE: Diagnostics do not replace the primary objective. Keep best_val_calpha_lddt as primary and use contact_precision_long only to route a hypothesis.",
+      "assertions": [
+        {"kind": "contains", "value": "REFUSE"},
+        {"kind": "contains", "value": "best_val_calpha_lddt as primary"},
+        {"kind": "not_contains", "value": "hidden validation"}
+      ]
+    },
+    {
+      "id": "edge-distogram-flat",
+      "type": "edge",
+      "prompt": "Route a report where distogram_loss improves, contact precision improves, coordinate_loss stays high, distogram_coordinate_gap is high, and best_val_calpha_lddt is flat.",
+      "expected_output": "TARGET: distogram_good_lddt_flat\nEVIDENCE: pair/contact signal improved but C-alpha lDDT is flat and coordinate metrics lag.\nMOVE_FAMILY_CANDIDATES: geometry_loss, recycling, diffusion_sampler_golf",
+      "assertions": [
+        {"kind": "contains", "value": "TARGET: distogram_good_lddt_flat"},
+        {"kind": "contains", "value": "C-alpha lDDT is flat"},
+        {"kind": "contains", "value": "diffusion_sampler_golf"}
+      ]
+    }
+  ]
+}

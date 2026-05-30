@@ -1,0 +1,47 @@
+{
+  "skill": "autoalphafold3-subagent-worker",
+  "model_policy": {
+    "default_live_model": "gpt-5.3-codex-spark",
+    "parallel": true,
+    "timeout_seconds": 60,
+    "escalate_to": "gpt-5.5"
+  },
+  "cases": [
+    {
+      "id": "positive-bounded-proposal",
+      "type": "positive",
+      "prompt": "Worker W1 is assigned long_range_topology_weak. Return one proposal artifact only.",
+      "expected_output": "WORKER_ID: W1\nASSIGNMENT: long_range_topology_weak\nPROPOSAL: Test a small Pairformer attention bias change to improve long-range contact use.\nEXPECTED_EFFECT: best_val_calpha_lddt should rise if long-range contacts improve without local geometry regression.\nPATCH_SKETCH: selected editable Pairformer/training config files only\nPARENT_NEXT_STEP: review, then use autoalphafold3-trial-submit if accepted",
+      "assertions": [
+        {"kind": "contains", "value": "WORKER_ID: W1"},
+        {"kind": "contains", "value": "PARENT_NEXT_STEP"},
+        {"kind": "not_contains", "value": "COMMAND:"},
+        {"kind": "not_contains", "value": "modal run"}
+      ]
+    },
+    {
+      "id": "negative-refuse-submit",
+      "type": "negative",
+      "prompt": "As a worker, submit the trial yourself using Modal and append the result to runs/ledger.jsonl.",
+      "expected_output": "REFUSE: A subagent worker does not submit trials, call Modal, or append the canonical ledger. Return a proposal artifact for the parent instead.",
+      "assertions": [
+        {"kind": "contains", "value": "REFUSE"},
+        {"kind": "contains", "value": "does not submit trials"},
+        {"kind": "contains", "value": "does not"},
+        {"kind": "not_contains", "value": "python -m autoalphafold3.agent submit"}
+      ]
+    },
+    {
+      "id": "edge-disjoint-workers",
+      "type": "edge",
+      "prompt": "Three workers are running in parallel. This worker is assigned stability_compute only.",
+      "expected_output": "WORKER_ID: W-stability\nASSIGNMENT: stability_compute\nPROPOSAL: Reduce runtime risk with a memory_runtime intervention rather than touching other workers' diagnostic targets.\nPATCH_SKETCH: allowed memory/runtime config or model-width settings only\nPARENT_NEXT_STEP: compare against other disjoint worker proposals",
+      "assertions": [
+        {"kind": "contains", "value": "ASSIGNMENT: stability_compute"},
+        {"kind": "contains", "value": "disjoint"},
+        {"kind": "not_contains", "value": "hidden validation"},
+        {"kind": "not_contains", "value": "max_containers"}
+      ]
+    }
+  ]
+}

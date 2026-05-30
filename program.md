@@ -77,6 +77,17 @@ python -m autoalphafold3.agent submit trials/T###.json
 
 Workers write only to their own trial directories. The local orchestrator is the only writer for the canonical ledger.
 
+## Agent-Facing Skills And Evals
+
+Use the project skills as narrow operating modes:
+
+- `autoalphafold3-researcher`: choose one diagnostic target, one move family, and one falsifiable folding hypothesis.
+- `fold-cartographer`: map scorer diagnostics to exactly one canonical target while keeping `best_val_calpha_lddt` as the only primary objective.
+- `autoalphafold3-trial-submit`: validate one `AutoFoldTrial` JSON and return only the approved local orchestrator command.
+- `autoalphafold3-subagent-worker`: generate bounded proposal artifacts for parallel hypothesis fanout; workers do not submit, integrate, call Modal, edit locked files, or write ledgers.
+
+Skill evals must pass before autonomous research starts. Evals are synthetic and local: no Modal calls, no GPUs, no hidden validation, no gate edits, and no real trial submission. Run static/offline checks first, fan out sampled live evals on small fast models, and reserve stronger adjudication for failed or ambiguous outputs.
+
 ## Trial Lifecycle
 
 ```text

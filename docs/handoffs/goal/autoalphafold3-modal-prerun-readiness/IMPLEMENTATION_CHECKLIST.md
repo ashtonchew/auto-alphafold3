@@ -37,14 +37,14 @@
 - [x] Asset audit validates required files and separation.
 - [x] Public data Volume rejects locked-label filenames and locked prefixes.
 - [x] Official runs enforce `max_templates=0`.
-- [ ] Readiness CLI/report implemented.
-- [ ] Readiness report distinguishes local, mocked Modal, approved live,
+- [x] Readiness CLI/report implemented.
+- [x] Readiness report distinguishes local, mocked Modal, approved live,
   pending-human-live, and blocked evidence.
-- [ ] Known-null and known-positive gate calibration complete or exact
+- [x] Known-null and known-positive gate calibration complete or exact
   `PENDING_HUMAN_LIVE_ACTION` recorded.
 - [ ] Four feature PRs merged.
-- [ ] `python3 -m pytest -p no:cacheprovider` passes.
-- [ ] `python3 .claude/skill-evals/run_offline_evals.py` passes.
-- [ ] `git diff --check` passes.
+- [x] `python3 -m pytest -p no:cacheprovider` passes.
+- [x] `python3 .claude/skill-evals/run_offline_evals.py` passes.
+- [x] `git diff --check` passes.
 - [x] No fake benchmark/data/Modal/gate/discovery artifacts created.
 - [x] Autonomous research search not started.

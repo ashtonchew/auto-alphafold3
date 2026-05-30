@@ -90,4 +90,23 @@ Implementation approach:
 
 ## Feature 4: `feat/prerun-readiness-report`
 
-Pending until Feature 3 is merged.
+Read-only agent findings:
+
+- The readiness report already covers baseline lock, local NanoFold gates,
+  gate calibration, live-smoke approval, CLI JSON serialization, and no
+  side-effect tests.
+- The main gap was exposing the canonical certification vocabulary directly in
+  the JSON report, especially `PASS_MOCKED_MODAL`.
+- Goal docs and checklist needed final feature updates before the last PR.
+
+Implementation approach:
+
+- Preserve existing section `status` values for compatibility while adding
+  `certification_status` to every section.
+- Add a mocked Modal contract section sourced from the offline harness/worker
+  role validators.
+- Report certification counts for `PASS_LOCAL`, `PASS_MOCKED_MODAL`,
+  `PASS_LIVE`, `PENDING_HUMAN_LIVE_ACTION`, `BLOCKED`, and `NOT_REQUESTED`.
+- Treat missing gate calibration as an exact pending human live action, not as
+  implementation-complete search readiness.
+- Keep live Modal asset audit opt-in and read-only.

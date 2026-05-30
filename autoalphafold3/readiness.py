@@ -11,6 +11,7 @@ from typing import Callable
 
 from autoalphafold3.baseline_readiness import BaselineReadinessReport, audit_baseline_readiness
 from autoalphafold3.modal_assets import ModalAssetAudit, audit_modal_assets
+from autoalphafold3.modal_app import event_search_readiness_contract
 from autoalphafold3.nanofold_checks import NanoFoldGateResult, run_nanofold_preflight_gates
 from autoalphafold3.schema import FalsificationVerdict, PRIMARY_METRIC, SCORER_VERSION
 
@@ -18,6 +19,8 @@ PUBLIC_VAL_SPLIT = "public_val_small"
 DEFAULT_CALIBRATION_PATH = Path("runs/falsification_gate_calibration.json")
 HUMAN_ACTION_MARKER = "Human-approved live calibration:"
 LIVE_SMOKE_MARKER = "Human-approved read-only live smoke:"
+BASELINE_LOCK_MARKER = "Human-approved baseline lock:"
+LOCAL_DEPENDENCY_MARKER = "Human-approved local dependency action:"
 
 
 class ReadinessStatus(StrEnum):
@@ -29,11 +32,23 @@ class ReadinessStatus(StrEnum):
     NOT_REQUESTED = "NOT_REQUESTED"
 
 
+class CertificationStatus(StrEnum):
+    """Canonical evidence classes used by the final readiness report."""
+
+    PASS_LOCAL = "PASS_LOCAL"
+    PASS_MOCKED_MODAL = "PASS_MOCKED_MODAL"
+    PASS_LIVE = "PASS_LIVE"
+    PENDING_HUMAN_LIVE_ACTION = "PENDING_HUMAN_LIVE_ACTION"
+    BLOCKED = "BLOCKED"
+    NOT_REQUESTED = "NOT_REQUESTED"
+
+
 @dataclass(frozen=True)
 class ReadinessSection:
     """One report section with problems and pending actions."""
 
     status: ReadinessStatus
+    certification_status: CertificationStatus
     problems: list[str] = field(default_factory=list)
     pending_human_action: str | None = None
     details: dict[str, object] = field(default_factory=dict)
@@ -41,6 +56,7 @@ class ReadinessSection:
     def to_dict(self) -> dict[str, object]:
         return {
             "status": self.status.value,
+            "certification_status": self.certification_status.value,
             "problems": self.problems,
             "pending_human_action": self.pending_human_action,
             "details": self.details,
@@ -54,22 +70,26 @@ class ReadinessReport:
     mode: str
     autonomous_search_ready: bool
     baseline_lock: ReadinessSection
+    mocked_modal_contract: ReadinessSection
     local_gates: ReadinessSection
     gate_calibration: ReadinessSection
     live_smoke: ReadinessSection
     problems: list[str] = field(default_factory=list)
     pending_human_actions: list[str] = field(default_factory=list)
+    certification_counts: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
             "mode": self.mode,
             "autonomous_search_ready": self.autonomous_search_ready,
             "baseline_lock": self.baseline_lock.to_dict(),
+            "mocked_modal_contract": self.mocked_modal_contract.to_dict(),
             "local_gates": self.local_gates.to_dict(),
             "gate_calibration": self.gate_calibration.to_dict(),
             "live_smoke": self.live_smoke.to_dict(),
             "problems": self.problems,
             "pending_human_actions": self.pending_human_actions,
+            "certification_counts": self.certification_counts,
         }
 
 
@@ -93,6 +113,7 @@ def build_readiness_report(
 
     root = Path(repo_root)
     baseline = _baseline_section(root / baseline_dir)
+    mocked_modal_contract = _mocked_modal_contract_section()
     local_gates = _local_gates_section(
         repo_root=root,
         config_path=config_path,
@@ -108,21 +129,24 @@ def build_readiness_report(
         modal_audit_runner=modal_audit_runner,
     )
 
-    sections = [baseline, local_gates, calibration]
+    sections = [baseline, mocked_modal_contract, local_gates, calibration]
     if include_live_smoke:
         sections.append(live_smoke)
     problems = [problem for section in sections for problem in section.problems]
     pending = [section.pending_human_action for section in sections if section.pending_human_action]
     autonomous_search_ready = all(section.status == ReadinessStatus.PASS for section in sections)
+    certification_counts = _certification_counts(sections + ([] if include_live_smoke else [live_smoke]))
     return ReadinessReport(
         mode="live_smoke" if include_live_smoke else "offline",
         autonomous_search_ready=autonomous_search_ready,
         baseline_lock=baseline,
+        mocked_modal_contract=mocked_modal_contract,
         local_gates=local_gates,
         gate_calibration=calibration,
         live_smoke=live_smoke,
         problems=problems,
         pending_human_actions=[item for item in pending if item is not None],
+        certification_counts=certification_counts,
     )
 
 
@@ -140,12 +164,48 @@ def _baseline_section(baseline_dir: Path) -> ReadinessSection:
     report = audit_baseline_readiness(baseline_dir=baseline_dir)
     details = report.to_dict()
     if report.status == "PASS":
-        return ReadinessSection(status=ReadinessStatus.PASS, details=details)
+        return ReadinessSection(
+            status=ReadinessStatus.PASS,
+            certification_status=CertificationStatus.PASS_LOCAL,
+            details=details,
+        )
+    if _baseline_requires_human_lock(report):
+        return ReadinessSection(
+            status=ReadinessStatus.PENDING,
+            certification_status=CertificationStatus.PENDING_HUMAN_LIVE_ACTION,
+            problems=list(report.problems),
+            pending_human_action=(
+                f"{BASELINE_LOCK_MARKER} provide real locked baseline metrics, error_report, "
+                "feature_fingerprints, label hashes, and provenance under runs/baseline via the approved "
+                "baseline-lock procedure; do not fabricate metrics or mutate locked labels."
+            ),
+            details=details,
+        )
     return ReadinessSection(
         status=ReadinessStatus.FAIL,
+        certification_status=CertificationStatus.BLOCKED,
         problems=list(report.problems),
         pending_human_action=report.pending_human_action,
         details=details,
+    )
+
+
+def _mocked_modal_contract_section() -> ReadinessSection:
+    contract = event_search_readiness_contract()
+    problems: list[str] = []
+    if contract["event_search_ready_locally"] is not False:
+        problems.append("local scaffold contract must not report event search ready")
+    if contract["worker_contracts_valid"] is not True:
+        problems.extend(str(item) for item in contract.get("worker_contract_errors", []))
+    if contract["direct_modal_run_allowed"] is not False:
+        problems.append("direct agent modal run must remain forbidden")
+    if contract["arbitrary_agent_sandbox_allowed"] is not False:
+        problems.append("arbitrary agent sandbox access must remain forbidden")
+    return ReadinessSection(
+        status=ReadinessStatus.FAIL if problems else ReadinessStatus.PASS,
+        certification_status=CertificationStatus.BLOCKED if problems else CertificationStatus.PASS_MOCKED_MODAL,
+        problems=problems,
+        details=contract,
     )
 
 
@@ -162,17 +222,33 @@ def _local_gates_section(
         except Exception as exc:  # noqa: BLE001 - readiness reports failures instead of crashing.
             return ReadinessSection(
                 status=ReadinessStatus.FAIL,
+                certification_status=CertificationStatus.BLOCKED,
                 problems=[f"NanoFold local gates could not run: {type(exc).__name__}: {exc}"],
                 details={"config_path": str(config_path)},
             )
     problems: list[str] = []
+    pending_dependency = False
     for gate in gates:
         if gate.status == "failed":
             problems.append(f"{gate.name} failed: {gate.reason}")
         if gate.name in {"tiny_forward", "finite_loss"} and gate.status != "passed":
             problems.append(f"{gate.name} blocks live readiness: {gate.status} ({gate.reason})")
+            if gate.status == "skipped" and gate.reason == "dependency_missing":
+                pending_dependency = True
+    if problems and pending_dependency and all("failed:" not in problem for problem in problems):
+        return ReadinessSection(
+            status=ReadinessStatus.PENDING,
+            certification_status=CertificationStatus.PENDING_HUMAN_LIVE_ACTION,
+            problems=problems,
+            pending_human_action=(
+                f"{LOCAL_DEPENDENCY_MARKER} install the NanoFold runtime dependencies needed for tiny_forward "
+                f"and finite_loss, then rerun `python3 -m autoalphafold3.agent readiness-report --config-path {config_path}`."
+            ),
+            details={"nanofold_gates": [gate.to_dict() for gate in gates]},
+        )
     return ReadinessSection(
         status=ReadinessStatus.FAIL if problems else ReadinessStatus.PASS,
+        certification_status=CertificationStatus.BLOCKED if problems else CertificationStatus.PASS_LOCAL,
         problems=problems,
         details={"nanofold_gates": [gate.to_dict() for gate in gates]},
     )
@@ -187,17 +263,20 @@ def _calibration_section(
         if not pending_human_calibration_action.startswith(HUMAN_ACTION_MARKER):
             return ReadinessSection(
                 status=ReadinessStatus.FAIL,
+                certification_status=CertificationStatus.BLOCKED,
                 problems=["pending calibration action must name an exact human-approved live calibration action"],
                 details={"calibration_path": str(calibration_path)},
             )
         return ReadinessSection(
             status=ReadinessStatus.PENDING,
+            certification_status=CertificationStatus.PENDING_HUMAN_LIVE_ACTION,
             pending_human_action=pending_human_calibration_action,
             details={"calibration_path": str(calibration_path), "calibration_complete": False},
         )
     if not calibration_path.exists():
         return ReadinessSection(
-            status=ReadinessStatus.FAIL,
+            status=ReadinessStatus.PENDING,
+            certification_status=CertificationStatus.PENDING_HUMAN_LIVE_ACTION,
             problems=["Falsification Gate calibration evidence is missing"],
             pending_human_action=(
                 f"{HUMAN_ACTION_MARKER} run known-null and known-positive gate calibration with read-only/smoke "
@@ -210,12 +289,14 @@ def _calibration_section(
     except (OSError, json.JSONDecodeError) as exc:
         return ReadinessSection(
             status=ReadinessStatus.FAIL,
+            certification_status=CertificationStatus.BLOCKED,
             problems=[f"Falsification Gate calibration evidence is unreadable: {exc}"],
             details={"calibration_path": str(calibration_path)},
         )
     problems = _validate_calibration_payload(payload)
     return ReadinessSection(
         status=ReadinessStatus.FAIL if problems else ReadinessStatus.PASS,
+        certification_status=CertificationStatus.BLOCKED if problems else CertificationStatus.PASS_LOCAL,
         problems=problems,
         details={"calibration_path": str(calibration_path), "calibration": payload},
     )
@@ -230,6 +311,7 @@ def _live_smoke_section(
     if not include_live_smoke:
         return ReadinessSection(
             status=ReadinessStatus.NOT_REQUESTED,
+            certification_status=CertificationStatus.NOT_REQUESTED,
             pending_human_action=(
                 f"{LIVE_SMOKE_MARKER} run Modal asset audit only; no baseline, ledger, Discovery Ledger, "
                 "benchmark, metric, Volume-write, or trial-run side effects."
@@ -238,6 +320,7 @@ def _live_smoke_section(
     if approved_live_smoke_action is None or not approved_live_smoke_action.startswith(LIVE_SMOKE_MARKER):
         return ReadinessSection(
             status=ReadinessStatus.PENDING,
+            certification_status=CertificationStatus.PENDING_HUMAN_LIVE_ACTION,
             problems=["live readiness smoke requires an exact human-approved read-only action"],
             pending_human_action=(
                 f"{LIVE_SMOKE_MARKER} run Modal asset audit only; no baseline, ledger, Discovery Ledger, "
@@ -247,8 +330,33 @@ def _live_smoke_section(
     audit = modal_audit_runner() if modal_audit_runner is not None else audit_modal_assets()
     details = {"approved_live_smoke_action": approved_live_smoke_action, "modal_assets": audit.to_dict()}
     if audit.status == "PASS":
-        return ReadinessSection(status=ReadinessStatus.PASS, details=details)
-    return ReadinessSection(status=ReadinessStatus.FAIL, problems=list(audit.problems), details=details)
+        return ReadinessSection(
+            status=ReadinessStatus.PASS,
+            certification_status=CertificationStatus.PASS_LIVE,
+            details=details,
+        )
+    return ReadinessSection(
+        status=ReadinessStatus.FAIL,
+        certification_status=CertificationStatus.BLOCKED,
+        problems=list(audit.problems),
+        details=details,
+    )
+
+
+def _certification_counts(sections: list[ReadinessSection]) -> dict[str, int]:
+    counts = {status.value: 0 for status in CertificationStatus}
+    for section in sections:
+        counts[section.certification_status.value] += 1
+    return counts
+
+
+def _baseline_requires_human_lock(report: BaselineReadinessReport) -> bool:
+    missing_only = {
+        "baseline metrics.json is missing",
+        "baseline error_report.json is missing",
+        "baseline feature_fingerprints.json is missing",
+    }
+    return bool(report.problems) and set(report.problems).issubset(missing_only)
 
 
 def _validate_calibration_payload(payload: object) -> list[str]:

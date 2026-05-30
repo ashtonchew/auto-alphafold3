@@ -1,0 +1,4 @@
+interface:
+  display_name: "Modal Docs"
+  short_description: "Current Modal SDK docs and migration guidance"
+  default_prompt: "Use $modal-docs to check current Modal SDK APIs before editing code."

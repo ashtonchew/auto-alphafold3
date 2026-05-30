@@ -194,7 +194,7 @@ def test_modal_asset_audit_fails_bad_split_counts() -> None:
         ("bad_provenance", "provenance.json split count mismatch"),
         ("bad_fingerprints", "feature_fingerprints.json missing SHA256"),
         ("bad_scorer_version", "scorer_version.txt mismatch"),
-        ("locked_prefix_in_data", "public data Volume must not contain a locked/ prefix"),
+        ("locked_prefix_in_data", "public data Volume must not contain locked labels"),
     ],
 )
 def test_modal_asset_audit_fails_invalid_readiness_metadata(flag: str, problem: str) -> None:
@@ -225,6 +225,22 @@ def test_modal_asset_audit_rejects_non_hex_fingerprints() -> None:
 
     assert report.status == "FAIL"
     assert "feature_fingerprints.json missing SHA256 for features/train_tiny.arrow" in " ".join(report.problems)
+
+
+def test_modal_asset_audit_rejects_public_volume_label_leak() -> None:
+    class PublicLabelLeak(FakeModalVolumes):
+        def _ls_data(self, path: str) -> list[dict[str, object]]:
+            entries = super()._ls_data(path)
+            if path == "/features":
+                entries.append(_entry("features/public_val_labels.arrow"))
+            return entries
+
+    fake = PublicLabelLeak(locked=True)
+
+    report = audit_modal_assets(lister=fake.ls, reader=fake.read)
+
+    assert report.status == "FAIL"
+    assert "public data Volume must not contain locked labels" in " ".join(report.problems)
 
 
 def test_agent_audit_modal_assets_cli_with_real_modal_skipped_if_unavailable() -> None:

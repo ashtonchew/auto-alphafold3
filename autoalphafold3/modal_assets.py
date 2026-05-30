@@ -151,9 +151,9 @@ def audit_modal_assets(
     data_missing = [item.path for item in data_files if not item.present]
     if data_missing:
         problems.append(f"missing required data files: {', '.join(data_missing)}")
-    public_data_locked_prefix_absent = "locked" not in data_index and "/locked" not in data_index
+    public_data_locked_prefix_absent = _public_data_locked_assets_absent(data_index, data_features)
     if not public_data_locked_prefix_absent:
-        problems.append("public data Volume must not contain a locked/ prefix")
+        problems.append("public data Volume must not contain locked labels or locked/ prefixes")
 
     locked_files = [
         _evidence(path, locked_volume, _index_for_path(path, locked_root, locked_manifests, locked_labels))
@@ -286,6 +286,16 @@ def _evidence(path: str, volume: str, entry: dict[str, object] | None) -> FileEv
         volume=volume if entry is not None else None,
         size=str(entry.get("Size")) if entry and entry.get("Size") is not None else None,
     )
+
+
+def _public_data_locked_assets_absent(*indexes: dict[str, dict[str, object]]) -> bool:
+    suspicious = ("locked", "/locked", "public_val_labels", "labels/public_val", "validation_labels")
+    for index in indexes:
+        for path in index:
+            lowered = path.lower()
+            if any(token in lowered for token in suspicious):
+                return False
+    return True
 
 
 def _split_counts(

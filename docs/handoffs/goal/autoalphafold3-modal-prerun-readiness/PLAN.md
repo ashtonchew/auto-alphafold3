@@ -66,7 +66,27 @@ Implementation approach:
 
 ## Feature 3: `feat/baseline-scorer-readiness`
 
-Pending until Feature 2 is merged.
+Read-only agent findings:
+
+- Baseline readiness, current-best lookup, scorer-only local artifact scoring,
+  Modal asset audit, no-template checks, and readiness report bridge are already
+  substantially implemented.
+- Highest-value gaps that can be handled offline are baseline lock identity and
+  artifact path validation, stronger public-data Volume locked-label detection,
+  and search patch-policy locks for readiness infrastructure once implemented.
+- Larger live/data checks, such as recomputing real Arrow fingerprints or
+  validating live Modal Volume bytes, remain human-approved live readiness
+  actions.
+
+Implementation approach:
+
+- Do not create baseline metrics, Arrow files, labels, fingerprints, or Modal
+  runs.
+- Reject baseline locks missing `trial_id` or `candidate_id`.
+- Reject baseline artifact pointers outside `runs/baseline/**`.
+- Fail Modal asset audit if obvious locked-label filenames appear in the public
+  data Volume, not only a top-level `locked/` prefix.
+- Lock baseline/scorer/asset readiness modules against future search patches.
 
 ## Feature 4: `feat/prerun-readiness-report`
 

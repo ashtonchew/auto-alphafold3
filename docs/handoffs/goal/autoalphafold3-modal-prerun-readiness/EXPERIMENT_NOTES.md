@@ -25,3 +25,14 @@
   falsification and Discovery Ledger surfaces.
 - Tests remain offline and fakeable; no Modal jobs, benchmark artifacts, gate
   verdict artifacts, or Discovery Ledger records were created.
+
+## Feature 3
+
+- Existing baseline/scorer/asset readiness code already covered most required
+  offline checks.
+- This slice adds baseline label-hash, identity, and artifact-path validation
+  without creating baseline artifacts.
+- Public data Volume checks now reject obvious locked-label filenames as well
+  as locked prefixes.
+- Baseline readiness, locked scorer, and Modal asset audit modules are locked
+  by patch policy for future search.

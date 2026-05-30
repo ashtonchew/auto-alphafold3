@@ -233,6 +233,13 @@ def test_patch_policy_accepts_allowed_paths_and_rejects_locked_paths() -> None:
         validate_patch_scope(["autoalphafold3/scorer/calpha_lddt.py"], repo_root=REPO_ROOT)
     with pytest.raises(PatchPolicyError, match="locked"):
         validate_patch_scope(["autoalphafold3/falsification.py"], repo_root=REPO_ROOT)
+    for locked_path in (
+        "autoalphafold3/baseline_readiness.py",
+        "autoalphafold3/locked_scorer.py",
+        "autoalphafold3/modal_assets.py",
+    ):
+        with pytest.raises(PatchPolicyError, match="locked"):
+            validate_patch_scope([locked_path], repo_root=REPO_ROOT)
     with pytest.raises(PatchPolicyError, match="path traversal"):
         validate_patch_scope(["configs/experiments/../escape.json"], repo_root=REPO_ROOT)
     with pytest.raises(PatchPolicyError, match="binary"):

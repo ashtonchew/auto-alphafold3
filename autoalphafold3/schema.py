@@ -278,6 +278,7 @@ class AutoFoldTrial(BaseModel):
     seed: int = Field(ge=0)
     n_res: int | None = Field(default=None, ge=1)
     max_steps: int | None = Field(default=None, ge=1)
+    sampler_steps: int | None = Field(default=None, ge=1)
     max_wall_minutes: int = Field(ge=1)
     manifest_hashes: dict[str, str] = Field(default_factory=dict)
     scorer_version: str = SCORER_VERSION
@@ -310,9 +311,13 @@ class AutoFoldTrial(BaseModel):
                 raise ValueError("sampler trials require checkpoint_path")
             if self.max_steps is not None:
                 raise ValueError("sampler trials must not set training max_steps")
+            if self.sampler_steps is None:
+                raise ValueError("sampler trials require sampler_steps")
         elif self.trial_kind in {TrialKind.TRAINING, TrialKind.DEBUG, TrialKind.FINAL_VALIDATION}:
             if self.max_steps is None:
                 raise ValueError(f"{self.trial_kind.value} trials require max_steps")
+            if self.sampler_steps is not None:
+                raise ValueError(f"{self.trial_kind.value} trials must not set sampler_steps")
         if self.budget == BudgetTier.DRY_RUN and self.gpu_memory_cap != 0.0:
             raise ValueError("dry_run budget must use gpu_memory_cap=0.0")
         return self

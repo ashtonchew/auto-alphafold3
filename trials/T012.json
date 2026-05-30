@@ -20,6 +20,7 @@
   "config_path": "configs/nanofold_dev_cpu_smoke.json",
   "budget": "sampler",
   "seed": 0,
+  "sampler_steps": 1,
   "n_res": 32,
   "max_wall_minutes": 5,
   "manifest_hashes": {},

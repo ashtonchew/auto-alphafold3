@@ -2,7 +2,7 @@
 
 ## Core Hypothesis
 
-GPT-5.5 can act as an autoresearcher for protein folding, discovering AlphaFold3-lite design improvements in a locked NanoFold-style research sandbox.
+GPT-5.4 mini can act as an autoresearcher for protein folding, discovering AlphaFold3-lite design improvements in a locked NanoFold-style research sandbox. GPT-5.5 remains an explicit higher-tier override, not the default loop model.
 
 We are not modifying, reproducing, training, improving, or beating Google DeepMind's real AlphaFold3. We are using `ogchen/nanofold` as a small NanoFold-style AlphaFold3-lite research sandbox.
 
@@ -100,8 +100,9 @@ Skill evals must pass before autonomous research starts. Evals are synthetic and
 
 The Modal-hosted harness must load `autoalphafold3.llm_policy.default_llm_phase_policies()` rather than relying on OpenAI Agents SDK defaults.
 
-- Hypothesis generation uses Priority processing, web search enabled, `reasoning.effort="low"`, and low verbosity.
-- Patch planning uses Priority processing, web search disabled, `reasoning.effort="medium"`, and low verbosity.
+- Hypothesis generation defaults to `gpt-5.4-mini`, uses Priority processing, web search enabled, `reasoning.effort="low"`, and low verbosity.
+- Patch planning defaults to `gpt-5.4-mini`, uses Priority processing, web search disabled, `reasoning.effort="low"`, and low verbosity.
+- GPT-5.5 is available only behind an explicit model config/CLI override.
 
 Hypothesis generation may use the web to broaden candidate ideas and cite current outside context. Patch planning must stay repo-local so implementation choices are grounded in the allowed edit surface, benchmark contract, diagnostics, and current code.
 

@@ -42,6 +42,11 @@ REQUIRED_LOCKED_FILES = (
 )
 OPTIONAL_LOCKED_FILES = (
 )
+PUBLIC_DATA_LOCKED_LEAK_SCAN_PATHS = (
+    "/labels",
+    "/locked",
+    "/validation_labels",
+)
 
 LockedAssetLayout = Literal["separate_locked_volume", "missing"]
 AuditStatus = Literal["PASS", "FAIL"]
@@ -140,6 +145,11 @@ def audit_modal_assets(
 
     data_index = _safe_index_volume(lister, data_volume, "/", problems=problems)
     data_features = _safe_index_volume(lister, data_volume, "/features", problems=problems)
+    public_data_leak_indexes = [
+        data_index,
+        data_features,
+        *_index_public_data_locked_leak_paths(lister, data_volume),
+    ]
     locked_root = _safe_index_volume(lister, locked_volume, "/", problems=[])
     locked_manifests = _safe_index_volume(lister, locked_volume, "/manifests", problems=[])
     locked_labels = _safe_index_volume(lister, locked_volume, "/labels", problems=[])
@@ -151,7 +161,9 @@ def audit_modal_assets(
     data_missing = [item.path for item in data_files if not item.present]
     if data_missing:
         problems.append(f"missing required data files: {', '.join(data_missing)}")
-    public_data_locked_prefix_absent = _public_data_locked_assets_absent(data_index, data_features)
+    public_data_locked_prefix_absent = _public_data_locked_assets_absent(
+        *public_data_leak_indexes,
+    )
     if not public_data_locked_prefix_absent:
         problems.append("public data Volume must not contain locked labels or locked/ prefixes")
 
@@ -267,6 +279,16 @@ def _safe_index_volume(
             problems.append(str(exc))
         return {}
     return {str(entry.get("Filename", "")): entry for entry in entries}
+
+
+def _index_public_data_locked_leak_paths(
+    lister: VolumeLister,
+    data_volume: str,
+) -> list[dict[str, dict[str, object]]]:
+    indexes: list[dict[str, dict[str, object]]] = []
+    for path in PUBLIC_DATA_LOCKED_LEAK_SCAN_PATHS:
+        indexes.append(_safe_index_volume(lister, data_volume, path, problems=[]))
+    return indexes
 
 
 def _index_for_path(

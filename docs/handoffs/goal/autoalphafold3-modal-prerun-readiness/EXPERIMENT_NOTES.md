@@ -56,3 +56,13 @@
   local-gate action, and unknown skips remain `BLOCKED`.
 - No live Modal calls, baseline artifacts, gate verdict artifacts, canonical
   ledger rows, or Discovery Ledger records were created.
+
+## Stacked Follow-up
+
+- PR #27 is intentionally stacked on PR #26 after human direction to stop
+  auto-merging and use stacked diffs.
+- The follow-up hardens baseline readiness and Modal asset checks without
+  creating or mutating baseline, benchmark, Modal, gate, or discovery artifacts.
+- The current readiness report still blocks autonomous search until a human
+  provides real locked baseline evidence, installs the real NanoFold runtime
+  dependencies, and explicitly approves read-only/smoke live gate calibration.

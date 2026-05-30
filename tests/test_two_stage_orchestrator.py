@@ -36,6 +36,7 @@ def write_baseline_lock(tmp_path: Path, *, score: float = 0.42) -> Path:
         "label_hashes": {"public_val_small": SHA},
         "metrics": {"best_val_calpha_lddt": score},
         "fold_cartographer": {"signature": "baseline_locked", "summary": {}, "buckets": {}},
+        "artifacts": {"metrics_json": "runs/baseline/metrics.json"},
     }
     (baseline / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
     (baseline / "error_report.json").write_text(json.dumps({"scorer_only": True}), encoding="utf-8")

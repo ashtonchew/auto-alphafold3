@@ -17,7 +17,12 @@ from autoalphafold3.schema import AutoFoldResult, FoldCartographerReport, TrialS
 SHA = "a" * 64
 
 
-def write_baseline_lock(tmp_path: Path, *, metrics_overrides: dict[str, object] | None = None) -> Path:
+def write_baseline_lock(
+    tmp_path: Path,
+    *,
+    metrics_overrides: dict[str, object] | None = None,
+    error_report_overrides: dict[str, object] | None = None,
+) -> Path:
     baseline = tmp_path / "baseline"
     baseline.mkdir()
     metrics: dict[str, object] = {
@@ -39,10 +44,10 @@ def write_baseline_lock(tmp_path: Path, *, metrics_overrides: dict[str, object] 
     if metrics_overrides:
         metrics.update(metrics_overrides)
     (baseline / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
-    (baseline / "error_report.json").write_text(
-        json.dumps({"scorer_only": True, "failure_signature": None}),
-        encoding="utf-8",
-    )
+    error_report: dict[str, object] = {"scorer_only": True, "failure_signature": None}
+    if error_report_overrides:
+        error_report.update(error_report_overrides)
+    (baseline / "error_report.json").write_text(json.dumps(error_report), encoding="utf-8")
     (baseline / "feature_fingerprints.json").write_text(
         json.dumps(
             {
@@ -170,6 +175,46 @@ def test_baseline_readiness_rejects_artifacts_outside_baseline_dir(tmp_path: Pat
     assert any("runs/baseline" in item for item in report.problems)
 
 
+def test_baseline_readiness_rejects_missing_artifacts(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, metrics_overrides={"artifacts": None})
+
+    report = audit_baseline_readiness(baseline_dir=baseline)
+
+    assert report.status == "FAIL"
+    assert any("metrics.artifacts" in item for item in report.problems)
+
+
+def test_baseline_readiness_rejects_missing_required_artifact_pointer(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(
+        tmp_path,
+        metrics_overrides={"artifacts": {"checkpoint": "runs/baseline/checkpoint.pt"}},
+    )
+
+    report = audit_baseline_readiness(baseline_dir=baseline)
+
+    assert report.status == "FAIL"
+    assert any("metrics_json" in item for item in report.problems)
+
+
+@pytest.mark.parametrize("owner", ["metrics", "error_report"])
+def test_baseline_readiness_rejects_non_string_artifact_values(tmp_path: Path, owner: str) -> None:
+    artifact_payload = {"metrics_json": {"path": "runs/trials/T001/metrics.json"}}
+    kwargs = (
+        {"metrics_overrides": {"artifacts": artifact_payload}}
+        if owner == "metrics"
+        else {"error_report_overrides": {"artifacts": artifact_payload}}
+    )
+    baseline = write_baseline_lock(
+        tmp_path,
+        **kwargs,
+    )
+
+    report = audit_baseline_readiness(baseline_dir=baseline)
+
+    assert report.status == "FAIL"
+    assert any("must be a string path" in item for item in report.problems)
+
+
 def test_baseline_readiness_rejects_missing_identity_fields(tmp_path: Path) -> None:
     baseline = write_baseline_lock(tmp_path, metrics_overrides={"trial_id": "", "candidate_id": ""})
 
@@ -199,7 +244,7 @@ def test_current_best_lookup_refuses_without_ready_baseline(tmp_path: Path) -> N
 
 
 def test_current_best_lookup_returns_baseline_when_no_keep_rows(tmp_path: Path) -> None:
-    baseline = write_baseline_lock(tmp_path)
+    baseline = write_baseline_lock(tmp_path, metrics_overrides={"candidate_id": "baseline_candidate_v1"})
 
     best = current_best_from_baseline_and_ledger(
         baseline_dir=baseline,
@@ -207,6 +252,7 @@ def test_current_best_lookup_returns_baseline_when_no_keep_rows(tmp_path: Path) 
     )
 
     assert best.source == "baseline"
+    assert best.candidate_id == "baseline_candidate_v1"
     assert best.score == pytest.approx(0.42)
 
 

@@ -243,6 +243,34 @@ def test_modal_asset_audit_rejects_public_volume_label_leak() -> None:
     assert "public data Volume must not contain locked labels" in " ".join(report.problems)
 
 
+@pytest.mark.parametrize(
+    ("leak_dir", "leak_entry"),
+    [
+        ("/labels", "labels/public_val_labels.arrow"),
+        ("/locked", "locked/public_val_labels.arrow"),
+        ("/validation_labels", "validation_labels/public_val_small.arrow"),
+    ],
+)
+def test_modal_asset_audit_rejects_public_volume_label_leaks_under_sensitive_dirs(
+    leak_dir: str,
+    leak_entry: str,
+) -> None:
+    class PublicSensitiveDirLeak(FakeModalVolumes):
+        def _ls_data(self, path: str) -> list[dict[str, object]]:
+            if path == "/":
+                return super()._ls_data(path) + [_dir(leak_dir.removeprefix("/"))]
+            if path == leak_dir:
+                return [_entry(leak_entry)]
+            return super()._ls_data(path)
+
+    fake = PublicSensitiveDirLeak(locked=True)
+
+    report = audit_modal_assets(lister=fake.ls, reader=fake.read)
+
+    assert report.status == "FAIL"
+    assert "public data Volume must not contain locked labels" in " ".join(report.problems)
+
+
 def test_agent_audit_modal_assets_cli_with_real_modal_skipped_if_unavailable() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "autoalphafold3.agent", "audit-modal-assets", "--search-ready"],

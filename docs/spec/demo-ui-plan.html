@@ -6,24 +6,27 @@
 <title>auto-AlphaFold3 - Demo UI Plan</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #fafaf7;
-    --bg-tint: #f1ede4;
-    --bg-tint-2: #ebe6da;
-    --ink: #1a1a1a;
-    --ink-muted: #5e5e5e;
-    --ink-faint: #8a8a8a;
-    --rule: #d8d2c4;
-    --rule-strong: #b8b0a0;
-    --accent: #8c2c1f;
-    --accent-faint: #b06352;
-    --green: #2d5a3a;
-    --blue: #315a76;
-    --amber: #8a5a14;
-    --serif: "Source Serif 4", "Iowan Old Style", "Charter", "Georgia", serif;
-    --mono: "JetBrains Mono", "Menlo", "Consolas", monospace;
+    /* Modal-brand dark theme — tokens scraped from modal.com (near-black + #7FEE64 green, Inter + Fira Mono) */
+    --bg: #0a0a0a;
+    --bg-tint: #161616;
+    --bg-tint-2: #1f1f1f;
+    --code-bg: #242424;
+    --ink: #ddffdc;
+    --ink-muted: #a6c2a1;
+    --ink-faint: #82967f;
+    --rule: #2a2a2a;
+    --rule-strong: #3a3a3a;
+    --accent: #7fee64;
+    --accent-faint: #4f8f3f;
+    --green: #7fee64;
+    --blue: #5896f3;
+    --amber: #f3cf58;
+    --red: #ff9ea1;
+    --sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono: "Fira Mono", ui-monospace, "Menlo", "Consolas", monospace;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -31,10 +34,11 @@
     padding: 0;
     background: var(--bg);
     color: var(--ink);
-    font-family: var(--serif);
+    font-family: var(--sans);
     font-size: 19px;
     line-height: 1.7;
-    font-feature-settings: "onum" 1, "kern" 1, "liga" 1;
+    font-feature-settings: "kern" 1, "liga" 1;
+    letter-spacing: -0.011em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -42,8 +46,8 @@
 
   header.doc-head { border-bottom: 1px solid var(--rule); padding-bottom: 28px; margin-bottom: 48px; }
   .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-muted); margin-bottom: 14px; }
-  h1.doc-title { font-family: var(--serif); font-weight: 600; font-size: 38px; line-height: 1.15; margin: 0 0 12px 0; color: var(--ink); }
-  .doc-subtitle { font-family: var(--serif); font-style: italic; font-size: 19px; color: var(--ink-muted); line-height: 1.45; margin: 0 0 20px 0; }
+  h1.doc-title { font-family: var(--sans); font-weight: 600; font-size: 38px; line-height: 1.15; margin: 0 0 12px 0; color: var(--ink); }
+  .doc-subtitle { font-family: var(--sans); font-style: italic; font-size: 19px; color: var(--ink-muted); line-height: 1.45; margin: 0 0 20px 0; }
   .meta-row { font-family: var(--mono); font-size: 12px; color: var(--ink-muted); }
   .meta-row span { display: inline-block; margin-right: 24px; }
   .meta-row span strong { color: var(--ink); font-weight: 500; }
@@ -58,26 +62,26 @@
   nav.toc .toc-title { font-style: italic; }
 
   section { margin-bottom: 58px; scroll-margin-top: 48px; }
-  section > h2 { font-family: var(--serif); font-weight: 600; font-size: 22px; line-height: 1.25; margin: 0 0 8px 0; color: var(--ink); }
+  section > h2 { font-family: var(--sans); font-weight: 600; font-size: 22px; line-height: 1.25; margin: 0 0 8px 0; color: var(--ink); }
   section > h2 .sec-num { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--accent); letter-spacing: 0.04em; margin-right: 8px; }
   section .sec-rule { border: 0; border-top: 1px solid var(--rule); margin: 0 0 22px 0; }
-  h3 { font-family: var(--serif); font-weight: 600; font-size: 17px; margin: 30px 0 8px 0; color: var(--ink); }
+  h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; margin: 30px 0 8px 0; color: var(--ink); }
   h4 { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; color: var(--ink-muted); margin: 22px 0 8px 0; }
   p { margin: 0 0 14px 0; }
-  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(140, 44, 31, 0.25); }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(127, 238, 100, 0.32); }
   a:hover { border-bottom-color: var(--accent); }
-  code { font-family: var(--mono); font-size: 15px; background: var(--bg-tint); padding: 1px 5px; border-radius: 2px; color: var(--ink); }
+  code { font-family: var(--mono); font-size: 14px; background: var(--code-bg); padding: 2px 5px; border-radius: 4px; color: var(--ink); }
   .num { font-family: var(--mono); font-feature-settings: "tnum" 1; }
   ul, ol { padding-left: 22px; margin: 8px 0 18px 0; }
   li { margin-bottom: 6px; padding-left: 4px; }
   li::marker { color: var(--ink-faint); }
 
-  .callout { background: var(--bg-tint); border-left: 2px solid var(--accent); padding: 16px 20px 14px 20px; margin: 22px 0; font-size: 15.5px; line-height: 1.55; }
+  .callout { background: #141a12; border-left: 2px solid var(--accent); border-radius: 0 8px 8px 0; padding: 16px 20px 14px 20px; margin: 22px 0; font-size: 15.5px; line-height: 1.55; }
   .callout-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin-bottom: 6px; }
   .callout p:last-child { margin-bottom: 0; }
   .note { color: var(--ink-muted); font-style: italic; }
 
-  .numbers-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin: 22px 0; }
+  .numbers-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; margin: 22px 0; }
   .numbers-grid .cell { background: var(--bg-tint); padding: 14px 16px 12px; min-height: 104px; }
   .numbers-grid .cell .label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-muted); margin-bottom: 4px; }
   .numbers-grid .cell .value { font-family: var(--mono); font-size: 16px; color: var(--ink); font-weight: 500; }
@@ -98,7 +102,7 @@
   .checklist li::before { content: "\25A1"; position: absolute; left: 0; top: 5px; font-family: var(--mono); font-size: 16px; color: var(--accent); line-height: 1.55; }
 
   .metric-table { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
-  .metric-col { border: 1px solid var(--rule); padding: 16px 18px; background: var(--bg); }
+  .metric-col { border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; background: var(--bg-tint); }
   .metric-col h4 { margin-top: 0; }
   .metric-col ul { padding: 0; margin: 0; list-style: none; }
   .metric-col li { font-size: 14px; padding: 5px 0; border-bottom: 1px solid var(--rule); line-height: 1.4; }
@@ -108,38 +112,46 @@
   .timeline li { display: grid; grid-template-columns: 120px 1fr; gap: 18px; padding: 10px 0; border-top: 1px solid var(--rule); }
   .timeline li:last-child { border-bottom: 1px solid var(--rule); }
   .timeline .when { font-family: var(--mono); font-size: 12px; color: var(--accent); padding-top: 3px; letter-spacing: 0.02em; }
-  .timeline .what { font-family: var(--serif); font-size: 15.5px; line-height: 1.5; }
+  .timeline .what { font-family: var(--sans); font-size: 15.5px; line-height: 1.5; }
 
   figure.diagram { margin: 28px 0 34px 0; padding: 24px 0 20px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); text-align: center; }
   figure.diagram svg { width: 100%; max-width: 920px; height: auto; }
   figure.diagram figcaption { font-family: var(--mono); font-size: 11.5px; color: var(--ink-muted); letter-spacing: 0.04em; margin-top: 12px; padding: 0 16px; text-align: center; }
   figure.diagram figcaption .fig-num { color: var(--accent); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-right: 6px; }
 
-  .wf-bg { fill: #f7f4ed; stroke: #b8b0a0; stroke-width: 1; }
-  .wf-panel { fill: #fafaf7; stroke: #d8d2c4; stroke-width: 1; }
-  .wf-panel-strong { fill: #f1ede4; stroke: #b8b0a0; stroke-width: 1.2; }
-  .wf-accent { fill: #8c2c1f; }
-  .wf-green { fill: #2d5a3a; }
-  .wf-blue { fill: #315a76; }
-  .wf-amber { fill: #8a5a14; }
-  .wf-line { stroke: #8c2c1f; stroke-width: 2; fill: none; }
-  .wf-rule { stroke: #d8d2c4; stroke-width: 1; }
-  .wf-text { font-family: var(--mono); font-size: 11px; fill: #1a1a1a; }
-  .wf-text-muted { font-family: var(--mono); font-size: 10px; fill: #5e5e5e; }
-  .wf-serif { font-family: var(--serif); font-size: 14px; fill: #1a1a1a; }
-  .wf-small { font-family: var(--mono); font-size: 8.5px; fill: #5e5e5e; }
+  .wf-bg { fill: #111111; stroke: #333333; stroke-width: 1; }
+  .wf-panel { fill: #161616; stroke: #2e2e2e; stroke-width: 1; }
+  .wf-panel-strong { fill: #1f1f1f; stroke: #3a3a3a; stroke-width: 1.2; }
+  .wf-accent { fill: #7fee64; }
+  .wf-green { fill: #7fee64; }
+  .wf-blue { fill: #5896f3; }
+  .wf-amber { fill: #f3cf58; }
+  .wf-red { fill: #ff9ea1; }
+  .wf-line { stroke: #4f8f3f; stroke-width: 2; fill: none; }
+  .wf-rule { stroke: #2e2e2e; stroke-width: 1; }
+  .wf-text { font-family: var(--mono); font-size: 11px; fill: #ddffdc; }
+  .wf-text-muted { font-family: var(--mono); font-size: 10.5px; fill: #a6c2a1; }
+  .wf-serif { font-family: var(--sans); font-size: 14px; fill: #ddffdc; }
+  .wf-small { font-family: var(--mono); font-size: 9.5px; fill: #a6c2a1; }
 
   footer.doc-foot { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--rule); font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
   footer.doc-foot span:last-child { float: right; }
   footer.doc-foot::after { content: ""; display: block; clear: both; }
 
   @media print {
-    :root { --bg: #ffffff; --bg-tint: #f5f2eb; }
+    /* readable light fallback for print; screen brand stays dark */
+    :root { --bg: #ffffff; --bg-tint: #f2f2f2; --code-bg: #ededed; --ink: #141414; --ink-muted: #3d3d3d; --ink-faint: #5c5c5c; --rule: #cccccc; --accent: #1f7a33; --green: #1f7a33; }
     body { font-size: 11pt; line-height: 1.5; }
     .page { max-width: 100%; padding: 0; margin: 0; }
     nav.toc { page-break-after: always; }
     section { page-break-inside: avoid; }
     a { color: var(--ink); border-bottom: none; }
+    .callout { background: #f2f2f2; }
+    .wf-bg { fill: #ffffff; stroke: #999999; }
+    .wf-panel, .wf-panel-strong { fill: #f6f6f6; stroke: #bbbbbb; }
+    .wf-rule { stroke: #cccccc; }
+    .wf-text, .wf-serif { fill: #141414; }
+    .wf-text-muted, .wf-small { fill: #444444; }
     footer.doc-foot { display: none; }
   }
   @media (max-width: 760px) {
@@ -163,7 +175,7 @@
   <div class="meta-row">
     <span><strong>Project</strong> · NanoFold-style AlphaFold3-lite</span>
     <span><strong>Status</strong> · planning</span>
-    <span><strong>Source</strong> · docs/spec/demo-ui-plan.md</span>
+    <span><strong>Source</strong> · docs/spec/demo-ui-plan.html (canonical)</span>
   </div>
 </header>
 
@@ -234,81 +246,10 @@
 
   <p>The first screen should read as an evidence board, not a marketing page. The hero content is the live run state: current score, trajectory, mechanism verdict, geometry diagnostics, Modal activity, and a structure overlay.</p>
 
-  <figure class="diagram">
-    <svg viewBox="0 0 920 560" role="img" aria-label="Demo dashboard wireframe">
-      <rect x="20" y="20" width="880" height="520" rx="0" class="wf-bg"/>
-      <text x="42" y="48" class="wf-text">auto-AlphaFold3 demo evidence board</text>
-      <text x="42" y="68" class="wf-text-muted">locked C-alpha lDDT · Fold Cartographer · Falsification Gate · Modal</text>
-
-      <rect x="40" y="92" width="200" height="92" class="wf-panel-strong"/>
-      <text x="56" y="116" class="wf-small">CURRENT BEST</text>
-      <text x="56" y="148" class="wf-text">0.000 lDDT</text>
-      <text x="56" y="168" class="wf-text-muted">delta vs baseline +0.000</text>
-
-      <rect x="256" y="92" width="200" height="92" class="wf-panel"/>
-      <text x="272" y="116" class="wf-small">TRIALS</text>
-      <text x="272" y="148" class="wf-text">42 submitted</text>
-      <circle cx="278" cy="166" r="4" class="wf-green"/>
-      <text x="288" y="170" class="wf-text-muted">confirmed</text>
-      <circle cx="358" cy="166" r="4" class="wf-accent"/>
-      <text x="368" y="170" class="wf-text-muted">killed/fail</text>
-
-      <rect x="472" y="92" width="200" height="92" class="wf-panel"/>
-      <text x="488" y="116" class="wf-small">ACTIVE SPLIT</text>
-      <text x="488" y="148" class="wf-text">public_val_small</text>
-      <text x="488" y="168" class="wf-text-muted">scorer calpha_lddt_v1</text>
-
-      <rect x="688" y="92" width="172" height="92" class="wf-panel"/>
-      <text x="704" y="116" class="wf-small">MODAL</text>
-      <text x="704" y="148" class="wf-text">trial wave</text>
-      <text x="704" y="168" class="wf-text-muted">A100-80GB · locked mounts</text>
-
-      <rect x="40" y="204" width="510" height="210" class="wf-panel"/>
-      <text x="56" y="228" class="wf-small">TRIAL TRAJECTORY</text>
-      <line x1="72" y1="370" x2="520" y2="370" class="wf-rule"/>
-      <line x1="72" y1="248" x2="72" y2="370" class="wf-rule"/>
-      <line x1="72" y1="330" x2="520" y2="330" stroke="#b8b0a0" stroke-width="1" stroke-dasharray="4 4"/>
-      <text x="78" y="324" class="wf-small">baseline</text>
-      <polyline points="86,350 130,346 174,360 218,334 262,338 306,315 350,325 394,290 438,300 494,272" class="wf-line"/>
-      <circle cx="86" cy="350" r="5" class="wf-blue"/>
-      <circle cx="130" cy="346" r="5" class="wf-amber"/>
-      <circle cx="174" cy="360" r="5" class="wf-accent"/>
-      <circle cx="218" cy="334" r="6" class="wf-green"/>
-      <circle cx="306" cy="315" r="6" class="wf-green"/>
-      <circle cx="394" cy="290" r="6" class="wf-green"/>
-      <circle cx="494" cy="272" r="6" class="wf-green"/>
-      <text x="72" y="396" class="wf-text-muted">points encode move family, status, and gate verdict</text>
-
-      <rect x="568" y="204" width="292" height="210" class="wf-panel"/>
-      <text x="584" y="228" class="wf-small">FOLD CARTOGRAPHER</text>
-      <rect x="588" y="248" width="112" height="48" class="wf-panel-strong"/>
-      <text x="600" y="268" class="wf-small">LOCAL</text>
-      <rect x="714" y="248" width="112" height="48" class="wf-panel"/>
-      <text x="726" y="268" class="wf-small">LONG RANGE</text>
-      <rect x="588" y="310" width="112" height="48" class="wf-panel"/>
-      <text x="600" y="330" class="wf-small">3D GAP</text>
-      <rect x="714" y="310" width="112" height="48" class="wf-panel"/>
-      <text x="726" y="330" class="wf-small">STABILITY</text>
-      <text x="584" y="390" class="wf-text-muted">selected trial axis movement vs baseline</text>
-
-      <rect x="40" y="432" width="250" height="82" class="wf-panel"/>
-      <text x="56" y="456" class="wf-small">HYPOTHESIS CARD</text>
-      <text x="56" y="478" class="wf-serif">"Ramping geometry loss will close the 3D gap."</text>
-      <text x="56" y="498" class="wf-text-muted">target distogram_good_lddt_flat</text>
-
-      <rect x="306" y="432" width="250" height="82" class="wf-panel"/>
-      <text x="322" y="456" class="wf-small">FALSIFICATION GATE</text>
-      <text x="322" y="478" class="wf-text">CONFIRMED</text>
-      <text x="322" y="498" class="wf-text-muted">knockout drops gain · placebo flat · seed stable</text>
-
-      <rect x="572" y="432" width="288" height="82" class="wf-panel"/>
-      <text x="588" y="456" class="wf-small">STRUCTURE OVERLAY</text>
-      <path d="M600 494 C620 448, 650 500, 676 472 S730 466, 746 492" stroke="#8c2c1f" stroke-width="2" fill="none"/>
-      <path d="M600 484 C626 456, 648 486, 678 466 S728 458, 752 482" stroke="#2d5a3a" stroke-width="2" fill="none"/>
-      <text x="772" y="482" class="wf-text-muted">true / baseline / best</text>
-    </svg>
-    <figcaption><span class="fig-num">Fig. 1</span>First-pass dashboard wireframe. The UI is an evidence board: score, trajectory, diagnostic axes, mechanism verdict, Modal execution, and structure overlay.</figcaption>
-  </figure>
+  <div class="callout">
+    <div class="callout-label">Realized mockup</div>
+    <p>The stage dashboard is built as a high-fidelity Modal-styled mockup: <a href="ui/evidence-board.html">ui/evidence-board.html</a>. Browse every surface from <a href="ui/index.html">ui/index.html</a>.</p>
+  </div>
 </section>
 
 <section id="s3">
@@ -388,38 +329,10 @@
     </div>
   </div>
 
-  <figure class="diagram">
-    <svg viewBox="0 0 920 360" role="img" aria-label="Trajectory and detail panel wireframe">
-      <rect x="20" y="20" width="880" height="320" class="wf-bg"/>
-      <rect x="42" y="48" width="560" height="252" class="wf-panel"/>
-      <text x="60" y="74" class="wf-small">TRAJECTORY</text>
-      <line x1="78" y1="260" x2="560" y2="260" class="wf-rule"/>
-      <line x1="78" y1="92" x2="78" y2="260" class="wf-rule"/>
-      <line x1="78" y1="220" x2="560" y2="220" stroke="#b8b0a0" stroke-dasharray="5 4"/>
-      <text x="86" y="214" class="wf-small">baseline</text>
-      <polyline points="94,246 146,238 198,250 250,212 302,230 354,190 406,198 458,154 520,142" class="wf-line"/>
-      <circle cx="94" cy="246" r="6" class="wf-blue"/>
-      <circle cx="146" cy="238" r="6" class="wf-amber"/>
-      <circle cx="198" cy="250" r="6" class="wf-accent"/>
-      <circle cx="250" cy="212" r="7" class="wf-green"/>
-      <circle cx="354" cy="190" r="7" class="wf-green"/>
-      <circle cx="458" cy="154" r="7" class="wf-green"/>
-      <circle cx="520" cy="142" r="7" class="wf-green"/>
-      <text x="92" y="286" class="wf-text-muted">T001</text>
-      <text x="500" y="286" class="wf-text-muted">T020</text>
-
-      <rect x="622" y="48" width="256" height="252" class="wf-panel-strong"/>
-      <text x="642" y="74" class="wf-small">SELECTED TRIAL T012</text>
-      <text x="642" y="104" class="wf-text">sampler_step_scale</text>
-      <text x="642" y="126" class="wf-text-muted">target: distogram_good_lddt_flat</text>
-      <line x1="642" y1="142" x2="858" y2="142" class="wf-rule"/>
-      <text x="642" y="168" class="wf-serif">Hypothesis: fewer diffusion steps with lower step scale reduce sampler noise while preserving contacts.</text>
-      <text x="642" y="218" class="wf-text">+0.018 lDDT</text>
-      <text x="642" y="240" class="wf-text-muted">gap closed · runtime within cap</text>
-      <text x="642" y="272" class="wf-text">VERDICT: CONFIRMED</text>
-    </svg>
-    <figcaption><span class="fig-num">Fig. 2</span>Trajectory view with a selected-trial detail panel. Failed and killed trials remain visible instead of being filtered out.</figcaption>
-  </figure>
+  <div class="callout">
+    <div class="callout-label">Realized mockup</div>
+    <p>Interactive trajectory with a selected-trial detail panel: <a href="ui/panels/02-trial-trajectory.html">ui/panels/02-trial-trajectory.html</a>.</p>
+  </div>
 
   <div class="surface">
     <div class="surface-title">03 · Hypothesis</div>
@@ -435,7 +348,7 @@
             <li>Move family</li>
             <li>Hypothesis, intervention, and prediction</li>
             <li>Expected metric movement: primary <code>best_val_calpha_lddt</code>, targeted diagnostic axis, expected runtime/memory risk</li>
-            <li>Sampler config summary and linked diff or config delta</li>
+            <li>Patch summary and linked diff</li>
             <li>Config summary and budget tier</li>
           </ul>
         </div>
@@ -509,40 +422,10 @@
     </div>
   </div>
 
-  <figure class="diagram">
-    <svg viewBox="0 0 920 360" role="img" aria-label="Falsification gate wireframe">
-      <rect x="20" y="20" width="880" height="320" class="wf-bg"/>
-      <rect x="42" y="50" width="254" height="246" class="wf-panel-strong"/>
-      <text x="62" y="78" class="wf-small">CANDIDATE CLAIM</text>
-      <text x="62" y="112" class="wf-text">T012 · sampler_step_scale</text>
-      <text x="62" y="136" class="wf-text-muted">Expected: close 3D gap</text>
-      <text x="62" y="172" class="wf-text">+0.018 lDDT</text>
-      <text x="62" y="196" class="wf-text-muted">axis moved as predicted</text>
-      <text x="62" y="244" class="wf-serif">Mechanism: lower step scale reduces sampler noise while preserving contacts.</text>
-
-      <path d="M306 172 L360 172" class="wf-line"/>
-      <rect x="370" y="50" width="154" height="76" class="wf-panel"/>
-      <text x="386" y="78" class="wf-small">KNOCKOUT</text>
-      <text x="386" y="104" class="wf-text-muted">remove sampler change</text>
-      <rect x="370" y="144" width="154" height="76" class="wf-panel"/>
-      <text x="386" y="172" class="wf-small">PLACEBO</text>
-      <text x="386" y="198" class="wf-text-muted">unrelated change</text>
-      <rect x="370" y="238" width="154" height="58" class="wf-panel"/>
-      <text x="386" y="266" class="wf-small">SEED CHECK</text>
-      <text x="386" y="286" class="wf-text-muted">variance below cap</text>
-
-      <path d="M536 88 L590 172" class="wf-line"/>
-      <path d="M536 182 L590 172" class="wf-line"/>
-      <path d="M536 266 L590 172" class="wf-line"/>
-      <rect x="604" y="84" width="274" height="176" class="wf-panel-strong"/>
-      <text x="624" y="114" class="wf-small">GATE VERDICT</text>
-      <text x="624" y="154" class="wf-text">CONFIRMED</text>
-      <text x="624" y="184" class="wf-text-muted">gain disappears under knockout</text>
-      <text x="624" y="206" class="wf-text-muted">placebo does not reproduce gain</text>
-      <text x="624" y="228" class="wf-text-muted">seed mean survives noise threshold</text>
-    </svg>
-    <figcaption><span class="fig-num">Fig. 3</span>The falsification gate panel turns a good-looking score into a tested mechanism claim.</figcaption>
-  </figure>
+  <div class="callout">
+    <div class="callout-label">Realized mockup</div>
+    <p>Falsification gate with control bars and verdict numbers: <a href="ui/panels/05-falsification-gate.html">ui/panels/05-falsification-gate.html</a>.</p>
+  </div>
 
   <div class="surface">
     <div class="surface-title">06 · Discovery</div>
@@ -580,7 +463,7 @@
         <div>
           <div class="mini-head">Content</div>
           <ul>
-            <li>Current or latest execution mode: readiness smoke, 20-candidate sampler burst, selected-candidate gate control wave, or final artifact capture</li>
+            <li>Current or latest execution mode: smoke, trial, sampler burst, debug sandbox, final validation, gate control wave</li>
             <li>Job count and status</li>
             <li>GPU type and fixed resource tier</li>
             <li>Container count over time if available</li>
@@ -637,15 +520,15 @@
     <div class="surface-title">09 · Sampler</div>
     <div class="surface-body">
       <h3>Sampler Burst / Ensemble Moment</h3>
-      <p><strong>Purpose.</strong> Show the live Modal moment that makes the one-hour run practical: bounded sampler fanout first, then one gate wave on the best provisional KEEP.</p>
+      <p><strong>Purpose.</strong> Show the live Modal moment that is unique to folding.</p>
       <div class="cols">
         <div>
           <div class="mini-head">Content</div>
           <ul>
             <li>Frozen checkpoint</li>
-            <li>Grid of 20 sampler settings</li>
-            <li>Number of samples and early-stop rule if the first wave is slow</li>
-            <li>Runtime and container burst; current practical generation cap is six <code>TrialRunner</code> workers</li>
+            <li>Grid of sampler settings</li>
+            <li>Number of samples</li>
+            <li>Runtime and container burst</li>
             <li>Label-free sample selection rule</li>
             <li>Returned ensemble visualization or summary</li>
             <li>Locked scorer result after selection</li>
@@ -656,7 +539,7 @@
           <ul>
             <li>Inference-only sampler harness</li>
             <li>Label-free selection rules</li>
-            <li><code>TrialRunner</code> sampler invocation or equivalent Modal burst; do not assume the unused sampler policy cap of 50 workers</li>
+            <li><code>sample_once.map(...)</code> or equivalent Modal burst</li>
             <li>Ensemble artifact format</li>
             <li>Scoring path that happens only after samples are produced</li>
           </ul>
@@ -692,6 +575,8 @@
       <div class="desc">JSON first; rendered views second.</div>
     </div>
   </div>
+
+  <h3>Full metric inventory</h3>
 
   <div class="metric-table">
     <div class="metric-col">
@@ -770,7 +655,7 @@
         <li>metrics JSON</li>
         <li>error report JSON</li>
         <li>artifact manifest</li>
-        <li>sampler or training log</li>
+        <li>training log</li>
         <li>stdout/stderr</li>
         <li>patch diff</li>
         <li>checkpoint pointer</li>
@@ -790,7 +675,7 @@
   <p>The minimum frontend worth showing needs:</p>
   <ol>
     <li>Baseline metrics and diagnostics.</li>
-    <li>A bounded sampler trajectory, preferably 12-20 valid candidate rows.</li>
+    <li>At least three valid trial rows in the trajectory.</li>
     <li>At least one failed or discarded trial shown honestly.</li>
     <li>At least one candidate with a pre-registered hypothesis and postmortem.</li>
     <li>Fold Cartographer report with real, non-toy diagnostic axes.</li>
@@ -807,10 +692,10 @@
   <h3>Strong demo</h3>
   <p>A strong demo adds:</p>
   <ol>
-    <li>One confirmed sampler mechanism that survives the Falsification Gate.</li>
+    <li>One confirmed mechanism that survives the Falsification Gate.</li>
     <li>One killed candidate that looked good by scalar score but failed a control.</li>
-    <li>A 20-candidate sampler burst with visible Modal fanout.</li>
-    <li>Seed rerun evidence from the gate for the selected best provisional KEEP.</li>
+    <li>A sampler burst with visible Modal fanout.</li>
+    <li>Multi-seed final validation for the best confirmed candidate.</li>
     <li>Before/after overlay where the named diagnostic axis visibly matches the metric story.</li>
     <li>Discovery Ledger panel with confirmed mechanisms and instructive kills.</li>
   </ol>
@@ -836,7 +721,7 @@
     <li>Discovery Ledger exists or is derivable from canonical ledger rows.</li>
     <li>Overlay renderer consumes real artifacts.</li>
     <li>Sampler burst harness exists for frozen-checkpoint inference.</li>
-    <li>Final validation path can run multi-seed candidates when time permits; the one-hour demo may rely on the gate's seed rerun instead.</li>
+    <li>Final validation path can run multi-seed candidates.</li>
   </ul>
 </section>
 
@@ -878,12 +763,12 @@
     <li><span class="when">Line 2</span><span class="what">"The score is locked validation C-alpha lDDT. The agent cannot edit scorer, labels, manifests, or Modal caps."</span></li>
     <li><span class="when">Line 3</span><span class="what">"Here is the baseline."</span></li>
     <li><span class="when">Line 4</span><span class="what">"Fold Cartographer says the current weakness is this axis."</span></li>
-    <li><span class="when">Line 5</span><span class="what">"The agent pre-registered this sampler mechanism and predicted these metric movements."</span></li>
-    <li><span class="when">Line 6</span><span class="what">"Modal ran 20 frozen-checkpoint sampler candidates under the locked mounts and current worker caps."</span></li>
+    <li><span class="when">Line 5</span><span class="what">"The agent pre-registered this mechanism and predicted these metric movements."</span></li>
+    <li><span class="when">Line 6</span><span class="what">"Modal ran the fixed-budget trial under the locked mounts."</span></li>
     <li><span class="when">Line 7</span><span class="what">"The scorer-only worker returned these metrics and diagnostics."</span></li>
     <li><span class="when">Line 8</span><span class="what">"The gate tested whether the mechanism was real."</span></li>
     <li><span class="when">Line 9</span><span class="what">"This one was killed; this one was confirmed."</span></li>
-    <li><span class="when">Line 10</span><span class="what">"Here is the Discovery Ledger, or the honest kill if no candidate confirmed, and the baseline-vs-best overlay."</span></li>
+    <li><span class="when">Line 10</span><span class="what">"Here is the Discovery Ledger and the final baseline-vs-best overlay."</span></li>
   </ol>
 </section>
 
@@ -903,7 +788,7 @@
 
 <footer class="doc-foot">
   <span>autoalphafold3-demo-ui-plan · running planning doc</span>
-  <span>HTML companion to docs/spec/demo-ui-plan.md</span>
+  <span>Running planning doc · source of record</span>
 </footer>
 
 </div>

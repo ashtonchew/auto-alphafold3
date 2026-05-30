@@ -18,14 +18,13 @@
       and `finite_loss` local gates.
 - [x] Human-approved `run-baseline` command added to produce trial-scoped
       source artifacts for `lock-baseline`.
+- [x] Human-approved `calibrate-gate` command added to write calibration only
+      from known-null and known-positive real evidence records.
 - [x] Autonomous search remained blocked.
 - [x] No fake baseline metrics, fake Modal runs, fake gate verdicts, fake
       discovery records, or fake benchmark artifacts were created.
 
 ## Pending Infrastructure
-
-- [ ] Add a real Falsification Gate calibration command for known-null and
-      known-positive controls.
 
 ## Pending Human Live Actions
 
@@ -38,8 +37,8 @@
 - [ ] Run `lock-baseline --dry-run` on the real baseline source artifacts.
 - [ ] Run `lock-baseline --approve` only if dry-run passes and approval is
       explicit.
-- [ ] Run real Falsification Gate calibration after the calibration command
-      exists.
+- [ ] Run real Falsification Gate calibration:
+      `calibrate-gate --mode from-evidence --approve I_APPROVE_GATE_CALIBRATION`.
 - [ ] Approve autonomous search start only after readiness is no longer blocked.
 
 ## Validation To Rerun After Next PRs

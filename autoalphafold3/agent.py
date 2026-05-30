@@ -11,6 +11,7 @@ from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_s
 from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
 from autoalphafold3.gate_calibration import GateCalibrationError, calibrate_gate
 from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
+from autoalphafold3.llm_policy import AgentSearchPhase, default_llm_phase_policies, default_llm_phase_policy
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.modal_assets import (
     ModalAssetAuditError,
@@ -87,6 +88,21 @@ def main(argv: list[str] | None = None) -> int:
     fixture_parser.add_argument("--output-dir", default="data/toy/nanofold_fixture")
     fixture_parser.add_argument("--approve", required=True)
     fixture_parser.add_argument("--overwrite", action="store_true")
+
+    llm_policy_parser = subparsers.add_parser("llm-policy")
+    llm_policy_parser.add_argument(
+        "--phase",
+        choices=[phase.value for phase in AgentSearchPhase],
+        default=None,
+        help="Show only one autonomous-search LLM phase policy.",
+    )
+    llm_policy_parser.add_argument("--model", default="gpt-5.5")
+    llm_policy_parser.add_argument(
+        "--format",
+        choices=("policy", "responses", "agents-sdk"),
+        default="policy",
+        help="Render the raw policy, Responses API kwargs, or dependency-free Agents SDK spec.",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "submit":
@@ -198,7 +214,27 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0
+    if args.command == "llm-policy":
+        if args.phase is None:
+            policies = default_llm_phase_policies(model=args.model)
+            payload = {
+                phase.value: _render_llm_policy(policy, args.format)
+                for phase, policy in policies.items()
+            }
+        else:
+            policy = default_llm_phase_policy(args.phase, model=args.model)
+            payload = _render_llm_policy(policy, args.format)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
     return 2
+
+
+def _render_llm_policy(policy, output_format: str) -> dict[str, object]:
+    if output_format == "responses":
+        return policy.to_responses_create_kwargs()
+    if output_format == "agents-sdk":
+        return policy.to_agents_sdk_spec()
+    return policy.model_dump(mode="json")
 
 
 def _parse_manifest_args(values: list[str]) -> dict[str, str]:

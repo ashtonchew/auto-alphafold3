@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     checkpoint_run_parser.add_argument("--trial-id", default="T010")
     checkpoint_run_parser.add_argument("--source-dir", default=None)
     checkpoint_run_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
-    checkpoint_run_parser.add_argument("--features-path", default="train_tiny.arrow")
+    checkpoint_run_parser.add_argument("--features-path", default="nanofold_event_small_no_templates.arrow")
     checkpoint_run_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
     checkpoint_run_parser.add_argument("--modal-env", default=None)
     checkpoint_run_parser.add_argument("--approve", default=None)

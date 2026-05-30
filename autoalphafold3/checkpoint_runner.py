@@ -62,7 +62,7 @@ def run_one_batch_checkpoint(
     trial_id: str = DEFAULT_CHECKPOINT_TRIAL_ID,
     source_dir: str | Path | None = None,
     config_path: str = "configs/nanofold_dev_cpu_smoke.json",
-    features_path: str = "train_tiny.arrow",
+    features_path: str = "nanofold_event_small_no_templates.arrow",
     approval: str | None = None,
     mode: str = "dry-run",
     modal_env: str | None = None,
@@ -123,7 +123,7 @@ def checkpoint_run_plan(
     trial_id: str = DEFAULT_CHECKPOINT_TRIAL_ID,
     source_dir: str | Path = "runs/trials/T010",
     config_path: str = "configs/nanofold_dev_cpu_smoke.json",
-    features_path: str = "train_tiny.arrow",
+    features_path: str = "nanofold_event_small_no_templates.arrow",
 ) -> dict[str, object]:
     """Return the bounded checkpoint-run intent without touching Modal."""
 

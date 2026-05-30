@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hypothesis Card · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 03</div>
+      <h1 class="page-title">Hypothesis Card</h1>
+      <p class="page-purpose">Prove the agent made a falsifiable claim before it saw the result. Everything here is pre-registered, written down before the run.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <div class="block-title">Trial <span class="mono" style="color:var(--ink-3)">T012</span> · candidate <span class="mono" style="color:var(--ink-3)">cand_31</span> <span class="right"><span class="spill info">pre-registered</span></span></div>
+    <p class="claim">“Ramping the geometry loss makes the coordinate path use the contacts the pair head already learned.”</p>
+    <div class="claim-meta">target <span class="mono">distogram_vs_3d</span> · move family <span class="mono">geometry_loss</span> · predicted direction: 3D gap ↓</div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">The pre-registered prediction</h2>
+    <div class="kv">
+      <div class="kv-row"><div class="kv-k">Diagnostic target</div><div class="kv-v"><span class="mono">distogram_vs_3d</span> &nbsp;<span style="color:var(--ink-faint)">(one of local_geometry_weak, long_range_topology_weak, distogram_vs_3d, stability_compute)</span></div></div>
+      <div class="kv-row"><div class="kv-k">Intervention</div><div class="kv-v">Linear ramp on the coordinate geometry-loss weight over the first 40% of training.</div></div>
+      <div class="kv-row"><div class="kv-k">Predicted axis movement</div><div class="kv-v num">distogram→coord gap closes by 0.05–0.09</div></div>
+      <div class="kv-row"><div class="kv-k">Expected primary Δ</div><div class="kv-v num" style="color:var(--green)">best_val_calpha_lddt &nbsp;+0.02 to +0.05</div></div>
+      <div class="kv-row"><div class="kv-k">Runtime / memory risk</div><div class="kv-v num">none expected · ≤ 1.0× runtime · ≤ 40 GB</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Change under test</h2>
+    <div class="kv">
+      <div class="kv-row"><div class="kv-k">Patch</div><div class="kv-v"><span class="mono">loss.py</span> geometry-weight schedule &nbsp;<a href="#" style="color:var(--green)">view diff →</a></div></div>
+      <div class="kv-row"><div class="kv-k">Config</div><div class="kv-v mono">configs/experiments/T012.json</div></div>
+      <div class="kv-row"><div class="kv-k">Budget tier</div><div class="kv-v">short-training · A100-80GB · wall-clock cap 12m</div></div>
+    </div>
+    <div class="note green">The agent commits the claim and a pointer to the component it credits <b>before</b> the run. It cannot design its own knock-out or pick its own placebo — that is the line between grading its own homework and a real control loop.</div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="05-falsification-gate.html">See how this claim is tested →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+</body>
+</html>

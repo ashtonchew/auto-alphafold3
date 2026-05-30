@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Discovery Ledger · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 06</div>
+      <h1 class="page-title">Discovery Ledger</h1>
+      <p class="page-purpose">Reusable research findings, not just checkpoints: confirmed mechanisms with a one-line design rule, and the instructive kills that looked good by score.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <div class="chips" style="margin-bottom:18px">
+      <span class="chip"><span class="dot green"></span><span class="v num">7</span><span class="k">confirmed mechanisms</span></span>
+      <span class="chip"><span class="dot red"></span><span class="v num">3</span><span class="k">killed at the gate</span></span>
+      <span class="chip"><span class="v num">42</span><span class="k">trials</span></span>
+    </div>
+    <table class="dtable">
+      <thead>
+        <tr><th>Mechanism · design rule</th><th>Axis</th><th class="r">Δ lDDT</th><th class="r">Trial · SHA</th><th class="r">Verdict</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Geometry-loss ramp closes the distogram→coordinate gap<br><span style="color:var(--ink-faint);font-size:12.5px">Ramp coordinate geometry loss once contacts are learned.</span></td>
+          <td class="c-axis">distogram_vs_3d</td>
+          <td class="r c-d num">+0.041</td>
+          <td class="r c-mono">T012 · 4f2a9c1</td>
+          <td class="r"><span class="spill ok"><span class="pico">✓</span> CONFIRMED</span></td>
+        </tr>
+        <tr>
+          <td>Long-range contact weighting lifts topology at sep ≥ 24<br><span style="color:var(--ink-faint);font-size:12.5px">Up-weight long-range contacts in the auxiliary loss.</span></td>
+          <td class="c-axis">long_range_topology</td>
+          <td class="r c-d num">+0.026</td>
+          <td class="r c-mono">T019 · b7c014e</td>
+          <td class="r"><span class="spill ok"><span class="pico">✓</span> CONFIRMED</span></td>
+        </tr>
+        <tr>
+          <td>Sampler step-scale with fewer steps holds lDDT at lower cost<br><span style="color:var(--ink-faint);font-size:12.5px">Trade diffusion steps for step-scale at inference.</span></td>
+          <td class="c-axis">diffusion_sampler</td>
+          <td class="r c-d num">+0.018</td>
+          <td class="r c-mono">T027 · 2a9f5d3</td>
+          <td class="r"><span class="spill ok"><span class="pico">✓</span> CONFIRMED</span></td>
+        </tr>
+        <tr>
+          <td>Wider pair attention raised lDDT<br><span style="color:var(--ink-faint);font-size:12.5px">A matched placebo reproduced 0.7 of the gain.</span></td>
+          <td class="c-axis">pair_attention</td>
+          <td class="r c-d muted num">+0.012</td>
+          <td class="r c-mono">T022 · 88e1aa0</td>
+          <td class="r"><span class="spill bad"><span class="pico">✕</span> PLACEBO_KILL</span></td>
+        </tr>
+        <tr>
+          <td>Extra recycling step raised the score<br><span style="color:var(--ink-faint);font-size:12.5px">Knock-out kept the gain — credit was misattributed.</span></td>
+          <td class="c-axis">recycling</td>
+          <td class="r c-d muted num">+0.015</td>
+          <td class="r c-mono">T030 · c3d77b2</td>
+          <td class="r"><span class="spill bad"><span class="pico">✕</span> KNOCKOUT_SURVIVES</span></td>
+        </tr>
+        <tr>
+          <td>Norm-reorder gain<br><span style="color:var(--ink-faint);font-size:12.5px">Vanished on a 3-seed rerun.</span></td>
+          <td class="c-axis">normalization</td>
+          <td class="r c-d muted num">+0.009</td>
+          <td class="r c-mono">T035 · 1f0b6e9</td>
+          <td class="r"><span class="spill bad"><span class="pico">✕</span> SEED_FRAGILE</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="led-cap">Killed rows show the apparent gain that did not survive a control. The red column is the integrity property: the agent visibly caught its own false positives.</div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="../evidence-board.html">Open the full evidence board →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+</body>
+</html>

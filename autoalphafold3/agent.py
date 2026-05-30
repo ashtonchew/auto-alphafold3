@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from autoalphafold3.orchestrator import poll_trial, submit_trial
+from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.modal_assets import (
     ModalAssetAuditError,
     audit_modal_assets,
@@ -44,6 +45,15 @@ def main(argv: list[str] | None = None) -> int:
     modal_assets_parser.add_argument("--data-volume", default="autoalphafold3-data")
     modal_assets_parser.add_argument("--locked-volume", default="autoalphafold3-locked")
     modal_assets_parser.add_argument("--search-ready", action="store_true")
+
+    readiness_parser = subparsers.add_parser("readiness-report")
+    readiness_parser.add_argument("--repo-root", default=".")
+    readiness_parser.add_argument("--baseline-dir", default="runs/baseline")
+    readiness_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
+    readiness_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
+    readiness_parser.add_argument("--pending-human-calibration-action", default=None)
+    readiness_parser.add_argument("--include-live-smoke", action="store_true")
+    readiness_parser.add_argument("--human-approved-live-smoke-action", default=None)
 
     args = parser.parse_args(argv)
     if args.command == "submit":
@@ -84,6 +94,18 @@ def main(argv: list[str] | None = None) -> int:
             except ModalAssetAuditError:
                 return 1
         return 1 if report.status == "FAIL" else 0
+    if args.command == "readiness-report":
+        report = build_readiness_report(
+            repo_root=args.repo_root,
+            baseline_dir=args.baseline_dir,
+            config_path=args.config_path,
+            calibration_path=args.calibration_path,
+            pending_human_calibration_action=args.pending_human_calibration_action,
+            include_live_smoke=args.include_live_smoke,
+            approved_live_smoke_action=args.human_approved_live_smoke_action,
+        )
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        return readiness_exit_code(report)
     return 2
 
 

@@ -121,3 +121,19 @@ Best-practice approach:
 - For Modal execution, call the deployed `TrialRunner` method with `modal.Cls.from_name(APP_NAME, "TrialRunner")().run.starmap(...)` using `order_outputs=True`, `return_exceptions=True`, and `wrap_returned_exceptions=False`.
 - Normalize Modal SDK lookup, starmap setup, and per-control returned exceptions into structured `INFRA_FAIL` evidence. Do not convert partial evidence into a gate verdict or confirmed discovery.
 - Lock the implemented gate-wave module and gate-wave artifact paths in patch-policy coverage before autonomous search.
+
+## PR 6: `feat/pre-run-readiness-cli`
+
+Grounding was performed with two read-only subagents:
+
+- Readiness/spec grounding: add a report-only aggregator that blocks autonomous search until baseline, local NanoFold gates, Modal/read-only evidence, and Falsification Gate calibration are all real and complete.
+- Test grounding: prove placeholders are not search-ready, pending human-approved calibration remains blocking, optional live readiness is explicit and read-only, and no readiness path writes canonical artifacts.
+
+Best-practice approach:
+
+- Add a dedicated `autoalphafold3/readiness.py` module that reads existing evidence and never creates baseline metrics, benchmark artifacts, gate verdicts, canonical ledgers, Discovery Ledger entries, or Modal runs.
+- Use `audit_baseline_readiness(...)` for baseline lock status and refuse any current-best fallback when the baseline is missing.
+- Treat skipped `tiny_forward` and `finite_loss` gates as blockers for live/autonomous readiness unless real dependency/assets evidence exists.
+- Add strict Falsification Gate calibration evidence validation requiring both known-null and known-positive records. Placeholder records fail; an exact human-approved live calibration action may be reported as pending, but `autonomous_search_ready` remains false.
+- Keep optional live readiness read-only/smoke by requiring an explicit human-approved live-smoke action before running the Modal asset audit; do not write `runs/baseline/**`, locked Volumes, canonical ledgers, Discovery Ledger entries, benchmark artifacts, or baseline metrics.
+- Add `python -m autoalphafold3.agent readiness-report` with JSON output and nonzero exit codes for not-ready or pending-human-action states.

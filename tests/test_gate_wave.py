@@ -290,3 +290,19 @@ def test_patch_policy_denies_gate_wave_control_paths() -> None:
         validate_patch_scope(["runs/trials/T900/falsification/gate_wave.json"], repo_root=REPO_ROOT)
     with pytest.raises(PatchPolicyError, match="locked"):
         validate_patch_scope(["runs/gate_wave/T900.json"], repo_root=REPO_ROOT)
+
+
+def test_patch_policy_denies_readiness_locked_artifact_paths() -> None:
+    locked_paths = [
+        "runs/ledger.jsonl",
+        "runs/baseline/metrics.json",
+        "runs/baseline/error_report.json",
+        "runs/baseline/feature_fingerprints.json",
+        "runs/benchmark/artifact_manifest.json",
+        "runs/discovery_ledger.jsonl",
+        "runs/discovery/T300.json",
+    ]
+
+    for path in locked_paths:
+        with pytest.raises(PatchPolicyError, match="locked"):
+            validate_patch_scope([path], repo_root=REPO_ROOT)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -271,7 +272,31 @@ def test_modal_asset_audit_rejects_public_volume_label_leaks_under_sensitive_dir
     assert "public data Volume must not contain locked labels" in " ".join(report.problems)
 
 
+def test_agent_audit_modal_assets_cli_search_ready_uses_report_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from autoalphafold3 import agent
+
+    report = ModalAssetAudit(
+        status="PASS",
+        locked_asset_layout="separate_locked_volume",
+        official_lock_boundary=True,
+        target_layout="two_volume",
+        arrow_readability={"train_tiny": "readable", "public_val_small": "readable"},
+    )
+    monkeypatch.setattr(agent, "audit_modal_assets", lambda **_: report)
+
+    assert agent.main(["audit-modal-assets", "--search-ready"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["locked_asset_layout"] == "separate_locked_volume"
+
+
+@pytest.mark.live_modal
 def test_agent_audit_modal_assets_cli_with_real_modal_skipped_if_unavailable() -> None:
+    if os.environ.get("AUTOALPHAFOLD3_RUN_LIVE_MODAL_TESTS") != "1":
+        pytest.skip("set AUTOALPHAFOLD3_RUN_LIVE_MODAL_TESTS=1 to run live Modal asset audit")
+
     result = subprocess.run(
         [sys.executable, "-m", "autoalphafold3.agent", "audit-modal-assets", "--search-ready"],
         cwd=REPO_ROOT,

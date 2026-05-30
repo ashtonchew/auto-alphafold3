@@ -26,9 +26,18 @@ print(import_smoke_summary()["imports"])
 PY
 ```
 
+For faster local iteration, keep pytest's default cache plugin enabled and use
+`python -m pytest --lf` to rerun only failures from the previous invocation.
+
 Modal asset verification uses the live Modal service and requires authenticated
 network access:
 
 ```bash
 python -m autoalphafold3.agent audit-modal-assets --search-ready
+```
+
+The live Modal pytest smoke is opt-in for the same reason:
+
+```bash
+AUTOALPHAFOLD3_RUN_LIVE_MODAL_TESTS=1 python -m pytest -m live_modal
 ```

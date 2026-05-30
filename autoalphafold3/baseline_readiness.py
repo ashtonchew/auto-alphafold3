@@ -19,6 +19,7 @@ DEFAULT_ERROR_REPORT = "error_report.json"
 DEFAULT_FEATURE_FINGERPRINTS = "feature_fingerprints.json"
 PUBLIC_VAL_SPLIT = "public_val_small"
 REQUIRED_MANIFEST_HASHES = ("train_tiny", "public_val_small")
+REQUIRED_FEATURE_FINGERPRINTS = ("features/train_tiny.arrow", "features/public_val_small.arrow")
 
 
 class BaselineReadinessError(RuntimeError):
@@ -128,7 +129,7 @@ def audit_baseline_readiness(
         metrics = _read_json(metrics_path)
         error_report = _read_json(error_report_path)
         fingerprints = _read_json(fingerprints_path)
-    except (json.JSONDecodeError, OSError) as exc:
+    except (json.JSONDecodeError, OSError, ValueError) as exc:
         problems.append(f"baseline lock JSON is unreadable: {exc}")
         return _failed_report(base, metrics_present, error_present, fingerprints_present, problems)
 
@@ -252,10 +253,10 @@ def _extract_score(metrics: dict[str, object], problems: list[str]) -> float | N
         problems.append("baseline metrics must contain a metrics object")
         return None
     score = values.get(PRIMARY_METRIC)
-    if not isinstance(score, int | float) or not math.isfinite(float(score)):
+    score_float = _score_float(score)
+    if score_float is None:
         problems.append(f"baseline metrics.{PRIMARY_METRIC} must be finite")
         return None
-    score_float = float(score)
     if score_float < 0.0 or score_float > 1.0:
         problems.append(f"baseline metrics.{PRIMARY_METRIC} must be in [0, 1]")
         return None
@@ -278,14 +279,17 @@ def _validate_feature_fingerprints(fingerprints: dict[str, object], problems: li
     if not fingerprints:
         problems.append("baseline feature fingerprints are empty")
         return False
-    values = fingerprints.get("features", fingerprints)
-    if not isinstance(values, dict):
-        problems.append("baseline feature fingerprints must be a JSON object")
+    files = fingerprints.get("files")
+    if not isinstance(files, dict):
+        problems.append("baseline feature_fingerprints.json must contain a files object")
         return False
-    if not any(_looks_like_sha256(value) for value in values.values()):
-        problems.append("baseline feature fingerprints must include at least one SHA256")
-        return False
-    return True
+    valid = True
+    for path in REQUIRED_FEATURE_FINGERPRINTS:
+        value = files.get(path)
+        if not _looks_like_sha256(value):
+            problems.append(f"baseline feature_fingerprints.json missing SHA256 for {path}")
+            valid = False
+    return valid
 
 
 def _has_zero_templates(
@@ -316,9 +320,19 @@ def _is_zero_template_evidence(value: object) -> bool:
 
 def _score_from_result(row: AutoFoldResult) -> float | None:
     score = row.metrics.get(PRIMARY_METRIC)
-    if isinstance(score, int | float) and math.isfinite(float(score)):
-        return float(score)
-    return None
+    score_float = _score_float(score)
+    if score_float is None or score_float < 0.0 or score_float > 1.0:
+        return None
+    return score_float
+
+
+def _score_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    score = float(value)
+    if not math.isfinite(score):
+        return None
+    return score
 
 
 def _looks_like_sha256(value: object) -> bool:

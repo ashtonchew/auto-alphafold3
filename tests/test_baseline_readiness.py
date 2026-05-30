@@ -43,7 +43,15 @@ def write_baseline_lock(tmp_path: Path, *, metrics_overrides: dict[str, object] 
         encoding="utf-8",
     )
     (baseline / "feature_fingerprints.json").write_text(
-        json.dumps({"features": {"train_tiny.arrow": SHA, "public_val_small.arrow": SHA}, "max_templates": 0}),
+        json.dumps(
+            {
+                "files": {
+                    "features/train_tiny.arrow": SHA,
+                    "features/public_val_small.arrow": SHA,
+                },
+                "max_templates": 0,
+            }
+        ),
         encoding="utf-8",
     )
     return baseline
@@ -91,6 +99,7 @@ def test_baseline_readiness_fails_when_required_files_missing(tmp_path: Path) ->
         ({"status": "FAIL"}, "status must be SCORED"),
         ({"metrics": {}}, "best_val_calpha_lddt"),
         ({"metrics": {"best_val_calpha_lddt": float("nan")}}, "best_val_calpha_lddt"),
+        ({"metrics": {"best_val_calpha_lddt": True}}, "best_val_calpha_lddt"),
         ({"metrics": {"best_val_calpha_lddt": 1.5}}, "[0, 1]"),
         ({"manifests": {"train_tiny": SHA}}, "manifest hashes"),
         ({"max_templates": 1}, "max_templates=0"),
@@ -118,12 +127,35 @@ def test_baseline_readiness_rejects_invalid_error_report(tmp_path: Path) -> None
 
 def test_baseline_readiness_rejects_invalid_feature_fingerprints(tmp_path: Path) -> None:
     baseline = write_baseline_lock(tmp_path)
-    (baseline / "feature_fingerprints.json").write_text(json.dumps({"features": {}}), encoding="utf-8")
+    (baseline / "feature_fingerprints.json").write_text(json.dumps({"files": {}}), encoding="utf-8")
 
     report = audit_baseline_readiness(baseline_dir=baseline)
 
     assert report.status == "FAIL"
-    assert any("feature fingerprints" in item for item in report.problems)
+    assert any("feature_fingerprints.json" in item for item in report.problems)
+
+
+def test_baseline_readiness_rejects_missing_public_val_feature_fingerprint(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path)
+    (baseline / "feature_fingerprints.json").write_text(
+        json.dumps({"files": {"features/train_tiny.arrow": SHA}, "max_templates": 0}),
+        encoding="utf-8",
+    )
+
+    report = audit_baseline_readiness(baseline_dir=baseline)
+
+    assert report.status == "FAIL"
+    assert any("features/public_val_small.arrow" in item for item in report.problems)
+
+
+def test_baseline_readiness_reports_non_object_json_as_not_ready(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path)
+    (baseline / "metrics.json").write_text("[]", encoding="utf-8")
+
+    report = audit_baseline_readiness(baseline_dir=baseline)
+
+    assert report.status == "FAIL"
+    assert any("baseline lock JSON is unreadable" in item for item in report.problems)
 
 
 def test_current_best_lookup_refuses_without_ready_baseline(tmp_path: Path) -> None:
@@ -164,6 +196,17 @@ def test_current_best_lookup_ignores_keep_below_baseline(tmp_path: Path) -> None
     baseline = write_baseline_lock(tmp_path)
     ledger = tmp_path / "ledger.jsonl"
     append_ledger(_result("T203", TrialStatus.KEEP, 0.41), ledger_path=ledger)
+
+    best = current_best_from_baseline_and_ledger(baseline_dir=baseline, ledger_path=ledger)
+
+    assert best.source == "baseline"
+    assert best.score == pytest.approx(0.42)
+
+
+def test_current_best_lookup_ignores_out_of_range_keep_score(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path)
+    ledger = tmp_path / "ledger.jsonl"
+    append_ledger(_result("T204", TrialStatus.KEEP, 2.0), ledger_path=ledger)
 
     best = current_best_from_baseline_and_ledger(baseline_dir=baseline, ledger_path=ledger)
 

@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     submit_parser.add_argument("--ledger-path", default="runs/ledger.jsonl")
     submit_parser.add_argument("--manifest", action="append", default=[], help="name=path manifest mapping")
     submit_parser.add_argument("--mode", choices=("dry_run", "modal"), default="dry_run")
+    submit_parser.add_argument("--enforce-git-diff", action="store_true")
+    submit_parser.add_argument("--strict-preflight", action="store_true")
 
     poll_parser = subparsers.add_parser("poll")
     poll_parser.add_argument("call_id")
@@ -52,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             ledger_path=args.ledger_path,
             manifest_paths=manifest_paths,
             mode=args.mode,
+            enforce_git_diff=args.enforce_git_diff or args.strict_preflight,
         )
         print(json.dumps({"call_id": call_id}, sort_keys=True))
         return 0

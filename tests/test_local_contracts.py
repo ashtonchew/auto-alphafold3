@@ -246,6 +246,22 @@ def test_ledger_append_read_roundtrip(tmp_path: Path) -> None:
     assert rows[0].status == TrialStatus.PREFLIGHT_PASSED
 
 
+def test_ledger_rejects_invalid_lifecycle_transition(tmp_path: Path) -> None:
+    ledger_path = tmp_path / "ledger.jsonl"
+    first = AutoFoldResult(
+        trial_id="T030",
+        status=TrialStatus.PREFLIGHT_PASSED,
+        candidate_id="local_dry_run",
+        metrics={},
+        fold_cartographer=FoldCartographerReport(signature="preflight"),
+    )
+    second = first.model_copy(update={"status": TrialStatus.RUNNING})
+
+    append_ledger(first, ledger_path=ledger_path, validate_lifecycle=True)
+    with pytest.raises(ValueError, match="invalid lifecycle transition"):
+        append_ledger(second, ledger_path=ledger_path, validate_lifecycle=True)
+
+
 def test_orchestrator_records_lifecycle_transition_once(tmp_path: Path) -> None:
     ledger_path = tmp_path / "ledger.jsonl"
     payload = {

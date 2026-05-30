@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from autoalphafold3.locked_scorer import LockedScorerError, score_trial_artifacts
+from autoalphafold3.locked_scorer import LockedScorerError, load_locked_state, score_trial_artifacts
 from autoalphafold3.runner import (
     RunnerError,
     artifact_manifest_shape,
@@ -229,11 +229,34 @@ def test_locked_scorer_scores_toy_artifact_directory(tmp_path: Path) -> None:
     assert result["local_only"] is True
     assert result["metrics"]["best_val_calpha_lddt"] == pytest.approx(1.0)
     assert result["fold_cartographer"]["signature"] == "toy_geometry_preserved"
+    assert result["fold_cartographer"]["summary"]["canonical_target"] == "local_geometry_weak"
     assert result["artifacts"]["predictions_json"] == str(predictions)
     assert payload["official_benchmark_result"] is False
     assert result["error_report"]["scorer_only"] is True
     assert (artifact_dir / "metrics.json").exists()
     assert (artifact_dir / "error_report.json").exists()
+
+
+def test_locked_scorer_accepts_preloaded_state_for_local_smoke(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "T782"
+    _write_toy_predictions(artifact_dir)
+    state = load_locked_state(REPO_ROOT)
+    state = state.__class__(
+        locked_root=state.locked_root,
+        manifest_path="data/manifests/smoke.json",
+        scorer_version_path="missing-version.txt",
+    )
+
+    result = score_trial_artifacts(
+        artifact_dir=artifact_dir,
+        manifest_path="ignored.json",
+        split="smoke",
+        allow_local_smoke=True,
+        locked=state,
+    )
+
+    assert result["status"] == "SCORED"
+    assert result["official_benchmark_result"] is False
 
 
 def test_locked_scorer_missing_prediction_artifact_fails(tmp_path: Path) -> None:

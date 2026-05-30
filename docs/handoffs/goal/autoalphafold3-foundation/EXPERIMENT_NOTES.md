@@ -14,3 +14,6 @@ labels, or autonomous trials were created during foundation setup.
   helpers for caller-supplied coordinates, keeps local stubs non-official, and
   does not create checkpoints, benchmark metrics, Modal runs, or NanoFold
   training outputs.
+- PR 4 wires Modal/orchestrator contracts and static definitions. It does not
+  deploy Modal, submit trials, score official benchmark results, or mutate
+  locked assets.

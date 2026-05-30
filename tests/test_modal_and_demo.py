@@ -72,16 +72,20 @@ def test_modal_submit_and_poll_with_mocked_sdk(monkeypatch: pytest.MonkeyPatch, 
                 "postmortem": "Mocked Modal result for contract test.",
             }
 
-    class FakeFunction:
-        @staticmethod
-        def from_name(app_name: str, function_name: str) -> "FakeFunction":
-            assert app_name == "autoalphafold3-modal"
-            assert function_name == "run_trial"
-            return FakeFunction()
-
+    class FakeRunMethod:
         def spawn(self, payload: dict[str, object]) -> FakeCall:
             assert payload["trial_id"] == "T010"
             return FakeCall()
+
+    class FakeRunner:
+        run = FakeRunMethod()
+
+    class FakeCls:
+        @staticmethod
+        def from_name(app_name: str, class_name: str) -> type[FakeRunner]:
+            assert app_name == "autoalphafold3-modal"
+            assert class_name == "TrialRunner"
+            return FakeRunner
 
     class FakeFunctionCall:
         @staticmethod
@@ -89,7 +93,7 @@ def test_modal_submit_and_poll_with_mocked_sdk(monkeypatch: pytest.MonkeyPatch, 
             assert object_id == "fake-call-123"
             return FakeCall()
 
-    fake_modal = types.SimpleNamespace(Function=FakeFunction, FunctionCall=FakeFunctionCall)
+    fake_modal = types.SimpleNamespace(Cls=FakeCls, FunctionCall=FakeFunctionCall)
     monkeypatch.setitem(sys.modules, "modal", fake_modal)
 
     ledger_path = tmp_path / "ledger.jsonl"
@@ -107,6 +111,29 @@ def test_modal_submit_and_poll_with_mocked_sdk(monkeypatch: pytest.MonkeyPatch, 
     assert result.status == "SCORED"
     assert result.metrics["best_val_calpha_lddt"] == 0.5
     assert rows[-1].candidate_id == "mocked_modal"
+
+
+def test_modal_submit_spawn_error_normalizes_to_infra_fail(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    class FakeCls:
+        @staticmethod
+        def from_name(app_name: str, class_name: str) -> object:
+            raise RuntimeError(f"cannot spawn {app_name}.{class_name}")
+
+    monkeypatch.setitem(sys.modules, "modal", types.SimpleNamespace(Cls=FakeCls))
+    ledger_path = tmp_path / "ledger.jsonl"
+
+    call_id = submit_trial(
+        _write_trial(tmp_path, trial_id="T012"),
+        repo_root=REPO_ROOT,
+        ledger_path=ledger_path,
+        manifest_paths={"smoke": SMOKE_MANIFEST},
+        mode="modal",
+    )
+    result = poll_trial(call_id, repo_root=REPO_ROOT, ledger_path=ledger_path)
+
+    assert call_id == "modal:INFRA_FAIL:T012"
+    assert result.status == "INFRA_FAIL"
+    assert result.failure_signature == "modal_RuntimeError"
 
 
 def test_modal_mode_records_infra_fail_when_sdk_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

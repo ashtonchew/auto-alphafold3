@@ -9,6 +9,7 @@ official benchmark metrics or read real Arrow label files.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,21 @@ class LockedScorerError(RuntimeError):
     """Raised when the scorer-only wrapper refuses unsafe access."""
 
 
+@dataclass(frozen=True)
+class LockedScorerState:
+    """Immutable scorer-only paths loaded once by a Modal Scorer container."""
+
+    locked_root: str
+    manifest_path: str = "manifests/public_val_small.json"
+    scorer_version_path: str = "scorer_version.txt"
+
+
+def load_locked_state(locked_root: str | Path) -> LockedScorerState:
+    """Return immutable scorer-only state for Modal memory snapshots."""
+
+    return LockedScorerState(locked_root=str(locked_root))
+
+
 def score_trial_artifacts(
     *,
     artifact_dir: str | Path,
@@ -38,10 +54,15 @@ def score_trial_artifacts(
     split: str = "public_val_small",
     allow_local_smoke: bool = False,
     write_outputs: bool = True,
+    locked: LockedScorerState | None = None,
 ) -> dict[str, object]:
     """Score one trial artifact directory through the scorer-only boundary."""
 
     _require_supported_split(split, allow_local_smoke=allow_local_smoke)
+    if locked is not None:
+        repo_root = locked.locked_root
+        manifest_path = locked.manifest_path
+        scorer_version_path = locked.scorer_version_path
     root = Path(repo_root)
     artifact_root = _safe_artifact_dir(artifact_dir)
     prediction_path = artifact_root / PREDICTIONS_FILENAME

@@ -148,3 +148,30 @@ Validation:
 - Passed: `python3 -m pytest -p no:cacheprovider tests/test_modal_and_demo.py tests/test_local_contracts.py -q`.
 - Passed: `python3 -m pytest -p no:cacheprovider` (`66 passed, 2 skipped`).
 - Passed: `python3 .claude/skill-evals/run_offline_evals.py` (`148 checks passed`).
+
+## PR 4 Grounding: `feat/modal-scorer-orchestrator`
+
+Read-only grounding covered canonical spec Section 7/7.5, repo-local
+`modal-docs`, `modal_app`, `orchestrator`, `ledger`, `agent`, and scorer
+boundary tests.
+
+Best-practice approach:
+
+- Define real Modal `Scorer` and `TrialRunner` classes only when Modal is
+  importable, while keeping static health/deploy metadata import-safe without
+  the SDK.
+- Apply Section 7.5 defaults exactly: scorer and TrialRunner
+  `min_containers=1`, scorer `scaledown_window=600`, TrialRunner
+  `scaledown_window=300`, and scorer
+  `@modal.concurrent(max_inputs=4, target_inputs=2)`.
+- Keep trial workers on public feature/run mounts only; keep locked labels on
+  scorer-only mounts.
+- Normalize Modal submission/poll errors into `INFRA_FAIL`.
+- Validate ledger lifecycle transitions while preserving append-only writes.
+- Expose strict preflight/git-diff enforcement through the CLI.
+
+Validation:
+
+- Passed: `python3 -m pytest tests/test_modal_and_demo.py tests/test_local_contracts.py tests/test_runner_and_locked_scorer.py tests/test_modal_assets.py tests/test_nanofold_adapter.py -q`.
+- Passed: `python3 -m pytest -p no:cacheprovider` (`69 passed, 2 skipped`).
+- Passed: `python3 .claude/skill-evals/run_offline_evals.py` (`148 checks passed`).

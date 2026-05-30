@@ -12,3 +12,7 @@ manifests, Modal app, preflight, ledger gates, and final readiness checks.
 - Passed: adjacent Modal/NanoFold contract tests.
 - Passed: full local tests.
 - Passed: offline skill evals.
+- Passed: PR 2 NanoFold adapter, local contract, data prep, and runner/scorer
+  targeted tests.
+- Passed: full local tests after PR 2.
+- Passed: offline skill evals after PR 2.

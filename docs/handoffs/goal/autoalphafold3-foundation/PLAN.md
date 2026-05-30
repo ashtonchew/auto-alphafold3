@@ -81,3 +81,42 @@ labels. Scorer-only workers may mount locked assets.
 - Passed: `python3 -m pytest tests/test_modal_and_demo.py tests/test_nanofold_adapter.py -q`.
 - Passed: `python3 -m pytest -p no:cacheprovider`.
 - Passed: `python3 .claude/skill-evals/run_offline_evals.py`.
+
+## PR 2 Grounding: `feat/nanofold-adapters`
+
+Read-only grounding covered the canonical spec data boundary, `nanofold_adapter`,
+`locked_dataset`, NanoFold `ChainDataset.construct_datasets`, no-template
+verification scripts, config contracts, and adapter tests.
+
+Best-practice approach:
+
+- Keep official dataset-boundary behavior in `autoalphafold3/nanofold_adapter.py`.
+- Reuse `locked_dataset.py` for manifest hashing, random-split rejection, and
+  train-only label access instead of duplicating scorer lock logic.
+- Add explicit official-mode validation that requires train/public-validation
+  manifests, refuses random split behavior, and enforces `max_templates=0`.
+- Make NanoFold path discovery repo-root-aware and remove personal absolute
+  fallback paths from verification scripts.
+- Verify empty-template support by source inspection and by no-template feature
+  script behavior where real Arrow fixtures are unavailable.
+
+Likely files:
+
+- `autoalphafold3/nanofold_adapter.py`
+- `scripts/verify_nanofold_no_template_features.py`
+- `scripts/nanofold_preprocess_no_templates.py`
+- `configs/nanofold_dataset_local.json`
+- `tests/test_nanofold_adapter.py`
+- `tests/test_local_contracts.py`
+- goal-pack checklist/validation notes
+
+Validation:
+
+- Passed: `python3 -m pytest -p no:cacheprovider tests/test_nanofold_adapter.py tests/test_local_contracts.py -q`.
+- Passed: `python3 -m pytest -p no:cacheprovider tests/test_modal_and_demo.py tests/test_prepare_nanofold_data.py -q`.
+- Passed: `python3 -m pytest -p no:cacheprovider tests/test_runner_and_locked_scorer.py -q`.
+- Passed: `python3 -m pytest -p no:cacheprovider` (`61 passed, 2 skipped`).
+- Passed: `python3 .claude/skill-evals/run_offline_evals.py` (`148 checks passed`).
+- Passed: `rg -n "/Users/|naveenramasamy" autoalphafold3 scripts configs` with no matches.
+- Passed: `python3 -m pytest -p no:cacheprovider`.
+- Passed: `python3 .claude/skill-evals/run_offline_evals.py`.

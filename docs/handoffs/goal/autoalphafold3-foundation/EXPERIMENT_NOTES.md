@@ -8,3 +8,5 @@ labels, or autonomous trials were created during foundation setup.
 - PR 1 is contracts-only. It hardens readiness checks and records the work plan.
 - Later Modal implementation must use docs-backed APIs and Section 7.5 defaults
   exactly as written.
+- PR 2 is adapter-only. It does not run preprocessing or create feature,
+  prediction, benchmark, baseline, or Modal artifacts.

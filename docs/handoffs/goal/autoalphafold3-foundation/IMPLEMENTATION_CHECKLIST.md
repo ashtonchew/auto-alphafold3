@@ -12,13 +12,13 @@
 - [x] Asset audit validates scorer stamp.
 - [x] Asset audit validates manifest counts.
 - [x] Asset audit checks Arrow readability where byte fixtures and `pyarrow` allow.
-- [ ] NanoFold path resolution is repo-root-aware.
-- [ ] No hard-coded personal absolute paths remain in NanoFold scripts.
-- [ ] Official training path uses explicit manifests.
-- [ ] Official validation inference path cannot read validation labels.
-- [ ] Random split behavior is rejected for official runs.
-- [ ] `max_templates=0` is enforced.
-- [ ] Empty template placeholders are verified.
+- [x] NanoFold path resolution is repo-root-aware.
+- [x] No hard-coded personal absolute paths remain in NanoFold scripts.
+- [x] Official training path uses explicit manifests.
+- [x] Official validation inference path cannot read validation labels.
+- [x] Random split behavior is rejected for official runs.
+- [x] `max_templates=0` is enforced.
+- [x] Empty template placeholders are verified.
 - [ ] Runner writes only trial-scoped artifacts.
 - [ ] Runner creates canonical prediction artifacts.
 - [ ] Runner does not stamp official benchmark success.

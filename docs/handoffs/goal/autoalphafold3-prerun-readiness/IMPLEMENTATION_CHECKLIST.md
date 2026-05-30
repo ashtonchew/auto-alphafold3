@@ -11,8 +11,8 @@
 - [x] Falsification plan/result schemas implemented.
 - [x] All five gate verdicts covered by pure local tests.
 - [x] Gate verdict math rejects missing scored controls.
-- [ ] Gate thresholds and verdict logic are frozen before autonomous search.
-- [ ] Gate control construction, thresholds, verdict logic, and Discovery Ledger writes are added to locked patch-policy coverage after implementation.
+- [x] Gate thresholds and verdict logic are frozen before autonomous search.
+- [x] Gate control construction, thresholds, verdict logic, and Discovery Ledger writes are added to locked patch-policy coverage after implementation.
 - [x] Patch-policy tests reject search edits to implemented falsification controls.
 - [x] Forbidden-file patch scope gate is tested.
 - [x] Config schema gate is tested.
@@ -28,12 +28,12 @@
 - [x] Discovery provenance includes git SHA, scorer version, feature/manifest hashes, axis, verdict numbers, and design rule.
 - [x] Stage-one threshold decision implemented.
 - [x] Provisional KEEP cannot enter Discovery Ledger.
-- [ ] Gate controls are orchestrator-authored.
-- [ ] Modal gate-wave adapter is fakeable in tests.
-- [ ] Gate `starmap` uses `return_exceptions=True` and `wrap_returned_exceptions=False`.
+- [x] Gate controls are orchestrator-authored.
+- [x] Modal gate-wave adapter is fakeable in tests.
+- [x] Gate `starmap` uses `return_exceptions=True` and `wrap_returned_exceptions=False`.
 - [x] Modal lookup/spawn/poll failures normalize to `INFRA_FAIL`.
-- [ ] Trial workers still cannot mount locked labels.
-- [ ] Scorer-only path remains the locked-label boundary.
+- [x] Trial workers still cannot mount locked labels.
+- [x] Scorer-only path remains the locked-label boundary.
 - [ ] Readiness CLI/report implemented.
 - [ ] Readiness report distinguishes local offline checks from human-approved live Modal/baseline actions.
 - [ ] Readiness report blocks autonomous search until known-null and known-positive Falsification Gate calibration is complete, or marks the exact human-approved live calibration action as pending.

@@ -3,9 +3,10 @@
 ## Snapshot
 
 As of 2026-05-30, the Modal pre-run readiness implementation stack through PR
-#31 is merged on `main`. Live Modal asset audit passes, but the readiness report
-still blocks autonomous search because several remaining steps require real
-live evidence or additional infrastructure commands.
+#40 is merged on `main`, and the readiness-live branch has produced a real
+Modal baseline lock. Readiness still blocks autonomous search because real
+known-null and known-positive Falsification Gate calibration evidence is
+missing.
 
 ## What Is Already Implemented
 
@@ -14,6 +15,8 @@ live evidence or additional infrastructure commands.
 - Falsification Gate schemas, verdict math, bounded control planning, and
   confirmed-only Discovery Ledger helpers.
 - Baseline readiness reader and human-approved `lock-baseline` command.
+- Human-approved baseline runner and real locked baseline evidence under
+  `runs/baseline/**`.
 - Readiness report with explicit `PENDING_HUMAN_LIVE_ACTION` classification.
 - Live Modal asset handoff audit for helper Arrow files, feature fingerprints,
   scorer metadata, and public/locked Volume boundaries.
@@ -35,10 +38,8 @@ Implemented shape:
 - `local_only=true`, `official_benchmark_result=false`, and `max_templates=0`,
 - readiness gates can pass or fail on the fixture after materialization.
 
-Still required:
-
-- run the command only when the exact approval action is intended for this
-  checkout.
+Status: complete for this checkout. Local gates pass on the approved local-only
+fixture.
 
 ### 2. Real Baseline Runner
 
@@ -57,11 +58,8 @@ Implemented shape:
 - only `lock-baseline --approve I_APPROVE_BASELINE_LOCK` writes
   `runs/baseline/**`.
 
-Still required:
-
-- deploy/authenticate the Modal event authority before the modal run,
-- run the command with explicit approval,
-- provide approved feature fingerprints to `lock-baseline`.
+Status: complete for the baseline. The Modal baseline run completed and the
+baseline lock was written through `lock-baseline`.
 
 ### 3. Modal Deployment Decision
 
@@ -73,12 +71,9 @@ Known deploy command from the local plan:
 .venv/bin/python -m modal deploy autoalphafold3/modal_app.py
 ```
 
-Why it should not be treated as done now:
-
-- `modal app list --env main` showed no deployed app,
-- deployment is a live infrastructure action,
-- the runbook calls out NanoFold pin, baseline readiness, and cost/resource tier
-  review before deployment.
+Status: complete for the approved baseline run. The offline readiness report
+still reports event authority as pending because it does not persist live
+deployment proof for autonomous search readiness.
 
 ### 4. Falsification Gate Calibration Runner
 
@@ -98,8 +93,7 @@ Implemented shape:
 
 Still required:
 
-- produce the real known-null and known-positive evidence records after baseline
-  and Modal authority are ready,
+- produce real known-null and known-positive evidence records;
 - run the command with explicit approval.
 
 ## Current Command Surface
@@ -122,11 +116,10 @@ Not currently present:
 
 ## Recommended Order
 
-1. Implement approved local fixture materialization.
-2. Implement real baseline runner.
-3. Review Modal cost/resource tier and deploy the app.
-4. Run the real baseline and lock it.
-5. Implement and run Falsification Gate calibration.
-6. Rerun readiness report.
-7. Start autonomous search only after readiness is no longer blocked and a
+1. Merge the readiness-live baseline lock PR.
+2. Add or run a real calibration evidence producer for known-null and
+   known-positive controls.
+3. Run `calibrate-gate --mode from-evidence`.
+4. Rerun readiness report.
+5. Start autonomous search only after readiness is no longer blocked and a
    human explicitly approves the live search action.

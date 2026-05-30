@@ -77,6 +77,29 @@ def test_baseline_readiness_passes_with_complete_tmp_lock(tmp_path: Path) -> Non
     assert report.to_dict()["current_best_score"] == pytest.approx(0.42)
 
 
+def test_baseline_readiness_accepts_modal_asset_fingerprint_schema(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path)
+    (baseline / "feature_fingerprints.json").write_text(
+        json.dumps(
+            {
+                "data_files": {
+                    "features/train_tiny.arrow": SHA,
+                    "features/public_val_small.arrow": SHA,
+                },
+                "locked_files": {"labels/public_val_labels.arrow": SHA},
+                "template_policy": "max_templates=0; template fields are empty placeholders",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = audit_baseline_readiness(baseline_dir=baseline)
+
+    assert report.status == "PASS"
+    assert report.feature_fingerprints_valid is True
+    assert report.max_templates_zero is True
+
+
 def test_baseline_readiness_fails_when_required_files_missing(tmp_path: Path) -> None:
     baseline = tmp_path / "baseline"
     baseline.mkdir()

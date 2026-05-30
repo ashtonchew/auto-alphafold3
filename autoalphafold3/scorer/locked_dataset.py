@@ -105,6 +105,7 @@ def load_locked_manifest(
     root = Path(repo_root)
     path = _safe_repo_path(root, manifest_path)
     data = json.loads(path.read_text())
+    data = _normalize_manifest_data(data)
     manifest = LockedManifest.model_validate(data)
 
     if verify_assets:
@@ -176,6 +177,38 @@ def manifest_hashes(paths: dict[str, str | Path], *, repo_root: str | Path = "."
 
     root = Path(repo_root)
     return {name: sha256_file(_safe_repo_path(root, path)) for name, path in paths.items()}
+
+
+def _normalize_manifest_data(data: object) -> object:
+    if not isinstance(data, list):
+        return data
+    return {
+        "manifest_kind": "locked_manifest",
+        "schema_version": "autoaf3.manifest.v1",
+        "description": "list manifest normalized at load time",
+        "entries": [_normalize_manifest_entry(entry) for entry in data],
+    }
+
+
+def _normalize_manifest_entry(entry: object) -> object:
+    if not isinstance(entry, dict) or "record_id" not in entry:
+        return entry
+    split = str(entry["split"])
+    source_hash = str(entry.get("source_mmcif_sha256") or "0" * SHA256_HEX_LEN)
+    return {
+        "target_id": str(entry["record_id"]),
+        "pdb_id": str(entry["pdb_id"]),
+        "chain_id": str(entry["chain_id"]),
+        "sequence_sha256": source_hash,
+        "feature_sha256": source_hash,
+        "label_sha256": source_hash,
+        "length": int(entry["sequence_length"]),
+        "msa_depth_bucket": "event_small",
+        "length_bucket": "event_small",
+        "split": split,
+        "feature_path": f"features/{split}.arrow",
+        "label_path": f"labels/{split.replace('_small', '')}_labels.arrow",
+    }
 
 
 def label_path_for_entry(entry: ManifestEntry, *, access_mode: Literal["training", "scorer"]) -> Path:

@@ -20,9 +20,9 @@ LOCKED_VOLUME = "autoalphafold3-locked"
 STATUS_DICT = "autoalphafold3-status"
 
 DATA_MOUNT = "/mnt/autoalphafold3"
-FEATURES_MOUNT = "/mnt/autoalphafold3-features"
-RUNS_MOUNT = "/mnt/autoalphafold3-runs"
-TRIALS_MOUNT = "/mnt/autoalphafold3-trials"
+FEATURES_MOUNT = f"{DATA_MOUNT}/features"
+RUNS_MOUNT = f"{DATA_MOUNT}/runs"
+TRIALS_MOUNT = f"{RUNS_MOUNT}/trials"
 LOCKED_MOUNT = "/mnt/autoalphafold3-locked"
 
 HARNESS_SECRET_NAMES = (
@@ -43,11 +43,10 @@ FORBIDDEN_EXECUTION_SECRET_ENV = (
 )
 
 TRIAL_WORKER_MOUNTS = {
-    FEATURES_MOUNT: f"{DATA_VOLUME}:/features:ro",
-    TRIALS_MOUNT: f"{DATA_VOLUME}:/runs/trials:rw",
+    DATA_MOUNT: f"{DATA_VOLUME}:/:rw",
 }
 SCORER_WORKER_MOUNTS = {
-    TRIALS_MOUNT: f"{DATA_VOLUME}:/runs/trials:ro",
+    DATA_MOUNT: f"{DATA_VOLUME}:/:ro",
     LOCKED_MOUNT: f"{LOCKED_VOLUME}:/:ro",
 }
 HARNESS_MOUNTS = {
@@ -350,15 +349,11 @@ def validate_worker_role_contracts() -> dict[str, Any]:
     if LOCKED_MOUNT in TRIAL_WORKER_MOUNTS or any(LOCKED_VOLUME in spec for spec in TRIAL_WORKER_MOUNTS.values()):
         errors.append("trial_workers: execution workers must not mount locked assets")
     feature_spec = TRIAL_WORKER_MOUNTS.get(FEATURES_MOUNT, "")
-    if not feature_spec.endswith(":ro"):
+    if feature_spec and not feature_spec.endswith(":ro"):
         errors.append("trial_workers: feature mount must be read-only")
-    writable_trial_mounts = [
-        mount
-        for mount, spec in TRIAL_WORKER_MOUNTS.items()
-        if spec.endswith(":rw")
-    ]
-    if writable_trial_mounts != [TRIALS_MOUNT]:
-        errors.append("trial_workers: writable mount must be limited to trial artifact subpath")
+    writable_trial_mounts = [mount for mount, spec in TRIAL_WORKER_MOUNTS.items() if spec.endswith(":rw")]
+    if writable_trial_mounts != [DATA_MOUNT]:
+        errors.append("trial_workers: Modal-supported writable mount must be the single data volume mount")
     for spec in TRIAL_WORKER_MOUNTS.values():
         if ":/runs:rw" in spec:
             errors.append("trial_workers: must not mount whole runs tree writable")
@@ -556,18 +551,17 @@ except ModuleNotFoundError:
 if modal is not None:
     data_volume = modal.Volume.from_name(DATA_VOLUME, create_if_missing=False)
     locked_volume = modal.Volume.from_name(LOCKED_VOLUME, create_if_missing=False)
+    data_rw = data_volume.with_mount_options()
+    data_ro = data_volume.with_mount_options(read_only=True)
     runs_rw = data_volume.with_mount_options(sub_path="/runs")
-    trials_ro = data_volume.with_mount_options(read_only=True, sub_path="/runs/trials")
-    trials_rw = data_volume.with_mount_options(sub_path="/runs/trials")
-    features_ro = data_volume.with_mount_options(read_only=True, sub_path="/features")
     locked_ro = locked_volume.with_mount_options(read_only=True)
-    scorer_image = modal.Image.debian_slim().pip_install("numpy").add_local_python_source(
+    scorer_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow", "pydantic").add_local_python_source(
         "autoalphafold3",
-        copy=False,
+        copy=True,
     )
-    train_image = modal.Image.debian_slim().pip_install("numpy").add_local_python_source(
+    train_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow", "pydantic").add_local_python_source(
         "autoalphafold3",
-        copy=False,
+        copy=True,
     ).add_local_dir(
         "external/nanofold",
         remote_path="/root/external/nanofold",
@@ -583,7 +577,7 @@ if modal is not None:
         scaledown_window=600,
         timeout=RESOURCE_TIERS["score_trial"].timeout_s,
         max_containers=RESOURCE_TIERS["score_trial"].max_containers,
-        volumes={TRIALS_MOUNT: trials_ro, LOCKED_MOUNT: locked_ro},
+        volumes={DATA_MOUNT: data_ro, LOCKED_MOUNT: locked_ro},
     )
     @modal.concurrent(max_inputs=4, target_inputs=2)
     class Scorer:
@@ -591,7 +585,7 @@ if modal is not None:
 
         @modal.enter(snap=True)
         def load_locked_state(self) -> None:
-            trials_ro.reload()
+            data_ro.reload()
             locked_ro.reload()
             from autoalphafold3.locked_scorer import load_locked_state
 
@@ -605,6 +599,7 @@ if modal is not None:
                 artifact_dir=trial_artifact_dir(trial_id),
                 split="public_val_small",
                 locked=self._locked,
+                write_outputs=False,
             )
 
     @app.cls(
@@ -615,7 +610,7 @@ if modal is not None:
         scaledown_window=300,
         timeout=RESOURCE_TIERS["trial"].timeout_s,
         max_containers=RESOURCE_TIERS["trial"].max_containers,
-        volumes={FEATURES_MOUNT: features_ro, TRIALS_MOUNT: trials_rw},
+        volumes={DATA_MOUNT: data_rw},
     )
     class TrialRunner:
         """Trial worker class; public features and trial runs only."""
@@ -629,11 +624,13 @@ if modal is not None:
             from autoalphafold3.runner import run_fixed_budget_trial
 
             validate_execution_payload(trial_json, role=WorkerRole.TRIAL.value)
-            return run_fixed_budget_trial(
+            result = run_fixed_budget_trial(
                 trial_json,
                 features_dir=FEATURES_MOUNT,
                 output_dir=trial_artifact_dir(str(trial_json["trial_id"])),
             )
+            data_volume.commit()
+            return result
 
         @modal.method()
         def run_gate_control(self, control_payload: dict[str, Any], seed: int) -> dict[str, Any]:

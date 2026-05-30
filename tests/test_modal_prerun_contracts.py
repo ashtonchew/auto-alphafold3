@@ -7,6 +7,7 @@ import pytest
 from autoalphafold3.modal_app import (
     FORBIDDEN_EXECUTION_SECRET_ENV,
     HARNESS_SECRET_NAMES,
+    SCORER_WORKER_MOUNTS,
     TRIALS_MOUNT,
     TRIAL_WORKER_MOUNTS,
     TRUSTED_ORCHESTRATOR_CLASS,
@@ -83,13 +84,20 @@ def test_worker_boundaries_reject_serialized_harness_secret_keys() -> None:
 
 
 def test_trial_worker_mounts_are_limited_to_trial_artifacts() -> None:
-    assert TRIAL_WORKER_MOUNTS[TRIALS_MOUNT] == "autoalphafold3-data:/runs/trials:rw"
+    assert TRIAL_WORKER_MOUNTS == {"/mnt/autoalphafold3": "autoalphafold3-data:/:rw"}
     assert all("autoalphafold3-locked" not in spec for spec in TRIAL_WORKER_MOUNTS.values())
     assert all(":/runs:rw" not in spec for spec in TRIAL_WORKER_MOUNTS.values())
     assert trial_artifact_dir("T123") == f"{TRIALS_MOUNT}/T123"
     assert all(path.startswith(f"{TRIALS_MOUNT}/T123/") for path in worker_artifact_paths("T123").values())
     with pytest.raises(ValueError, match="unsafe trial_id"):
         worker_artifact_paths("../ledger")
+
+
+def test_scorer_mounts_data_volume_once_read_only() -> None:
+    assert SCORER_WORKER_MOUNTS == {
+        "/mnt/autoalphafold3": "autoalphafold3-data:/:ro",
+        "/mnt/autoalphafold3-locked": "autoalphafold3-locked:/:ro",
+    }
 
 
 def test_local_scaffold_contract_is_not_event_search_ready() -> None:

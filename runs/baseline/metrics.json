@@ -1,0 +1,76 @@
+{
+  "artifacts": {
+    "error_report_json": "runs/baseline/error_report.json",
+    "feature_fingerprints_json": "runs/baseline/feature_fingerprints.json",
+    "metrics_json": "runs/baseline/metrics.json"
+  },
+  "candidate_id": "baseline_auto_tiny",
+  "fold_cartographer": {
+    "buckets": {
+      "toy_all": {
+        "eligible_pair_count": 38149,
+        "target_ids": [
+          "2LZM_A",
+          "1AZU_A",
+          "1NXB_A",
+          "1BP2_A",
+          "2BP2_A",
+          "1HEL_A",
+          "351C_A",
+          "451C_A",
+          "3CHY_A",
+          "1MBD_A",
+          "1MBO_A",
+          "1PFC_A",
+          "1SHF_A",
+          "1TEN_A",
+          "1CSP_A",
+          "1AKI_A"
+        ]
+      }
+    },
+    "signature": "toy_geometry_failed",
+    "summary": {
+      "canonical_target": "local_geometry_weak",
+      "mean_target_calpha_lddt": 0.08574363353506056,
+      "nan_prediction_residue_count": 0,
+      "num_scored_targets": 16,
+      "num_targets": 16
+    }
+  },
+  "label_hashes": {
+    "public_val_small": "bce41659c2bb1c13920f2c1f7b513332046508bc36248463794c8d1459cb1ec7"
+  },
+  "local_only": false,
+  "locked_asset_version": "event-small-bootstrap-2026-05-30",
+  "manifests": {
+    "public_val_small": "0d06fc098c4f51c7f44777805cd2bd15f6e80a9d06958a74cde3a5232ce21e83",
+    "train_tiny": "59ba58a498e08afe60f6e330689006d32d74a3dd5183edbebbd22041be2e979c"
+  },
+  "max_templates": 0,
+  "metrics": {
+    "best_val_calpha_lddt": 0.07941230438543605,
+    "eligible_pair_count": 38149,
+    "mean_val_calpha_lddt": 0.08574363353506056,
+    "median_val_calpha_lddt": 0.0789736844778398,
+    "num_failed_targets": 0,
+    "num_scored_targets": 16,
+    "num_targets": 16
+  },
+  "official_benchmark_result": true,
+  "primary_metric": "best_val_calpha_lddt",
+  "quality_gates": {
+    "nan_detected": false,
+    "oom_detected": false,
+    "parameter_count": 0,
+    "peak_gpu_mem_gb": 0.0,
+    "runtime_s": 0.0,
+    "timeout_detected": false
+  },
+  "schema_version": "autoaf3.metrics.v1",
+  "scorer_version": "calpha_lddt_v1",
+  "seed": 0,
+  "split": "public_val_small",
+  "status": "SCORED",
+  "trial_id": "T000"
+}

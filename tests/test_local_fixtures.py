@@ -45,6 +45,32 @@ def test_materialize_local_fixture_writes_local_only_arrow_and_provenance(tmp_pa
     assert validate_local_nanofold_fixture(fixture_path=fixture_path, repo_root=tmp_path).status == "PASS"
 
 
+def test_materialized_fixture_parses_through_nanofold_chain_dataset(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("torch")
+    materialize_local_nanofold_fixture(repo_root=tmp_path, approval=APPROVAL_TOKEN)
+
+    import sys
+
+    nanofold_root = str(REPO_ROOT / "external/nanofold")
+    if nanofold_root not in sys.path:
+        sys.path.insert(0, nanofold_root)
+    from nanofold.train.chain_dataset import ChainDataset
+
+    train, _held_out = ChainDataset.construct_datasets(
+        tmp_path / "data/toy/nanofold_fixture" / FIXTURE_ARROW_NAME,
+        0.5,
+        32,
+        4,
+    )
+    features = next(iter(train))
+
+    assert features["msa"].shape[-1] == 22
+    assert features["has_deletion"].shape[-1] == 1
+    assert features["deletion_value"].shape[-1] == 1
+    assert features["template_restype"].shape[0] == 0
+
+
 def test_materialize_local_fixture_cli_has_no_baseline_or_ledger_side_effects(tmp_path: Path) -> None:
     result = subprocess.run(
         [

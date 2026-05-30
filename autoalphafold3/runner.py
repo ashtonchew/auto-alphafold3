@@ -20,7 +20,7 @@ ARTIFACT_MANIFEST_SCHEMA = "autoaf3.artifact_manifest.v1"
 PREDICTIONS_SCHEMA = "autoaf3.predictions.v1"
 DONE_FILENAME = "DONE"
 PREDICTIONS_FILENAME = "predictions.json"
-ALLOWED_STUB_STATUSES = {"PLANNED", "STUB_ONLY", "REAL_MODE_UNAVAILABLE"}
+ALLOWED_STUB_STATUSES = {"PLANNED", "STUB_ONLY", "REAL_MODE_UNAVAILABLE", "BASELINE_PREDICTED"}
 
 
 class RunnerError(RuntimeError):
@@ -302,6 +302,13 @@ def run_fixed_budget_trial(
     real NanoFold training job, GPU run, Arrow load, or benchmark metric exists.
     """
 
+    if trial_json.get("baseline") is True:
+        return run_sequence_linear_baseline(
+            trial_json,
+            features_dir=features_dir,
+            output_dir=output_dir,
+            split=split,
+        )
     if not allow_local_stub:
         raise RunnerError(
             "run_fixed_budget_trial is not implemented without NanoFold features, "
@@ -314,6 +321,80 @@ def run_fixed_budget_trial(
         output_dir=output_dir,
         split=split,
     )
+
+
+def run_sequence_linear_baseline(
+    trial_json: dict[str, Any],
+    *,
+    features_dir: str | Path,
+    output_dir: str | Path,
+    split: str = "public_val_small",
+) -> dict[str, object]:
+    """Write a deterministic no-template, sequence-only baseline artifact.
+
+    This is a real baseline artifact generator, not a training claim. It reads
+    only public feature rows and emits simple C-alpha coordinates from sequence
+    length, leaving benchmark scoring to the scorer-only worker.
+    """
+
+    trial_id = validate_trial_id(str(trial_json.get("trial_id", "")))
+    if trial_json.get("max_templates") != 0:
+        raise RunnerError("official baseline must preserve max_templates=0")
+    output = Path(output_dir)
+    _require_trial_output_dir(output, trial_id)
+    output.mkdir(parents=True, exist_ok=True)
+    predictions = _sequence_linear_predictions(Path(features_dir) / f"{split}.arrow")
+    prediction_payload = prediction_artifact_shape(
+        trial_id=trial_id,
+        split=split,
+        predictions=predictions,
+        source="sequence_linear_no_template_baseline",
+    )
+    prediction_payload["candidate_id"] = str(trial_json.get("candidate_id", "sequence_linear_baseline"))
+    prediction_payload["max_templates"] = 0
+    _atomic_write_json(output / PREDICTIONS_FILENAME, prediction_payload)
+    manifest = artifact_manifest_shape(
+        trial_id=trial_id,
+        output_dir=output,
+        features_dir=features_dir,
+        split=split,
+        status="STUB_ONLY",
+    )
+    manifest.update(
+        {
+            "status": "BASELINE_PREDICTED",
+            "real_training_performed": False,
+            "runner_mode": "sequence_linear_baseline",
+            "max_templates": 0,
+            "disclaimer": (
+                "Sequence-only no-template baseline predictions. This is not a "
+                "NanoFold training run; scorer-only metrics determine the real baseline score."
+            ),
+        }
+    )
+    _atomic_write_json(output / "artifact_manifest.json", manifest)
+    _atomic_write_json(
+        output / "training_log.json",
+        {
+            "schema_version": "autoaf3.training_log.v1",
+            "trial_id": trial_id,
+            "status": "BASELINE_PREDICTED",
+            "real_training_performed": False,
+            "max_templates": 0,
+            "events": [
+                {
+                    "event": "sequence_linear_baseline_predicted",
+                    "timestamp_unix": 0,
+                    "message": "Generated sequence-only no-template baseline predictions from public features.",
+                }
+            ],
+        },
+    )
+    (output / "stdout.log").write_text("", encoding="utf-8")
+    (output / "stderr.log").write_text("", encoding="utf-8")
+    (output / "patch.diff").write_text("", encoding="utf-8")
+    (output / DONE_FILENAME).write_text("sequence_linear_baseline_completed\n", encoding="utf-8")
+    return manifest
 
 
 def run_final_validation(
@@ -345,6 +426,26 @@ def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:
         encoding="utf-8",
     )
     tmp_path.replace(path)
+
+
+def _sequence_linear_predictions(feature_path: Path) -> list[dict[str, object]]:
+    try:
+        import pyarrow as pa
+        import pyarrow.ipc as ipc
+    except ImportError as exc:  # pragma: no cover - depends on Modal/local image deps.
+        raise RunnerError("pyarrow is required for sequence baseline feature loading") from exc
+    if not feature_path.exists():
+        raise RunnerError(f"baseline feature file is missing: {feature_path}")
+    with pa.memory_map(str(feature_path)) as source:
+        with ipc.open_file(source) as reader:
+            table = reader.read_all()
+    predictions: list[dict[str, object]] = []
+    for row in table.to_pylist():
+        target_id = str(row.get("record_id") or f"{row['pdb_id']}_{row['chain_id']}")
+        sequence_length = int(row["sequence_length"])
+        predicted_ca = [[float(index) * 3.8, 0.0, 0.0] for index in range(sequence_length)]
+        predictions.append({"target_id": target_id, "predicted_ca": predicted_ca})
+    return predictions
 
 
 def _require_trial_output_dir(output: Path, trial_id: str) -> None:

@@ -299,11 +299,46 @@ def test_preflight_can_enforce_git_diff_patch_policy(tmp_path: Path) -> None:
         )
 
 
-def test_preflight_strict_nanofold_gates_fail_when_dependencies_missing(tmp_path: Path) -> None:
+def test_preflight_strict_nanofold_gates_require_passed_gates(tmp_path: Path) -> None:
     trial_path = write_trial(
         tmp_path,
         config_path="configs/nanofold_dev_cpu_smoke.json",
         artifact_dir="runs/test_strict_nanofold_artifacts",
+    )
+
+    try:
+        result = run_preflight(
+            trial_path,
+            repo_root=REPO_ROOT,
+            manifest_paths={"smoke": SMOKE_MANIFEST},
+            strict_nanofold_gates=True,
+        )
+    except PreflightError as exc:
+        assert "NanoFold-dependent gates did not pass" in str(exc)
+    else:
+        assert all(gate.status == "passed" for gate in result.nanofold_gates)
+
+
+def test_preflight_strict_nanofold_gates_fail_when_gate_is_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from autoalphafold3 import preflight
+    from autoalphafold3.nanofold_checks import NanoFoldGateResult
+
+    trial_path = write_trial(
+        tmp_path,
+        config_path="configs/nanofold_dev_cpu_smoke.json",
+        artifact_dir="runs/test_strict_nanofold_artifacts",
+    )
+    monkeypatch.setattr(
+        preflight,
+        "run_nanofold_preflight_gates",
+        lambda **_: [
+            NanoFoldGateResult(
+                name="tiny_forward",
+                status="skipped",
+                reason="dependency_missing",
+                details={},
+            )
+        ],
     )
 
     with pytest.raises(PreflightError, match="NanoFold-dependent gates did not pass"):

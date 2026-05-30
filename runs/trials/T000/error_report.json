@@ -1,0 +1,8 @@
+{
+  "failed_targets": [],
+  "failure_signature": null,
+  "labels_path": "manifest_label_paths",
+  "max_templates": 0,
+  "scorer_only": true,
+  "template_policy": "max_templates=0"
+}

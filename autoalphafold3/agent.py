@@ -8,6 +8,7 @@ from pathlib import Path
 
 from autoalphafold3.orchestrator import poll_trial, submit_trial
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
+from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
 from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.modal_assets import (
@@ -63,6 +64,14 @@ def main(argv: list[str] | None = None) -> int:
     baseline_lock_parser.add_argument("--baseline-dir", default="runs/baseline")
     baseline_lock_parser.add_argument("--approve", required=True)
     baseline_lock_parser.add_argument("--dry-run", action="store_true")
+
+    baseline_run_parser = subparsers.add_parser("run-baseline")
+    baseline_run_parser.add_argument("--repo-root", default=".")
+    baseline_run_parser.add_argument("--trial-id", default="T000")
+    baseline_run_parser.add_argument("--source-dir", default="runs/trials/T000")
+    baseline_run_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
+    baseline_run_parser.add_argument("--modal-env", default=None)
+    baseline_run_parser.add_argument("--approve", default=None)
 
     fixture_parser = subparsers.add_parser("materialize-local-fixture")
     fixture_parser.add_argument("--repo-root", default=".")
@@ -137,6 +146,21 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
             return 0
+    if args.command == "run-baseline":
+        try:
+            result = run_baseline(
+                repo_root=args.repo_root,
+                trial_id=args.trial_id,
+                source_dir=args.source_dir,
+                approval=args.approve,
+                mode=args.mode,
+                modal_env=args.modal_env,
+            )
+        except BaselineRunError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
     if args.command == "materialize-local-fixture":
         try:
             result = materialize_local_nanofold_fixture(

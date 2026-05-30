@@ -42,22 +42,26 @@ Still required:
 
 ### 2. Real Baseline Runner
 
-Add a small PR for a human-approved baseline run command before using
+Added a small PR path for a human-approved baseline run command before using
 `lock-baseline`.
 
-Recommended shape:
+Implemented shape:
 
-- explicit command such as `run-baseline` with approval flags,
-- uses the trusted Modal event path, not local smoke mode,
-- writes trial-scoped source artifacts first,
-- then `lock-baseline --dry-run` validates them,
-- only `lock-baseline --approve` writes `runs/baseline/**`.
+- `run-baseline --mode dry-run` plans the action without side effects,
+- `run-baseline --mode modal --approve I_APPROVE_BASELINE_RUN` invokes the
+  deployed Modal trial and scorer workers,
+- writes only trial-scoped source artifacts under `runs/trials/T000/`,
+- refuses scorer payloads that are not official, non-local, scorer-only,
+  `status=SCORED`, and `max_templates=0`,
+- then `lock-baseline --dry-run` validates the source artifacts,
+- only `lock-baseline --approve I_APPROVE_BASELINE_LOCK` writes
+  `runs/baseline/**`.
 
-Why it cannot be done now:
+Still required:
 
-- `runs/` has no real source artifacts,
-- the existing CLI has `lock-baseline` but no command that produces the real
-  scored baseline evidence that `lock-baseline` requires.
+- deploy/authenticate the Modal event authority before the modal run,
+- run the command with explicit approval,
+- provide approved feature fingerprints to `lock-baseline`.
 
 ### 3. Modal Deployment Decision
 
@@ -103,11 +107,11 @@ The current `autoalphafold3.agent` commands are:
 - `audit-modal-assets`
 - `readiness-report`
 - `lock-baseline`
+- `run-baseline`
 - `materialize-local-fixture`
 
 Not currently present:
 
-- `run-baseline`
 - `deploy`
 - `calibrate-gate`
 

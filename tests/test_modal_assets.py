@@ -16,6 +16,7 @@ from autoalphafold3.modal_assets import (
     ModalAssetAuditError,
     audit_modal_assets,
     require_search_ready_assets,
+    _strip_modal_get_footer,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -154,6 +155,50 @@ def test_modal_asset_audit_reads_arrow_bytes_when_available() -> None:
         "train_tiny": "readable",
         "public_val_small": "readable",
     }
+
+
+def test_modal_asset_audit_accepts_may30_handoff_fingerprint_and_scorer_metadata() -> None:
+    class May30Handoff(FakeModalVolumes):
+        def read(self, volume: str, path: str) -> str | bytes:
+            if path.endswith("feature_fingerprints.json"):
+                return json.dumps(
+                    {
+                        "data_files": {
+                            "features/train_tiny.arrow": "a" * 64,
+                            "features/public_val_small.arrow": "b" * 64,
+                        }
+                    }
+                )
+            if path.endswith("scorer_version.txt"):
+                return "event-small-bootstrap-2026-05-30"
+            return super().read(volume, path)
+
+    fake = May30Handoff(locked=True, arrow_bytes=_arrow_ipc_bytes())
+
+    report = audit_modal_assets(lister=fake.ls, reader=fake.read)
+
+    assert report.status == "PASS"
+    assert report.feature_fingerprints_valid is True
+    assert report.scorer_version_valid is True
+    require_search_ready_assets(report)
+
+
+def test_modal_volume_get_footer_strip_preserves_arrow_file_bytes() -> None:
+    arrow = _arrow_ipc_bytes()
+    footer = "\n✓ Finished downloading files to local!".encode()
+
+    stripped = _strip_modal_get_footer(arrow + footer)
+
+    assert stripped == arrow
+
+
+def test_modal_volume_get_footer_strip_handles_adjacent_footer() -> None:
+    arrow = _arrow_ipc_bytes()
+    footer = "✓ Finished downloading files to local!".encode()
+
+    stripped = _strip_modal_get_footer(arrow + footer)
+
+    assert stripped == arrow
 
 
 @pytest.mark.parametrize("status", ["skipped_pyarrow_unavailable", "skipped_text_reader", "failed"])

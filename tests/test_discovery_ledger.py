@@ -50,6 +50,18 @@ def confirmed_result(
     )
 
 
+def provisional_keep_result() -> AutoFoldResult:
+    return AutoFoldResult(
+        trial_id="T300",
+        status=TrialStatus.KEEP,
+        candidate_id="candidate_provisional",
+        metrics={"best_val_calpha_lddt": 0.55},
+        fold_cartographer=FoldCartographerReport(signature="synthetic_provisional_contract"),
+        discovery=DiscoveryStatus.UNCONFIRMED,
+        falsification=None,
+    )
+
+
 def provenance(**overrides: object) -> dict[str, object]:
     data: dict[str, object] = {
         "git_sha": "abcdef123",
@@ -121,7 +133,7 @@ def test_discovery_ledger_rejects_non_confirmed_verdicts(verdict: str, tmp_path:
 def test_discovery_ledger_rejects_provisional_keep_without_confirmed_discovery() -> None:
     with pytest.raises(DiscoveryLedgerError, match="discovery=CONFIRMED"):
         build_discovery_record(
-            confirmed_result(discovery=DiscoveryStatus.UNCONFIRMED),
+            provisional_keep_result(),
             mechanism="Synthetic provisional keep.",
             design_rule="Provisional keeps are not discoveries.",
             provenance=provenance(),

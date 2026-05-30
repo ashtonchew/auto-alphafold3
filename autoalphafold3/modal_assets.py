@@ -13,6 +13,8 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Literal
 
+from autoalphafold3.scorer import SCORER_VERSION
+
 DATA_VOLUME = "autoalphafold3-data"
 LOCKED_VOLUME = "autoalphafold3-locked"
 
@@ -36,15 +38,15 @@ REQUIRED_LOCKED_FILES = (
     "manifests/train_tiny.json",
     "manifests/public_val_small.json",
     "labels/public_val_labels.arrow",
+    "scorer_version.txt",
 )
 OPTIONAL_LOCKED_FILES = (
-    "scorer_version.txt",
 )
 
 LockedAssetLayout = Literal["separate_locked_volume", "missing"]
 AuditStatus = Literal["PASS", "FAIL"]
 VolumeLister = Callable[[str, str], list[dict[str, object]]]
-VolumeReader = Callable[[str, str], str]
+VolumeReader = Callable[[str, str], str | bytes]
 
 
 class ModalAssetAuditError(RuntimeError):
@@ -85,7 +87,13 @@ class ModalAssetAudit:
     split_counts: dict[str, int | None] = field(default_factory=dict)
     expected_split_counts: dict[str, int] = field(default_factory=lambda: dict(EXPECTED_SPLIT_COUNTS))
     feature_fingerprints_present: bool = False
+    feature_fingerprints_valid: bool = False
     provenance_present: bool = False
+    provenance_valid: bool = False
+    scorer_version_present: bool = False
+    scorer_version_valid: bool = False
+    arrow_readability: dict[str, str] = field(default_factory=dict)
+    public_data_locked_prefix_absent: bool = False
     problems: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -103,7 +111,13 @@ class ModalAssetAudit:
             "split_counts": self.split_counts,
             "expected_split_counts": self.expected_split_counts,
             "feature_fingerprints_present": self.feature_fingerprints_present,
+            "feature_fingerprints_valid": self.feature_fingerprints_valid,
             "provenance_present": self.provenance_present,
+            "provenance_valid": self.provenance_valid,
+            "scorer_version_present": self.scorer_version_present,
+            "scorer_version_valid": self.scorer_version_valid,
+            "arrow_readability": self.arrow_readability,
+            "public_data_locked_prefix_absent": self.public_data_locked_prefix_absent,
             "problems": self.problems,
             "notes": self.notes,
         }
@@ -137,6 +151,9 @@ def audit_modal_assets(
     data_missing = [item.path for item in data_files if not item.present]
     if data_missing:
         problems.append(f"missing required data files: {', '.join(data_missing)}")
+    public_data_locked_prefix_absent = "locked" not in data_index and "/locked" not in data_index
+    if not public_data_locked_prefix_absent:
+        problems.append("public data Volume must not contain a locked/ prefix")
 
     locked_files = [
         _evidence(path, locked_volume, _index_for_path(path, locked_root, locked_manifests, locked_labels))
@@ -168,10 +185,15 @@ def audit_modal_assets(
 
     feature_fingerprints_present = any(item.path == "features/feature_fingerprints.json" and item.present for item in data_files)
     provenance_present = any(item.path == "provenance.json" and item.present for item in data_files)
+    scorer_version_present = any(item.path == "scorer_version.txt" and item.present for item in locked_files)
     if not feature_fingerprints_present:
         problems.append("feature_fingerprints.json is missing")
     if not provenance_present:
         problems.append("provenance.json is missing")
+    provenance_valid = _validate_provenance(reader, data_volume=data_volume, problems=problems)
+    feature_fingerprints_valid = _validate_feature_fingerprints(reader, data_volume=data_volume, problems=problems)
+    scorer_version_valid = _validate_scorer_stamp(reader, locked_volume=locked_volume, problems=problems)
+    arrow_readability = _validate_arrow_readability(reader, data_volume=data_volume, problems=problems, notes=notes)
 
     if problems:
         status: AuditStatus = "FAIL"
@@ -190,7 +212,13 @@ def audit_modal_assets(
         optional_files=optional_files,
         split_counts=split_counts,
         feature_fingerprints_present=feature_fingerprints_present,
+        feature_fingerprints_valid=feature_fingerprints_valid,
         provenance_present=provenance_present,
+        provenance_valid=provenance_valid,
+        scorer_version_present=scorer_version_present,
+        scorer_version_valid=scorer_version_valid,
+        arrow_readability=arrow_readability,
+        public_data_locked_prefix_absent=public_data_locked_prefix_absent,
         problems=problems,
         notes=notes,
     )
@@ -266,7 +294,7 @@ def _split_counts(
 
 def _manifest_count(reader: VolumeReader, volume: str, path: str) -> int | None:
     try:
-        payload = json.loads(reader(volume, path))
+        payload = json.loads(_as_text(reader(volume, path)))
     except (ModalAssetAuditError, json.JSONDecodeError):
         return None
     if isinstance(payload, list):
@@ -274,6 +302,129 @@ def _manifest_count(reader: VolumeReader, volume: str, path: str) -> int | None:
     if isinstance(payload, dict) and isinstance(payload.get("entries"), list):
         return len(payload["entries"])
     return None
+
+
+def _validate_provenance(
+    reader: VolumeReader,
+    *,
+    data_volume: str,
+    problems: list[str],
+) -> bool:
+    try:
+        payload = _read_json(reader, data_volume, "/provenance.json")
+    except ModalAssetAuditError as exc:
+        problems.append(str(exc))
+        return False
+    if not isinstance(payload, dict):
+        problems.append("provenance.json must be a JSON object")
+        return False
+    splits = payload.get("splits")
+    if not isinstance(splits, dict):
+        problems.append("provenance.json must contain a splits object")
+        return False
+    valid = True
+    for split, expected in EXPECTED_SPLIT_COUNTS.items():
+        if splits.get(split) != expected:
+            problems.append(f"provenance.json split count mismatch for {split}: expected {expected}, got {splits.get(split)}")
+            valid = False
+    return valid
+
+
+def _validate_feature_fingerprints(
+    reader: VolumeReader,
+    *,
+    data_volume: str,
+    problems: list[str],
+) -> bool:
+    try:
+        payload = _read_json(reader, data_volume, "/features/feature_fingerprints.json")
+    except ModalAssetAuditError as exc:
+        problems.append(str(exc))
+        return False
+    if not isinstance(payload, dict):
+        problems.append("feature_fingerprints.json must be a JSON object")
+        return False
+    files = payload.get("files")
+    if not isinstance(files, dict):
+        problems.append("feature_fingerprints.json must contain a files object")
+        return False
+    valid = True
+    for path in ("features/train_tiny.arrow", "features/public_val_small.arrow"):
+        value = files.get(path)
+        if not isinstance(value, str) or not _is_sha256_hex(value):
+            problems.append(f"feature_fingerprints.json missing SHA256 for {path}")
+            valid = False
+    return valid
+
+
+def _validate_scorer_stamp(
+    reader: VolumeReader,
+    *,
+    locked_volume: str,
+    problems: list[str],
+) -> bool:
+    try:
+        stamp = _as_text(reader(locked_volume, "/scorer_version.txt")).strip()
+    except ModalAssetAuditError as exc:
+        problems.append(str(exc))
+        return False
+    if stamp != SCORER_VERSION:
+        problems.append(f"scorer_version.txt mismatch: expected {SCORER_VERSION}, got {stamp or '<empty>'}")
+        return False
+    return True
+
+
+def _validate_arrow_readability(
+    reader: VolumeReader,
+    *,
+    data_volume: str,
+    problems: list[str],
+    notes: list[str],
+) -> dict[str, str]:
+    try:
+        import pyarrow.ipc as ipc  # type: ignore[import-not-found]
+        import pyarrow as pa  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        notes.append("pyarrow is unavailable locally; Arrow readability checks were skipped")
+        return {TRAIN_SPLIT: "skipped_pyarrow_unavailable", PUBLIC_VAL_SPLIT: "skipped_pyarrow_unavailable"}
+
+    results: dict[str, str] = {}
+    for split in (TRAIN_SPLIT, PUBLIC_VAL_SPLIT):
+        path = f"/features/{split}.arrow"
+        try:
+            content = reader(data_volume, path)
+            if isinstance(content, str):
+                notes.append(f"{path} reader returned text; Arrow readability check requires bytes")
+                results[split] = "skipped_text_reader"
+                continue
+            with ipc.open_file(pa.BufferReader(content)) as arrow_file:
+                arrow_file.read_all()
+        except ModalAssetAuditError as exc:
+            problems.append(str(exc))
+            results[split] = "failed"
+        except Exception as exc:  # noqa: BLE001 - audit reports evidence instead of leaking parser internals.
+            problems.append(f"{path} is not readable Arrow IPC: {type(exc).__name__}: {exc}")
+            results[split] = "failed"
+        else:
+            results[split] = "readable"
+    return results
+
+
+def _read_json(reader: VolumeReader, volume: str, path: str) -> object:
+    try:
+        return json.loads(_as_text(reader(volume, path)))
+    except json.JSONDecodeError as exc:
+        raise ModalAssetAuditError(f"could not parse {volume}:{path} as JSON: {exc}") from exc
+
+
+def _as_text(value: str | bytes) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value
+
+
+def _is_sha256_hex(value: str) -> bool:
+    return len(value) == 64 and all(char in "0123456789abcdefABCDEF" for char in value)
 
 
 def _modal_volume_ls(*, env: str | None = None) -> VolumeLister:

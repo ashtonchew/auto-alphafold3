@@ -16,14 +16,14 @@
 - [x] Readiness report run after PR #31.
 - [x] Approved local fixture materialization command added for `tiny_forward`
       and `finite_loss` local gates.
+- [x] Human-approved `run-baseline` command added to produce trial-scoped
+      source artifacts for `lock-baseline`.
 - [x] Autonomous search remained blocked.
 - [x] No fake baseline metrics, fake Modal runs, fake gate verdicts, fake
       discovery records, or fake benchmark artifacts were created.
 
 ## Pending Infrastructure
 
-- [ ] Add a real human-approved baseline runner that produces source artifacts
-      for `lock-baseline`.
 - [ ] Add a real Falsification Gate calibration command for known-null and
       known-positive controls.
 
@@ -34,7 +34,7 @@
 - [ ] Materialize the local-only NanoFold fixture only with the exact approval
       token if local gate evidence is needed in this checkout.
 - [ ] Produce real baseline source artifacts through the approved baseline
-      procedure.
+      procedure: `run-baseline --mode modal --approve I_APPROVE_BASELINE_RUN`.
 - [ ] Run `lock-baseline --dry-run` on the real baseline source artifacts.
 - [ ] Run `lock-baseline --approve` only if dry-run passes and approval is
       explicit.

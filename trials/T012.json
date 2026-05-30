@@ -1,0 +1,34 @@
+{
+  "trial_id": "T012",
+  "parent_commit": "339dd5198ecc1e7811f8762cbc97006f75794230",
+  "created_at": "2026-05-30T23:45:00Z",
+  "agent_session_id": "codex-2026-05-30-first-sampler-live-rerun",
+  "trial_kind": "sampler",
+  "hypothesis": "A frozen-checkpoint sampler candidate that reduces diffusion sampler noise should improve local geometry consistency without retraining the model.",
+  "move_family": "diffusion_sampler_golf",
+  "diagnostic_target": "local_geometry_weak",
+  "prediction": {
+    "causal_component": "diffusion_sampler_step_scale",
+    "predicted_axis": "local_geometry",
+    "predicted_direction": "up",
+    "expected_lddt_delta_band": [
+      0.001,
+      0.01
+    ]
+  },
+  "patch_path": null,
+  "config_path": "configs/nanofold_dev_cpu_smoke.json",
+  "budget": "sampler",
+  "seed": 0,
+  "n_res": 32,
+  "max_wall_minutes": 5,
+  "manifest_hashes": {},
+  "scorer_version": "calpha_lddt_v1",
+  "primary_metric": "best_val_calpha_lddt",
+  "param_cap": 176514,
+  "gpu_memory_cap": 80.0,
+  "cost_cap": 2.0,
+  "timeout_cap": 300,
+  "artifact_dir": "runs/trials/T012",
+  "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt"
+}

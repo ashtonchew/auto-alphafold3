@@ -600,6 +600,7 @@ if modal is not None:
         def score(self, trial_id: str) -> dict[str, Any]:
             from autoalphafold3.locked_scorer import score_trial_artifacts
 
+            data_ro.reload()
             return score_trial_artifacts(
                 artifact_dir=trial_artifact_dir(trial_id),
                 split="public_val_small",

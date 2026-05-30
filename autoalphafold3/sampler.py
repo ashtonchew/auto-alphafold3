@@ -73,22 +73,21 @@ def run_sampler_trial(
         features_dir=features_dir,
         checkpoint_manifest=checkpoint_manifest,
     )
-    train, _held_out = ChainDataset.construct_datasets(
-        feature_file,
-        config["train_split"],
-        config["residue_crop_size"],
-        config["num_msa_samples"],
-    )
     trainer = Trainer(config, loggers=[], checkpoint_save_freq=0, checkpoint=checkpoint)
-    batch = trainer.load_batch(next(iter(train)))
-    predicted_ca = _sample_ca_coordinates(trainer.model, batch, sampler_steps=int(trial_json.get("sampler_steps", 1)))
-    target_id = _first_feature_target_id(feature_file)
+    predictions = _sample_public_predictions(
+        trainer=trainer,
+        feature_file=feature_file,
+        public_feature_file=Path(features_dir) / f"{split}.arrow",
+        residue_crop_size=int(config["residue_crop_size"]),
+        num_msa=int(config["num_msa_samples"]),
+        sampler_steps=int(trial_json.get("sampler_steps", 1)),
+    )
     prediction_payload = write_prediction_artifact(
         trial_id=trial_id,
         split=split,
         output_dir=output,
         source="frozen_checkpoint_nanofold_sampler",
-        predictions=[{"target_id": target_id, "predicted_ca": predicted_ca}],
+        predictions=predictions,
     )
     prediction_payload["candidate_id"] = str(trial_json.get("candidate_id", f"{trial_id}_sampler"))
     prediction_payload["max_templates"] = 0
@@ -128,8 +127,8 @@ def run_sampler_trial(
         "checkpoint_sha256": str(checkpoint_manifest["checkpoint_sha256"]),
         "checkpoint_source_trial_id": str(checkpoint_manifest["trial_id"]),
         "feature_file": str(feature_file),
-        "target_ids": [target_id],
-        "prediction_count": 1,
+        "target_ids": [str(prediction["target_id"]) for prediction in predictions],
+        "prediction_count": len(predictions),
         "real_training_performed": False,
         "inference_only": True,
         "max_templates": 0,
@@ -163,6 +162,53 @@ def run_sampler_trial(
     (output / "patch.diff").write_text("", encoding="utf-8")
     (output / DONE_FILENAME).write_text("frozen_checkpoint_sampler_completed\n", encoding="utf-8")
     return sampler_manifest
+
+
+def _sample_public_predictions(
+    *,
+    trainer: Any,
+    feature_file: Path,
+    public_feature_file: Path,
+    residue_crop_size: int,
+    num_msa: int,
+    sampler_steps: int,
+) -> list[dict[str, object]]:
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.ipc as ipc
+    from nanofold.train.chain_dataset import ChainDataset
+
+    with pa.memory_map(str(feature_file)) as source:
+        with ipc.open_file(source) as reader:
+            nanofold_table = reader.read_all()
+    nanofold_table = nanofold_table.append_column(
+        "length",
+        pc.list_value_length(nanofold_table["positions"]),
+    )
+    if public_feature_file.exists():
+        with pa.memory_map(str(public_feature_file)) as source:
+            with ipc.open_file(source) as reader:
+                public_rows = reader.read_all().to_pylist()
+    else:
+        public_rows = _fallback_public_rows(nanofold_table)
+
+    index = _nanofold_feature_index(nanofold_table)
+    predictions: list[dict[str, object]] = []
+    for fallback_index, public_row in enumerate(public_rows):
+        target_id = str(public_row.get("record_id") or f"{public_row.get('pdb_id')}_{public_row.get('chain_id')}")
+        sequence = str(public_row.get("sequence", ""))
+        feature_index = _select_nanofold_row(index, public_row, fallback_index=fallback_index)
+        dataset = ChainDataset(nanofold_table, [feature_index], residue_crop_size, num_msa)
+        batch = trainer.load_batch(next(iter(dataset)))
+        predicted_ca = _sample_ca_coordinates(trainer.model, batch, sampler_steps=sampler_steps)
+        target_len = int(public_row.get("sequence_length") or len(sequence) or len(predicted_ca))
+        predictions.append(
+            {
+                "target_id": target_id,
+                "predicted_ca": _resize_ca_trace(predicted_ca, target_len),
+            }
+        )
+    return predictions
 
 
 def _sample_ca_coordinates(model: Any, features: dict[str, Any], *, sampler_steps: int) -> list[list[float]]:
@@ -285,24 +331,65 @@ def _sampler_feature_file(*, features_dir: str | Path, checkpoint_manifest: dict
     return feature_file
 
 
-def _first_feature_target_id(feature_file: Path) -> str:
-    try:
-        import pyarrow as pa
-        import pyarrow.ipc as ipc
-    except ImportError as exc:  # pragma: no cover - depends on sampler image deps.
-        raise SamplerError("pyarrow is required for sampler feature loading") from exc
-    with pa.memory_map(str(feature_file)) as source:
-        with ipc.open_file(source) as reader:
-            table = reader.read_all()
-    if table.num_rows < 1:
-        raise SamplerError(f"sampler feature file has no rows: {feature_file}")
-    row = table.slice(0, 1).to_pylist()[0]
-    target_id = row.get("record_id") or (
-        f"{row['pdb_id']}_{row['chain_id']}" if "pdb_id" in row and "chain_id" in row else None
-    )
-    if not isinstance(target_id, str) or not target_id:
-        target_id = f"{feature_file.stem}_0"
-    return target_id
+def _fallback_public_rows(table: Any) -> list[dict[str, object]]:
+    rows = []
+    for index, row in enumerate(table.to_pylist()):
+        structure_id = str(row.get("structure_id") or f"target_{index}")
+        chain_id = str(row.get("chain_id") or "A")
+        sequence = str(row.get("sequence") or "")
+        rows.append(
+            {
+                "record_id": f"{structure_id.upper()}_{chain_id}",
+                "pdb_id": structure_id.upper(),
+                "chain_id": chain_id,
+                "sequence": sequence,
+                "sequence_length": len(sequence),
+            }
+        )
+    return rows
+
+
+def _nanofold_feature_index(table: Any) -> dict[str, dict[object, int]]:
+    by_sequence: dict[object, int] = {}
+    by_structure: dict[object, int] = {}
+    for index, row in enumerate(table.to_pylist()):
+        sequence = str(row.get("sequence") or "")
+        if sequence and sequence not in by_sequence:
+            by_sequence[sequence] = index
+        structure_id = str(row.get("structure_id") or "").lower()
+        chain_id = str(row.get("chain_id") or "")
+        if structure_id and chain_id:
+            by_structure[(structure_id, chain_id)] = index
+    return {"sequence": by_sequence, "structure": by_structure}
+
+
+def _select_nanofold_row(index: dict[str, dict[object, int]], public_row: dict[str, object], *, fallback_index: int) -> int:
+    sequence = str(public_row.get("sequence") or "")
+    by_sequence = index["sequence"]
+    if sequence in by_sequence:
+        return by_sequence[sequence]
+    pdb_id = str(public_row.get("pdb_id") or str(public_row.get("record_id", "")).split("_", 1)[0]).lower()
+    chain_id = str(public_row.get("chain_id") or "A")
+    by_structure = index["structure"]
+    if (pdb_id, chain_id) in by_structure:
+        return by_structure[(pdb_id, chain_id)]
+    if not by_sequence:
+        raise SamplerError("NanoFold feature file has no usable rows")
+    return fallback_index % len(by_sequence)
+
+
+def _resize_ca_trace(predicted_ca: list[list[float]], target_len: int) -> list[list[float]]:
+    if target_len <= 0:
+        raise SamplerError("target sequence length must be positive")
+    if len(predicted_ca) == target_len:
+        return predicted_ca
+    if len(predicted_ca) == 1:
+        return [predicted_ca[0] for _ in range(target_len)]
+    resized = []
+    for idx in range(target_len):
+        source_idx = round(idx * (len(predicted_ca) - 1) / max(1, target_len - 1))
+        resized.append(predicted_ca[source_idx])
+    return resized
 
 
 def _require_trial_output_dir(path: Path, trial_id: str) -> None:

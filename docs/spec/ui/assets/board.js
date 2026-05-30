@@ -7,18 +7,26 @@
   if (!svg) return;
   var NS = 'http://www.w3.org/2000/svg';
   var pts = (window.TRAJ_POINTS) || [
-    {x:60,y:254,t:'T001',s:0.325,st:'provisional'},
-    {x:91,y:267,t:'T003',s:0.318,st:'killed'},
-    {x:138,y:242,t:'T006',s:0.331,st:'provisional'},
-    {x:185,y:218,t:'T009',s:0.344,st:'confirmed'},
-    {x:247,y:228,t:'T013',s:0.339,st:'confirmed'},
-    {x:325,y:194,t:'T018',s:0.357,st:'confirmed'},
-    {x:388,y:209,t:'T022',s:0.349,st:'killed'},
-    {x:466,y:166,t:'T027',s:0.372,st:'confirmed'},
-    {x:528,y:150,t:'T031',s:0.381,st:'confirmed'},
-    {x:606,y:118,t:'T036',s:0.398,st:'confirmed'},
-    {x:669,y:105,t:'T039',s:0.405,st:'confirmed'},
-    {x:700,y:92,t:'T042',s:0.412,st:'confirmed'}
+    {x:60,y:199,t:'T001',s:0.321,st:'provisional'},
+    {x:94,y:214,t:'T002',s:0.318,st:'provisional'},
+    {x:127,y:175,t:'T003',s:0.326,st:'provisional'},
+    {x:161,y:151,t:'T004',s:0.331,st:'provisional'},
+    {x:195,y:223,t:'T005',s:0.316,st:'provisional'},
+    {x:228,y:122,t:'T006',s:0.337,st:'provisional'},
+    {x:262,y:190,t:'T007',s:0.323,st:'provisional'},
+    {x:296,y:142,t:'T008',s:0.333,st:'provisional'},
+    {x:330,y:209,t:'T009',s:0.319,st:'provisional'},
+    {x:363,y:113,t:'T010',s:0.339,st:'provisional'},
+    {x:397,y:233,t:'T011',s:0.314,st:'provisional'},
+    {x:431,y:94,t:'T012',s:0.343,st:'confirmed'},
+    {x:464,y:194,t:'T013',s:0.322,st:'provisional'},
+    {x:498,y:127,t:'T014',s:0.336,st:'provisional'},
+    {x:532,y:218,t:'T015',s:0.317,st:'provisional'},
+    {x:565,y:166,t:'T016',s:0.328,st:'provisional'},
+    {x:599,y:204,t:'T017',s:0.320,st:'provisional'},
+    {x:633,y:137,t:'T018',s:0.334,st:'provisional'},
+    {x:666,y:228,t:'T019',s:0.315,st:'provisional'},
+    {x:700,y:185,t:'T020',s:0.324,st:'provisional'}
   ];
   var COLORS = {confirmed:'#7fee64', killed:'#ff9ea1', provisional:'#9a9a9a'};
   function ring(r, op) {
@@ -31,7 +39,14 @@
   var selRing = ring(10, '0'), hoverRing = ring(9, '0');
   var tip = document.createElement('div'); tip.className = 'pt-tip'; document.body.appendChild(tip);
   function place(c, p) { c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); }
-  var selected = pts[pts.length - 1];
+  // Default selection: the confirmed best if any, else the highest-scoring point.
+  var selected = pts[0];
+  pts.forEach(function (p) {
+    var better = (p.st === 'confirmed') !== (selected.st === 'confirmed')
+      ? p.st === 'confirmed'
+      : p.s > selected.s;
+    if (better) selected = p;
+  });
   place(selRing, selected); selRing.setAttribute('opacity', '0.85');
   function moveTip(el) { var r = el.getBoundingClientRect(); tip.style.left = (r.left + r.width / 2) + 'px'; tip.style.top = r.top + 'px'; }
   pts.forEach(function (p) {

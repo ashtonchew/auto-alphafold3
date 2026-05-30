@@ -25,27 +25,27 @@
 
   <div class="section first">
     <div class="block-title">Trial <span class="mono" style="color:var(--ink-3)">T012</span> · candidate <span class="mono" style="color:var(--ink-3)">cand_31</span> <span class="right"><span class="spill info">pre-registered</span></span></div>
-    <p class="claim">“Ramping the geometry loss makes the coordinate path use the contacts the pair head already learned.”</p>
-    <div class="claim-meta">target <span class="mono">distogram_vs_3d</span> · move family <span class="mono">geometry_loss</span> · predicted direction: 3D gap ↓</div>
+    <p class="claim">“Fewer diffusion steps with a lower step scale reduce sampler noise, so the coordinate path realizes the contacts the pair head already learned.”</p>
+    <div class="claim-meta">target <span class="mono">distogram_vs_3d</span> · move family <span class="mono">sampler_step_scale</span> · predicted direction: 3D gap ↓</div>
   </div>
 
   <div class="section">
     <h2 class="block-title">The pre-registered prediction</h2>
     <div class="kv">
       <div class="kv-row"><div class="kv-k">Diagnostic target</div><div class="kv-v"><span class="mono">distogram_vs_3d</span> &nbsp;<span style="color:var(--ink-faint)">(one of local_geometry_weak, long_range_topology_weak, distogram_vs_3d, stability_compute)</span></div></div>
-      <div class="kv-row"><div class="kv-k">Intervention</div><div class="kv-v">Linear ramp on the coordinate geometry-loss weight over the first 40% of training.</div></div>
-      <div class="kv-row"><div class="kv-k">Predicted axis movement</div><div class="kv-v num">distogram→coord gap closes by 0.05–0.09</div></div>
-      <div class="kv-row"><div class="kv-k">Expected primary Δ</div><div class="kv-v num" style="color:var(--green)">best_val_calpha_lddt &nbsp;+0.02 to +0.05</div></div>
-      <div class="kv-row"><div class="kv-k">Runtime / memory risk</div><div class="kv-v num">none expected · ≤ 1.0× runtime · ≤ 40 GB</div></div>
+      <div class="kv-row"><div class="kv-k">Intervention</div><div class="kv-v">Inference only, on the frozen checkpoint: 12 diffusion steps (down from 24) at step scale 0.8.</div></div>
+      <div class="kv-row"><div class="kv-k">Predicted axis movement</div><div class="kv-v num">distogram→coord gap closes by 0.03–0.06</div></div>
+      <div class="kv-row"><div class="kv-k">Expected primary Δ</div><div class="kv-v num" style="color:var(--green)">best_val_calpha_lddt &nbsp;+0.01 to +0.025</div></div>
+      <div class="kv-row"><div class="kv-k">Runtime / memory risk</div><div class="kv-v num">fewer steps · ~0.7× runtime · ≤ 40 GB</div></div>
     </div>
   </div>
 
   <div class="section">
     <h2 class="block-title">Change under test</h2>
     <div class="kv">
-      <div class="kv-row"><div class="kv-k">Patch</div><div class="kv-v"><span class="mono">loss.py</span> geometry-weight schedule &nbsp;<a href="#" style="color:var(--green)">view diff →</a></div></div>
+      <div class="kv-row"><div class="kv-k">Sampler config</div><div class="kv-v"><span class="mono">sampler.steps=12, sampler.step_scale=0.8</span> &nbsp;<a href="#" style="color:var(--green)">view config →</a></div></div>
       <div class="kv-row"><div class="kv-k">Config</div><div class="kv-v mono">configs/experiments/T012.json</div></div>
-      <div class="kv-row"><div class="kv-k">Budget tier</div><div class="kv-v">short-training · A100-80GB · wall-clock cap 12m</div></div>
+      <div class="kv-row"><div class="kv-k">Budget tier</div><div class="kv-v">sampler · frozen checkpoint · A100-80GB · wall-clock cap 3m</div></div>
     </div>
     <div class="note green">The agent commits the claim and a pointer to the component it credits <b>before</b> the run. It cannot design its own knock-out or pick its own placebo — that is the line between grading its own homework and a real control loop.</div>
   </div>

@@ -395,13 +395,18 @@ def _build_logs(rows: list) -> list[LogEvent]:
     return out
 
 
-# --- illustrative sample (design mockup data) ------------------------------
+# --- illustrative sample: one-hour sampler-only run ------------------------
+# 20 frozen-checkpoint sampler candidates; the best provisional KEEP (T012) is
+# gated and confirmed. The rest stay provisional (ungated). Not benchmark results.
 
 _SAMPLE_TRAJ = [
-    ("T001", 0.325, "provisional"), ("T003", 0.318, "killed"), ("T006", 0.331, "provisional"),
-    ("T009", 0.344, "confirmed"), ("T013", 0.339, "confirmed"), ("T018", 0.357, "confirmed"),
-    ("T022", 0.349, "killed"), ("T027", 0.372, "confirmed"), ("T031", 0.381, "confirmed"),
-    ("T036", 0.398, "confirmed"), ("T039", 0.405, "confirmed"), ("T042", 0.412, "confirmed"),
+    ("T001", 0.321, "provisional"), ("T002", 0.318, "provisional"), ("T003", 0.326, "provisional"),
+    ("T004", 0.331, "provisional"), ("T005", 0.316, "provisional"), ("T006", 0.337, "provisional"),
+    ("T007", 0.323, "provisional"), ("T008", 0.333, "provisional"), ("T009", 0.319, "provisional"),
+    ("T010", 0.339, "provisional"), ("T011", 0.314, "provisional"), ("T012", 0.343, "confirmed"),
+    ("T013", 0.322, "provisional"), ("T014", 0.336, "provisional"), ("T015", 0.317, "provisional"),
+    ("T016", 0.328, "provisional"), ("T017", 0.320, "provisional"), ("T018", 0.334, "provisional"),
+    ("T019", 0.315, "provisional"), ("T020", 0.324, "provisional"),
 ]
 
 _SAMPLE_ERR = [0, 0, 1, 0, 0, 1, 2, 1, 0, 0, 0, 1, 3, 4, 2, 1, 0, 0, 0, 1, 2, 1, 0, 0, 1, 2, 3, 1, 0, 0]
@@ -409,91 +414,92 @@ _SAMPLE_ERR = [0, 0, 1, 0, 0, 1, 2, 1, 0, 0, 0, 1, 3, 4, 2, 1, 0, 0, 0, 1, 2, 1,
 
 def _sample_trials() -> list[TrialRow]:
     raw = [
-        ("T042", "geometry_loss", "distogram_vs_3d", "0.412", "+0.041", "8m 05s", "CONFIRMED", "ok", "confirmed"),
-        ("T019", "auxiliary_loss", "long_range_topology", "0.351", "+0.026", "7m 48s", "CONFIRMED", "ok", "confirmed"),
-        ("T027", "diffusion_sampler", "distogram_vs_3d", "0.372", "+0.018", "5m 02s", "CONFIRMED", "ok", "confirmed"),
-        ("T031", "pairformer", "local_geometry", "0.381", "+0.012", "9m 20s", "KEEP", "ok", "keep"),
-        ("T040", "diffusion_sampler", "distogram_vs_3d", "0.405", "+0.006", "4m 58s", "KEEP", "ok", "keep"),
-        ("T009", "recycling", "local_geometry", "0.344", "+0.008", "6m 11s", "KEEP", "ok", "keep"),
-        ("T022", "pair_attention", "long_range_topology", "0.349", "+0.012", "8m 40s", "PLACEBO_KILL", "bad", "killed"),
-        ("T030", "recycling", "local_geometry", "0.366", "+0.015", "7m 55s", "KNOCKOUT_SURVIVES", "bad", "killed"),
-        ("T035", "normalization", "stability_compute", "0.358", "+0.009", "6m 30s", "SEED_FRAGILE", "bad", "killed"),
-        ("T006", "optimizer", "—", "0.331", "+0.006", "5m 45s", "DISCARD", "muted", "discard"),
-        ("T013", "curriculum", "—", "0.339", "+0.001", "6m 05s", "DISCARD", "muted", "discard"),
-        ("T018", "msa_module", "—", "0.357", "—", "6m 22s", "DISCARD", "muted", "discard"),
-        ("T003", "geometry_loss", "—", "—", "—", "2m 10s", "FAIL", "warn", "fail"),
-        ("T017", "msa_module", "—", "—", "—", "0m 31s", "INFRA_FAIL", "info", "fail"),
+        ("T012", "sampler_step_scale", "distogram_vs_3d", "0.343", "+0.018", "1m 38s", "CONFIRMED", "ok", "confirmed"),
+        ("T010", "sample_count", "distogram_vs_3d", "0.339", "+0.014", "2m 02s", "KEEP", "ok", "keep"),
+        ("T006", "sampler_step_scale", "distogram_vs_3d", "0.337", "+0.012", "1m 41s", "KEEP", "ok", "keep"),
+        ("T014", "sampler_step_scale", "distogram_vs_3d", "0.336", "+0.011", "1m 44s", "KEEP", "ok", "keep"),
+        ("T018", "sample_count", "distogram_vs_3d", "0.334", "+0.009", "2m 05s", "KEEP", "ok", "keep"),
+        ("T008", "noise_schedule", "distogram_vs_3d", "0.333", "+0.008", "1m 52s", "KEEP", "ok", "keep"),
+        ("T004", "diffusion_steps", "distogram_vs_3d", "0.331", "+0.006", "2m 18s", "KEEP", "ok", "keep"),
+        ("T016", "noise_schedule", "stability_compute", "0.328", "+0.003", "1m 49s", "KEEP", "ok", "keep"),
+        ("T003", "diffusion_steps", "distogram_vs_3d", "0.326", "+0.001", "2m 21s", "KEEP", "ok", "keep"),
+        ("T020", "sample_count", "—", "0.324", "−0.001", "2m 03s", "DISCARD", "muted", "discard"),
+        ("T007", "sampler_step_scale", "—", "0.323", "−0.002", "1m 39s", "DISCARD", "muted", "discard"),
+        ("T013", "diffusion_steps", "—", "0.322", "−0.003", "2m 15s", "DISCARD", "muted", "discard"),
+        ("T001", "sampler_step_scale", "—", "0.321", "−0.004", "1m 36s", "DISCARD", "muted", "discard"),
+        ("T017", "noise_schedule", "—", "0.320", "−0.005", "1m 47s", "DISCARD", "muted", "discard"),
+        ("T009", "diffusion_steps", "—", "0.319", "−0.006", "2m 24s", "DISCARD", "muted", "discard"),
+        ("T002", "sample_count", "—", "0.318", "−0.007", "2m 08s", "DISCARD", "muted", "discard"),
+        ("T015", "sampler_step_scale", "—", "0.317", "−0.008", "1m 42s", "DISCARD", "muted", "discard"),
+        ("T005", "noise_schedule", "—", "0.316", "−0.009", "1m 50s", "DISCARD", "muted", "discard"),
+        ("T019", "diffusion_steps", "—", "0.315", "−0.010", "2m 19s", "DISCARD", "muted", "discard"),
+        ("T011", "sample_count", "—", "0.314", "−0.011", "2m 06s", "DISCARD", "muted", "discard"),
     ]
     return [TrialRow(*r) for r in raw]
 
 
 def _sample_logs() -> list[LogEvent]:
     raw = [
-        ("09:18:02", "info", "T042", "submitted · geometry_loss · budget short-training"),
-        ("09:18:03", "info", "T042", "preflight passed · locked mounts verified"),
-        ("09:18:05", "info", "—", "Modal trial wave spawned · A100-80GB"),
-        ("09:26:08", "ok", "T042", "scored · best_val_calpha_lddt 0.412"),
-        ("09:26:09", "info", "—", "gate wave spawned · knock-out, placebo, seed×3"),
-        ("09:27:11", "ok", "T042", "CONFIRMED · attributable 0.78 · gap closed"),
-        ("09:27:12", "info", "—", "discovery ledger updated · 7 confirmed"),
-        ("09:30:44", "info", "T043", "submitted · pair_attention"),
-        ("09:38:01", "warn", "T043", "PLACEBO_KILL · matched placebo reproduced 0.7 of gain"),
-        ("09:39:20", "info", "T044", "submitted · recycling"),
-        ("09:46:55", "warn", "T044", "KNOCKOUT_SURVIVES · credit misattributed"),
-        ("09:48:10", "info", "T017", "submitted · msa_module"),
-        ("09:48:41", "err", "T017", "INFRA_FAIL · container OOM during polling"),
-        ("09:52:03", "info", "T045", "submitted · diffusion_sampler"),
-        ("09:57:39", "ok", "T045", "scored · best_val_calpha_lddt 0.405 · KEEP"),
-        ("09:58:00", "info", "—", "scaled to zero · idle"),
+        ("09:08:02", "info", "—", "frozen checkpoint cand_31 loaded · step 6,000"),
+        ("09:08:03", "info", "—", "preflight passed · locked mounts verified"),
+        ("09:08:05", "info", "—", "sampler burst spawned · 20 candidates · A100-80GB"),
+        ("09:08:06", "info", "—", "worker cap 6 · ~4 waves"),
+        ("09:14:21", "ok", "T012", "scored · best_val_calpha_lddt 0.343"),
+        ("09:16:40", "ok", "T010", "scored · best_val_calpha_lddt 0.339"),
+        ("09:18:55", "warn", "T011", "below baseline · logged provisional"),
+        ("09:19:55", "info", "—", "20 candidates scored · ranking provisional KEEPs"),
+        ("09:20:02", "info", "T012", "selected best provisional KEEP"),
+        ("09:20:05", "info", "—", "gate wave spawned · knock-out, placebo, seed×3"),
+        ("09:22:47", "info", "—", "other improving candidates kept provisional, not gated"),
+        ("09:27:38", "ok", "T012", "predicted axis distogram_vs_3d moved as registered"),
+        ("09:28:11", "ok", "T012", "CONFIRMED · attributable 0.74"),
+        ("09:28:12", "info", "—", "discovery ledger updated · 1 confirmed"),
+        ("09:28:30", "info", "—", "scaled to zero · idle"),
     ]
     return [LogEvent(*r) for r in raw]
 
 
 def sample_state() -> UiState:
-    """The illustrative figures behind the design mockups. Not benchmark results."""
+    """Illustrative one-hour sampler-only run: 20 frozen-checkpoint candidates, the
+    best provisional KEEP gated and confirmed. Not benchmark results."""
     traj = [TrialPoint(i + 1, t, s, st) for i, (t, s, st) in enumerate(_SAMPLE_TRAJ)]
     axes = [
-        Axis("Local geometry", "0.58", "+0.04", 72, "local lDDT", "up"),
-        Axis("Long-range topology", "0.41", "+0.06", 54, "contact precision, sep ≥ 24", "up"),
-        Axis("3D gap", "0.09", "−0.07", 66, "distogram to coordinate gap", "up"),
-        Axis("Stability", "1.0×", "stable", 50, "peak 38 GB, no NaN or OOM", "warn"),
+        Axis("Local geometry", "0.56", "+0.01", 58, "local lDDT, roughly flat", "warn"),
+        Axis("Long-range topology", "0.39", "±0.00", 45, "unchanged by the sampler", "warn"),
+        Axis("3D gap", "0.06", "−0.05", 70, "distogram to coordinate gap closes", "up"),
+        Axis("Stability", "0.7×", "faster", 55, "fewer steps, 0.7× runtime", "up"),
     ]
     ledger = [
-        LedgerRow("Geometry-loss ramp closes the distogram to coordinate gap", "", "distogram_vs_3d", "+0.041", "T012", "4f2a9c1", "CONFIRMED", True),
-        LedgerRow("Long-range contact weighting lifts topology at sep ≥ 24", "", "long_range_topology", "+0.026", "T019", "b7c014e", "CONFIRMED", True),
-        LedgerRow("Sampler step-scale with fewer steps holds lDDT at lower cost", "", "diffusion_sampler", "+0.018", "T027", "2a9f5d3", "CONFIRMED", True),
-        LedgerRow("Wider pair attention raised lDDT, but a matched placebo reproduced 0.7 of the gain", "", "pair_attention", "+0.012", "T022", "88e1aa0", "PLACEBO_KILL", False),
-        LedgerRow("Extra recycling step raised the score, but knock-out kept it", "", "recycling", "+0.015", "T030", "c3d77b2", "KNOCKOUT_SURVIVES", False),
-        LedgerRow("Norm-reorder gain vanished on a seed rerun", "", "normalization", "+0.009", "T035", "1f0b6e9", "SEED_FRAGILE", False),
+        LedgerRow("Fewer diffusion steps with a lower step scale close the distogram to coordinate gap", "", "distogram_vs_3d", "+0.018", "T012", "4f2a9c1", "CONFIRMED", True),
     ]
     gate = Gate(
-        claim="“Ramping the geometry loss makes the coordinate path use the contacts the pair head already learned.”",
+        claim="“Fewer diffusion steps with a lower step scale reduce sampler noise, so the coordinate path realizes the contacts the pair head already learned.”",
         meta_axis="distogram_vs_3d",
         meta_trial="T012",
         bars=[
-            GateBar("full", 0.041, "", True),
-            GateBar("knock-out", 0.009, "collapses", False),
-            GateBar("placebo", 0.004, "null", False),
-            GateBar("seed mean", 0.038, "±0.006, n=3", True),
+            GateBar("full", 0.018, "", True),
+            GateBar("knock-out", 0.004, "collapses", False),
+            GateBar("placebo", 0.002, "null", False),
+            GateBar("seed mean", 0.016, "±0.004, n=3", True),
         ],
-        attributable="attributable 0.78",
+        attributable="attributable 0.74",
         verdict="CONFIRMED",
-        readout="Knock-out collapses the gain, the placebo does not reproduce it, and the gain survives the seed rerun. The claim was registered before any of these bars existed.",
+        readout="Reverting the sampler change erases most of the gain, a matched sampler placebo does not reproduce it, and the gain survives the seed rerun. The claim was registered before any of these bars existed.",
     )
-    overlay = Overlay(is_sample=True, target="7XYZ_A", length=148, before=0.31, after=0.41, err_levels=list(_SAMPLE_ERR))
+    overlay = Overlay(is_sample=True, target="7XYZ_A", length=148, before=0.325, after=0.343, err_levels=list(_SAMPLE_ERR))
     return UiState(
-        best=0.412,
+        best=0.343,
         baseline=0.325,
-        delta=0.087,
-        prev_delta=0.018,
-        counts={"confirmed": 7, "killed": 3, "trials": 42, "keep": 12, "discard": 18, "fail": 2, "infra": 1},
+        delta=0.018,
+        prev_delta=None,
+        counts={"confirmed": 1, "killed": 0, "trials": 20, "keep": 8, "discard": 11, "fail": 0, "infra": 0},
         trajectory=traj,
         axes=axes,
         failure_signature="distogram_good_lddt_flat",
         ledger=ledger,
         gate=gate,
         overlay=overlay,
-        provenance={"candidate": "cand_31", "git_sha": "4f2a9c1", "scorer": "calpha_lddt_v1"},
+        provenance={"candidate": "cand_31 · sampler", "git_sha": "4f2a9c1", "scorer": "calpha_lddt_v1"},
         split="public_val_small",
         scorer="calpha_lddt_v1",
         is_sample=True,

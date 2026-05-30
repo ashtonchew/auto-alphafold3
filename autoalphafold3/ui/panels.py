@@ -35,10 +35,16 @@ def metric_band(s: UiState) -> str:
         cur = p.score if cur is None else max(cur, p.score)
         running.append(cur)
     spark = components.sparkline(running) if running else ""
+    killed = s.counts.get("killed", 0)
+    middle = (
+        components.chip(killed, "killed", "red")
+        if killed
+        else components.chip(s.counts.get("keep", 0), "provisional KEEP")
+    )
     chips = (
         components.chip(s.counts.get("confirmed", 0), "confirmed", "green")
-        + components.chip(s.counts.get("killed", 0), "killed", "red")
-        + components.chip(s.counts.get("trials", 0), "trials")
+        + middle
+        + components.chip(s.counts.get("trials", 0), "candidates")
     )
     return (
         '<section class="metricband"><div class="metric">'
@@ -50,19 +56,34 @@ def metric_band(s: UiState) -> str:
 
 def trajectory_section(s: UiState) -> tuple[str, str]:
     svg, traj_json = components.trajectory_chart(s.trajectory, s.baseline)
-    legend = (
-        '<div class="legend">'
-        '<span class="lg-item"><i class="sq conf"></i> confirmed</span>'
-        '<span class="lg-item"><i class="sq prov"></i> provisional</span>'
-        '<span class="lg-item"><i class="x-mark">✕</i> killed</span>'
-        '<span class="spacer"></span>'
-        '<label class="toggle"><input type="checkbox" class="kill-toggle" checked>'
-        '<span class="track"><span class="knob"></span></span><span>Show killed</span></label>'
-        '</div>'
-    )
+    killed = s.counts.get("killed", 0)
+    if killed:
+        # Killed trials present: surface them with a toggle to show/hide.
+        legend = (
+            '<div class="legend">'
+            '<span class="lg-item"><i class="sq conf"></i> confirmed best</span>'
+            '<span class="lg-item"><i class="sq prov"></i> provisional candidate</span>'
+            '<span class="lg-item"><i class="x-mark">✕</i> killed</span>'
+            '<span class="spacer"></span>'
+            '<label class="toggle"><input type="checkbox" class="kill-toggle" checked>'
+            '<span class="track"><span class="knob"></span></span><span>Show killed</span></label>'
+            '</div>'
+        )
+        sub = 'Validation Cα lDDT per candidate. Failed and killed runs stay visible.'
+    else:
+        # No kills this run: skip the dead toggle, name the baseline split instead.
+        legend = (
+            '<div class="legend">'
+            '<span class="lg-item"><i class="sq conf"></i> confirmed best</span>'
+            '<span class="lg-item"><i class="sq prov"></i> provisional candidate</span>'
+            '<span class="spacer"></span>'
+            '<span class="lg-note">above the baseline line is KEEP territory; below is DISCARD</span>'
+            '</div>'
+        )
+        sub = 'Validation Cα lDDT per candidate. Every candidate stays visible, kept or discarded.'
     inner = (
         '<h2 class="block-title">Trial trajectory</h2>'
-        '<div class="block-sub">Validation Cα lDDT per trial. Failed and killed runs stay visible.</div>'
+        f'<div class="block-sub">{sub}</div>'
         f'{svg}{legend}'
     )
     return inner, traj_json
@@ -101,14 +122,20 @@ def ledger_section(s: UiState) -> str:
             f'<td class="r {dcls}">{esc(r.delta)}</td>'
             f'<td class="r">{pill}</td></tr>'
         )
+    killed = s.counts.get("killed", 0)
     cap = (
-        "Killed rows show the apparent gain that did not survive a control. "
-        f"{s.counts.get('confirmed', 0)} confirmed, {s.counts.get('killed', 0)} killed "
-        f"across {s.counts.get('trials', 0)} trials."
+        "Confirmed-only: the gate runs on the best provisional KEEP. "
+        f"{s.counts.get('confirmed', 0)} confirmed of {s.counts.get('trials', 0)} candidates"
+        + (f"; {killed} killed at the gate." if killed else ".")
+    )
+    sub = (
+        "Confirmed mechanisms and instructive kills, with the verdict that survived the gate."
+        if killed
+        else "Confirmed mechanisms only — the gated claim that survived knock-out, placebo, and a seed rerun."
     )
     return (
         '<h2 class="block-title">Discovery Ledger</h2>'
-        '<div class="block-sub">Confirmed mechanisms and instructive kills, with the verdict that survived the gate.</div>'
+        f'<div class="block-sub">{sub}</div>'
         '<table class="dtable"><thead><tr><th>Finding</th><th>Axis</th>'
         '<th class="r">Δ lDDT</th><th class="r">Verdict</th></tr></thead>'
         f"<tbody>{rows}</tbody></table>"
@@ -146,7 +173,7 @@ def overlay_section(s: UiState) -> str:
         f"{components.err_strip(o.err_levels)}"
         '<div class="err-scale"><span>low error, core</span><span>high, loops</span></div>'
         f'<div class="ov-meta">target <span class="mono">{esc(o.target)}</span> · L = {int(o.length)} '
-        f'· before/after lDDT <span class="mono num">{o.before:.2f} → {o.after:.2f}</span></div>'
+        f'· before/after lDDT <span class="mono num">{o.before:.3f} → {o.after:.3f}</span></div>'
         '</div></div>'
     )
 

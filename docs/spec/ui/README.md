@@ -49,7 +49,7 @@ all mockups, edit that one file.
 | `panels/03-hypothesis-card.html` | 03 Hypothesis | Pre-registered falsifiable claim |
 | `panels/04-fold-cartographer.html` | 04 Cartographer | Four geometry axes + context buckets |
 | `panels/05-falsification-gate.html` | 05 Gate | Knock-out / placebo / seed controls |
-| `panels/06-discovery-ledger.html` | 06 Discovery | Confirmed mechanisms + instructive kills |
+| `panels/06-discovery-ledger.html` | 06 Discovery | Confirmed mechanisms + provisional KEEPs |
 | `panels/07-modal-execution.html` | 07 Modal | Execution mode, burst, mount policy, cost |
 | `panels/08-structure-overlay.html` | 08 Overlay | Backbone overlay + per-residue error |
 | `panels/09-sampler-burst.html` | 09 Sampler | Frozen-checkpoint fan-out + label-free selection |

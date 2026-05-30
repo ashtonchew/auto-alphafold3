@@ -25,29 +25,29 @@
 
   <div class="section first">
     <div class="block-title">Candidate claim · trial <span class="mono" style="color:var(--ink-3)">T012</span> <span class="right"><span class="badge">CONFIRMED</span></span></div>
-    <p class="claim">“Ramping the geometry loss makes the coordinate path use the contacts the pair head already learned.”</p>
+    <p class="claim">“Fewer diffusion steps with a lower step scale reduce sampler noise, so the coordinate path realizes the contacts the pair head already learned.”</p>
     <div class="claim-meta">pre-registered axis <span class="mono">distogram_vs_3d</span> · predicted gap ↓ · band +0.02 to +0.05</div>
     <svg class="bars" viewBox="0 0 520 188" role="img"
-      aria-label="Four control bars. Full gain plus 0.041; knock-out collapses to plus 0.009; placebo flat at plus 0.004; seed mean plus 0.038 with small spread.">
+      aria-label="Four control bars. Full gain plus 0.018; knock-out collapses to plus 0.004; placebo flat at plus 0.002; seed mean plus 0.016 with small spread.">
       <line class="ax-line" x1="40" y1="150" x2="510" y2="150"/>
       <rect class="bar-full" x="58"  y="30"  width="74" height="120"/>
-      <text class="bar-val num" x="95"  y="22"  text-anchor="middle">+0.041</text>
+      <text class="bar-val num" x="95"  y="22"  text-anchor="middle">+0.018</text>
       <text class="bar-lbl" x="95"  y="168" text-anchor="middle">full</text>
-      <rect class="bar-mute" x="178" y="124" width="74" height="26"/>
-      <text class="bar-val num" x="215" y="116" text-anchor="middle">+0.009</text>
+      <rect class="bar-mute" x="178" y="123" width="74" height="27"/>
+      <text class="bar-val num" x="215" y="115" text-anchor="middle">+0.004</text>
       <text class="bar-lbl" x="215" y="168" text-anchor="middle">knock-out</text>
       <text class="bar-note" x="215" y="182" text-anchor="middle">collapses</text>
-      <rect class="bar-mute" x="298" y="138" width="74" height="12"/>
-      <text class="bar-val num" x="335" y="130" text-anchor="middle">+0.004</text>
+      <rect class="bar-mute" x="298" y="137" width="74" height="13"/>
+      <text class="bar-val num" x="335" y="129" text-anchor="middle">+0.002</text>
       <text class="bar-lbl" x="335" y="168" text-anchor="middle">placebo</text>
       <text class="bar-note" x="335" y="182" text-anchor="middle">null</text>
-      <rect class="bar-full" x="418" y="39"  width="74" height="111"/>
-      <line x1="455" y1="29" x2="455" y2="59" stroke="#e8e8e8" stroke-width="1.3"/>
-      <line x1="447" y1="29" x2="463" y2="29" stroke="#e8e8e8" stroke-width="1.3"/>
-      <line x1="447" y1="59" x2="463" y2="59" stroke="#e8e8e8" stroke-width="1.3"/>
-      <text class="bar-val num" x="455" y="22"  text-anchor="middle">+0.038</text>
+      <rect class="bar-full" x="418" y="43"  width="74" height="107"/>
+      <line x1="455" y1="33" x2="455" y2="53" stroke="#e8e8e8" stroke-width="1.3"/>
+      <line x1="447" y1="33" x2="463" y2="33" stroke="#e8e8e8" stroke-width="1.3"/>
+      <line x1="447" y1="53" x2="463" y2="53" stroke="#e8e8e8" stroke-width="1.3"/>
+      <text class="bar-val num" x="455" y="22"  text-anchor="middle">+0.016</text>
       <text class="bar-lbl" x="455" y="168" text-anchor="middle">seed mean</text>
-      <text class="bar-note num" x="455" y="182" text-anchor="middle">±0.006, n=3</text>
+      <text class="bar-note num" x="455" y="182" text-anchor="middle">±0.004, n=3</text>
     </svg>
   </div>
 
@@ -56,14 +56,14 @@
     <table class="dtable">
       <thead><tr><th>Control</th><th>What it tests</th><th class="r">Δ lDDT</th><th class="r">Outcome</th></tr></thead>
       <tbody>
-        <tr><td>Candidate (full)</td><td>the credited change, intact</td><td class="r c-d num">+0.041</td><td class="r"><span class="spill ok">credited</span></td></tr>
-        <tr><td>Knock-out</td><td>same patch, credited component removed</td><td class="r c-d num">+0.009</td><td class="r"><span class="spill ok">gain collapses</span></td></tr>
-        <tr><td>Placebo</td><td>unrelated change of matched magnitude</td><td class="r c-d muted num">+0.004</td><td class="r"><span class="spill ok">null</span></td></tr>
-        <tr><td>Seed rerun</td><td>same config, new seeds (n=3)</td><td class="r c-d num">+0.038</td><td class="r"><span class="spill ok">±0.006, survives</span></td></tr>
-        <tr><td>Predicted-axis check</td><td>did distogram_vs_3d move as named?</td><td class="r c-d num">−0.07 gap</td><td class="r"><span class="spill ok">as predicted</span></td></tr>
+        <tr><td>Candidate (full)</td><td>the credited sampler change, intact</td><td class="r c-d num">+0.018</td><td class="r"><span class="spill ok">credited</span></td></tr>
+        <tr><td>Knock-out</td><td>revert to 24 steps / step scale 1.0</td><td class="r c-d num">+0.004</td><td class="r"><span class="spill ok">gain collapses</span></td></tr>
+        <tr><td>Placebo</td><td>matched-magnitude unrelated sampler change</td><td class="r c-d muted num">+0.002</td><td class="r"><span class="spill ok">null</span></td></tr>
+        <tr><td>Seed rerun</td><td>same config, new seeds (n=3)</td><td class="r c-d num">+0.016</td><td class="r"><span class="spill ok">±0.004, survives</span></td></tr>
+        <tr><td>Predicted-axis check</td><td>did distogram_vs_3d move as named?</td><td class="r c-d num">−0.05 gap</td><td class="r"><span class="spill ok">as predicted</span></td></tr>
       </tbody>
     </table>
-    <div class="readout"><span class="mono">attributable 0.78</span>. Removing the credited component erases most of the gain, an unrelated change of matched size does nothing, and the gain survives a seed rerun. <b style="color:var(--ink-2)">Verdict: CONFIRMED.</b></div>
+    <div class="readout"><span class="mono">attributable 0.74</span>. Removing the credited component erases most of the gain, an unrelated change of matched size does nothing, and the gain survives a seed rerun. <b style="color:var(--ink-2)">Verdict: CONFIRMED.</b></div>
   </div>
 
   <footer class="page-foot">

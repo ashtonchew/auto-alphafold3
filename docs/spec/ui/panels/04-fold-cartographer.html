@@ -29,27 +29,27 @@
     <div class="diag-grid">
       <div class="diag">
         <div class="diag-name">Local geometry</div>
-        <div class="diag-row"><span class="diag-val num">0.58</span><span class="diag-delta up num">+0.04</span></div>
-        <div class="diag-bar"><i style="width:72%"></i></div>
-        <div class="diag-foot">local lDDT · short-range contact precision</div>
+        <div class="diag-row"><span class="diag-val num">0.56</span><span class="diag-delta warn num">+0.01</span></div>
+        <div class="diag-bar"><i class="amber" style="width:58%"></i></div>
+        <div class="diag-foot">local lDDT, roughly flat under the sampler</div>
       </div>
       <div class="diag">
         <div class="diag-name">Long-range topology</div>
-        <div class="diag-row"><span class="diag-val num">0.41</span><span class="diag-delta up num">+0.06</span></div>
-        <div class="diag-bar"><i style="width:54%"></i></div>
-        <div class="diag-foot">contact precision, sequence separation ≥ 24</div>
+        <div class="diag-row"><span class="diag-val num">0.39</span><span class="diag-delta warn num">±0.00</span></div>
+        <div class="diag-bar"><i class="amber" style="width:45%"></i></div>
+        <div class="diag-foot">unchanged · contact precision, seq separation ≥ 24</div>
       </div>
       <div class="diag">
         <div class="diag-name">Distogram vs 3D gap</div>
-        <div class="diag-row"><span class="diag-val num">0.09</span><span class="diag-delta up num">−0.07</span></div>
-        <div class="diag-bar"><i style="width:66%"></i></div>
-        <div class="diag-foot">pair signal learned but not realised in coordinates</div>
+        <div class="diag-row"><span class="diag-val num">0.06</span><span class="diag-delta up num">−0.05</span></div>
+        <div class="diag-bar"><i style="width:70%"></i></div>
+        <div class="diag-foot">pair signal now realised in coordinates — the credited axis</div>
       </div>
       <div class="diag">
         <div class="diag-name">Stability / compute</div>
-        <div class="diag-row"><span class="diag-val num">1.0×</span><span class="diag-delta warn">stable</span></div>
-        <div class="diag-bar"><i class="amber" style="width:50%"></i></div>
-        <div class="diag-foot">runtime, peak 38 GB, no NaN / OOM / timeout</div>
+        <div class="diag-row"><span class="diag-val num">0.7×</span><span class="diag-delta up">faster</span></div>
+        <div class="diag-bar"><i style="width:55%"></i></div>
+        <div class="diag-foot">fewer steps · 0.7× runtime · no NaN / OOM / timeout</div>
       </div>
     </div>
   </div>
@@ -66,12 +66,12 @@
     <h2 class="block-title">Context only — not routing targets</h2>
     <div class="block-sub">Coarse buckets give context. They never replace the primary metric or act as optimization targets.</div>
     <div class="cfg-grid">
-      <div class="cfg"><div class="cfg-k">len &lt; 120</div><div class="cfg-v num">0.44</div></div>
-      <div class="cfg"><div class="cfg-k">len 120–200</div><div class="cfg-v num">0.40</div></div>
-      <div class="cfg"><div class="cfg-k">len &gt; 200</div><div class="cfg-v num">0.33</div></div>
-      <div class="cfg"><div class="cfg-k">MSA shallow</div><div class="cfg-v num">0.31</div></div>
-      <div class="cfg"><div class="cfg-k">MSA mid</div><div class="cfg-v num">0.41</div></div>
-      <div class="cfg"><div class="cfg-k">MSA deep</div><div class="cfg-v num">0.47</div></div>
+      <div class="cfg"><div class="cfg-k">len &lt; 120</div><div class="cfg-v num">0.35</div></div>
+      <div class="cfg"><div class="cfg-k">len 120–200</div><div class="cfg-v num">0.34</div></div>
+      <div class="cfg"><div class="cfg-k">len &gt; 200</div><div class="cfg-v num">0.31</div></div>
+      <div class="cfg"><div class="cfg-k">MSA shallow</div><div class="cfg-v num">0.30</div></div>
+      <div class="cfg"><div class="cfg-k">MSA mid</div><div class="cfg-v num">0.34</div></div>
+      <div class="cfg"><div class="cfg-k">MSA deep</div><div class="cfg-v num">0.36</div></div>
     </div>
     <div class="note">Fold Cartographer routes only on the four axes above. Length and MSA-depth buckets are <b>supporting context</b>, marked so they cannot be mistaken for objectives.</div>
   </div>

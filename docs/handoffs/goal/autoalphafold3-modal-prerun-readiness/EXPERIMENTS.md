@@ -41,3 +41,19 @@ Results:
 - Targeted baseline/scorer/asset suite: 87 passed, 3 skipped.
 - Full local suite: 187 passed, 3 skipped.
 - `git diff --check`: passed.
+
+## Feature 4: `feat/prerun-readiness-report`
+
+Commands run:
+
+- `python3 -m pytest tests/test_readiness_report.py -p no:cacheprovider`
+- `python3 -m pytest -p no:cacheprovider`
+- `python3 .claude/skill-evals/run_offline_evals.py`
+- `git diff --check`
+
+Results:
+
+- Targeted readiness report suite: 14 passed.
+- Full local suite: 191 passed, 3 skipped.
+- Offline skill evals: all 148 checks passed.
+- `git diff --check`: passed.

@@ -36,3 +36,23 @@
   as locked prefixes.
 - Baseline readiness, locked scorer, and Modal asset audit modules are locked
   by patch policy for future search.
+
+## Feature 4
+
+- Readiness report JSON now includes canonical `certification_status` values
+  and aggregate certification counts.
+- Mocked Modal contract readiness is reported separately from local checks and
+  live-smoke checks.
+- Modal event-authority readiness is reported separately so local/mocked checks
+  cannot make the scaffold event-search ready without a human-approved
+  Modal-hosted trusted orchestrator action.
+- Missing gate calibration is represented as an exact
+  `PENDING_HUMAN_LIVE_ACTION`; it blocks autonomous search.
+- The repo-local readiness report currently has zero `BLOCKED` sections:
+  `PASS_MOCKED_MODAL=1`, `PENDING_HUMAN_LIVE_ACTION=4`, and
+  `NOT_REQUESTED=1`.
+- Mixed local gate skips are classified by exact cause; dependency-only skips
+  keep the dependency action, cached Arrow fixture skips get a separate exact
+  local-gate action, and unknown skips remain `BLOCKED`.
+- No live Modal calls, baseline artifacts, gate verdict artifacts, canonical
+  ledger rows, or Discovery Ledger records were created.

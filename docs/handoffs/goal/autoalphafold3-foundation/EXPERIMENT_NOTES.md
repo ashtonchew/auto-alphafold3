@@ -10,3 +10,7 @@ labels, or autonomous trials were created during foundation setup.
   exactly as written.
 - PR 2 is adapter-only. It does not run preprocessing or create feature,
   prediction, benchmark, baseline, or Modal artifacts.
+- PR 3 is runtime-artifact-only. It adds scorer-compatible prediction artifact
+  helpers for caller-supplied coordinates, keeps local stubs non-official, and
+  does not create checkpoints, benchmark metrics, Modal runs, or NanoFold
+  training outputs.

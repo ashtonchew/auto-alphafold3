@@ -11,10 +11,13 @@ from autoalphafold3.runner import (
     artifact_manifest_shape,
     initialize_trial_directory,
     plan_trial_artifacts,
+    prediction_artifact_shape,
     run_fixed_budget_trial,
     safe_child_path,
     validate_artifact_manifest,
+    validate_prediction_artifact,
     validate_trial_id,
+    write_prediction_artifact,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -86,9 +89,25 @@ def test_runner_refuses_to_claim_real_training(tmp_path: Path) -> None:
     assert (tmp_path / "T123" / "artifact_manifest.json").exists()
     assert (tmp_path / "T123" / "training_log.json").exists()
     assert (tmp_path / "T123" / "DONE").exists()
+    assert not (tmp_path / "T123" / "checkpoint.pt").exists()
+    assert not (tmp_path / "T123" / "predictions.json").exists()
 
     manifest["real_training_performed"] = True
     with pytest.raises(RunnerError, match="must not claim real training"):
+        validate_artifact_manifest(manifest)
+
+
+def test_runner_manifest_rejects_artifact_paths_outside_trial_dir(tmp_path: Path) -> None:
+    manifest = artifact_manifest_shape(
+        trial_id="T132",
+        output_dir=tmp_path / "T132",
+        features_dir="/features",
+    )
+    artifacts = dict(manifest["artifacts"])
+    artifacts["predictions_json"] = str(tmp_path / "other" / "predictions.json")
+    manifest["artifacts"] = artifacts
+
+    with pytest.raises(RunnerError, match="escapes trial directory"):
         validate_artifact_manifest(manifest)
 
 
@@ -106,11 +125,94 @@ def test_runner_rejects_unsafe_ids_and_paths(tmp_path: Path) -> None:
         validate_trial_id("../bad")
     with pytest.raises(RunnerError, match="unsafe artifact path"):
         safe_child_path(tmp_path, "../escape")
+    with pytest.raises(RunnerError, match="trial-scoped"):
+        artifact_manifest_shape(trial_id="T001", output_dir=tmp_path, features_dir="/features")
+
+
+def test_prediction_artifact_writer_creates_canonical_non_official_payload(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "T126"
+    payload = write_prediction_artifact(
+        trial_id="T126",
+        split="smoke",
+        output_dir=artifact_dir,
+        predictions=[
+            {
+                "target_id": "smoke_A",
+                "predicted_ca": [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                ],
+            }
+        ],
+    )
+
+    assert payload["schema_version"] == "autoaf3.predictions.v1"
+    assert payload["official_benchmark_result"] is False
+    assert "not a benchmark result" in payload["disclaimer"]
+    validate_prediction_artifact(payload)
+    assert json.loads((artifact_dir / "predictions.json").read_text()) == payload
+
+
+def test_prediction_artifact_validation_rejects_official_or_bad_shapes() -> None:
+    payload = prediction_artifact_shape(
+        trial_id="T127",
+        split="smoke",
+        predictions=[{"target_id": "smoke_A", "predicted_ca": [[0.0, 0.0, 0.0]]}],
+    )
+    payload["official_benchmark_result"] = True
+    with pytest.raises(RunnerError, match="official benchmark"):
+        validate_prediction_artifact(payload)
+
+    with pytest.raises(RunnerError, match="shape"):
+        prediction_artifact_shape(
+            trial_id="T128",
+            split="smoke",
+            predictions=[{"target_id": "smoke_A", "predicted_ca": [0.0, 0.0, 0.0]}],
+        )
+    with pytest.raises(RunnerError, match="non-finite"):
+        prediction_artifact_shape(
+            trial_id="T128",
+            split="smoke",
+            predictions=[{"target_id": "smoke_A", "predicted_ca": [[float("nan"), 0.0, 0.0]]}],
+        )
+    with pytest.raises(RunnerError, match="at least one prediction"):
+        prediction_artifact_shape(trial_id="T129", split="smoke", predictions=[])
+    with pytest.raises(RunnerError, match="duplicate prediction"):
+        prediction_artifact_shape(
+            trial_id="T130",
+            split="smoke",
+            predictions=[
+                {"target_id": "smoke_A", "predicted_ca": [[0.0, 0.0, 0.0]]},
+                {"target_id": "smoke_A", "predicted_ca": [[0.0, 0.0, 0.0]]},
+            ],
+        )
+    with pytest.raises(RunnerError, match="requires split"):
+        prediction_artifact_shape(
+            trial_id="T131",
+            split="",
+            predictions=[{"target_id": "smoke_A", "predicted_ca": [[0.0, 0.0, 0.0]]}],
+        )
 
 
 def test_locked_scorer_scores_toy_artifact_directory(tmp_path: Path) -> None:
     artifact_dir = tmp_path / "T777"
-    predictions = _write_toy_predictions(artifact_dir)
+    payload = write_prediction_artifact(
+        trial_id="T777",
+        split="smoke",
+        output_dir=artifact_dir,
+        predictions=[
+            {
+                "target_id": "smoke_A",
+                "predicted_ca": [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [2.0, 0.0, 0.0],
+                    [3.0, 0.0, 0.0],
+                ],
+            }
+        ],
+    )
+    predictions = artifact_dir / "predictions.json"
 
     result = score_trial_artifacts(
         artifact_dir=artifact_dir,
@@ -128,6 +230,7 @@ def test_locked_scorer_scores_toy_artifact_directory(tmp_path: Path) -> None:
     assert result["metrics"]["best_val_calpha_lddt"] == pytest.approx(1.0)
     assert result["fold_cartographer"]["signature"] == "toy_geometry_preserved"
     assert result["artifacts"]["predictions_json"] == str(predictions)
+    assert payload["official_benchmark_result"] is False
     assert result["error_report"]["scorer_only"] is True
     assert (artifact_dir / "metrics.json").exists()
     assert (artifact_dir / "error_report.json").exists()

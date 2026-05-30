@@ -13,8 +13,10 @@ Open any file in a browser (no build step, no server needed). Start at
 
 ```
 ui/
-  index.html              gallery linking the board + all panels
+  index.html              gallery linking the stage views + all panels
   evidence-board.html     the combined stage dashboard (§2)
+  trials.html             all-trials table, filterable by status
+  logs.html               timestamped orchestrator/trial event feed, searchable
   assets/
     modal.css             shared Modal design system (tokens + all components)
     board.js              trajectory hover/click interactivity

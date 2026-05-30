@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from autoalphafold3.ledger import LEDGER_WRITER_ROLE, LedgerWriteError, append_ledger, read_ledger
 from autoalphafold3.orchestrator import poll_trial, record_trial_status, submit_trial
-from autoalphafold3.patch_policy import PatchPolicyError, validate_patch_scope
+from autoalphafold3.patch_policy import PatchPolicyError, validate_patch_scope, validate_tracing_lockout
 from autoalphafold3.preflight import PreflightError, changed_paths_from_parent, run_preflight
 from autoalphafold3.schema import (
     AutoFoldResult,
@@ -244,6 +244,59 @@ def test_patch_policy_accepts_allowed_paths_and_rejects_locked_paths() -> None:
         validate_patch_scope(["configs/experiments/../escape.json"], repo_root=REPO_ROOT)
     with pytest.raises(PatchPolicyError, match="binary"):
         validate_patch_scope(["configs/experiments/checkpoint.pt"], repo_root=REPO_ROOT)
+
+
+def test_patch_policy_rejects_edits_to_tracing_module() -> None:
+    """Patches that modify autoalphafold3/_tracing.py must be rejected."""
+    with pytest.raises(PatchPolicyError, match="locked tracing module"):
+        validate_tracing_lockout(
+            patch_paths=["autoalphafold3/_tracing.py"],
+            patch_diff_text="",
+        )
+
+
+def test_patch_policy_rejects_raindrop_imports_outside_tracing() -> None:
+    """Patches that introduce raindrop imports outside _tracing.py are rejected."""
+    diff = """\
++++ b/autoalphafold3/runner.py
+@@ -1,3 +1,4 @@
+ from __future__ import annotations
++import raindrop.analytics
+"""
+    with pytest.raises(PatchPolicyError, match="forbidden import"):
+        validate_tracing_lockout(
+            patch_paths=["autoalphafold3/runner.py"],
+            patch_diff_text=diff,
+        )
+
+
+def test_patch_policy_rejects_opentelemetry_imports_outside_tracing() -> None:
+    """Patches that introduce opentelemetry imports outside _tracing.py are rejected."""
+    diff = """\
++++ b/autoalphafold3/orchestrator.py
+@@ -1,3 +1,4 @@
+ from __future__ import annotations
++from opentelemetry import trace
+"""
+    with pytest.raises(PatchPolicyError, match="forbidden import"):
+        validate_tracing_lockout(
+            patch_paths=["autoalphafold3/orchestrator.py"],
+            patch_diff_text=diff,
+        )
+
+
+def test_patch_policy_allows_unrelated_edits() -> None:
+    """Patches that don't touch tracing should pass."""
+    diff = """\
++++ b/autoalphafold3/runner.py
+@@ -10,3 +10,4 @@
+ def some_function():
++    return 42
+"""
+    validate_tracing_lockout(
+        patch_paths=["autoalphafold3/runner.py"],
+        patch_diff_text=diff,
+    )
 
 
 def test_scorer_dry_run_emits_canonical_metrics() -> None:

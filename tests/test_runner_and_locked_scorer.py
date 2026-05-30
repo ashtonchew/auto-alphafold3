@@ -55,6 +55,36 @@ def test_locked_manifest_loader_accepts_legacy_entry_list(tmp_path: Path) -> Non
     assert loaded.manifest.entries[0].target_id == "target_A"
 
 
+def test_locked_manifest_loader_accepts_public_asset_manifest_shape(tmp_path: Path) -> None:
+    path = tmp_path / "public_val_small.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "record_id": "2LZM_A",
+                    "pdb_id": "2LZM",
+                    "chain_id": "A",
+                    "split": "public_val_small",
+                    "source_url": "https://files.rcsb.org/download/2LZM.cif",
+                    "selection_note": "curated public RCSB candidate; validated during preprocess",
+                    "sequence_length": 164,
+                    "polymer_type": None,
+                    "source_mmcif_sha256": "b" * 64,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_locked_manifest(path.name, repo_root=tmp_path, verify_assets=False)
+
+    entry = loaded.manifest.entries[0]
+    assert entry.target_id == "2LZM_A"
+    assert entry.length == 164
+    assert entry.feature_path == "features/public_val_small.arrow"
+    assert entry.label_path == "labels/public_val_labels.arrow"
+
+
 def _write_toy_predictions(artifact_dir: Path, *, split: str = "smoke") -> Path:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / "predictions.json"

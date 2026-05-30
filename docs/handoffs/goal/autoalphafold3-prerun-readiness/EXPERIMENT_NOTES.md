@@ -19,3 +19,12 @@ Synthetic unit tests may use in-memory scalar evidence and temporary directories
 - Ran `python3 -m pytest -p no:cacheprovider`: 102 passed, 2 skipped.
 - Ran `python3 .claude/skill-evals/run_offline_evals.py`: all 148 checks passed.
 - No baseline metrics, benchmark artifacts, `runs/baseline/**` files, locked Volume writes, canonical ledger entries, Discovery Ledger entries, Modal runs, or autonomous search trials were created.
+
+## 2026-05-30: `feat/discovery-ledger`
+
+- Added only synthetic `tmp_path` Discovery Ledger contract tests.
+- Ran `python3 -m pytest tests/test_discovery_ledger.py tests/test_local_contracts.py -q -p no:cacheprovider`: 36 passed.
+- Ran `python3 -m pytest tests/test_discovery_ledger.py tests/test_local_contracts.py -q -p no:cacheprovider`: 39 passed after aligning the provisional KEEP fixture with the stricter PR #15 gate-status schema.
+- Ran `python3 -m pytest -p no:cacheprovider`: 121 passed, 2 skipped.
+- Ran `python3 .claude/skill-evals/run_offline_evals.py`: all 148 checks passed.
+- No real Discovery Ledger records, canonical ledger entries, benchmark artifacts, baseline metrics, Modal runs, `runs/**` files, or autonomous search trials were created.

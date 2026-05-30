@@ -23,11 +23,11 @@
 - [x] Baseline lock reader implemented.
 - [x] Missing or incomplete baseline lock fails readiness honestly.
 - [x] No fake baseline metrics created.
-- [ ] Discovery Ledger helper implemented.
-- [ ] Discovery Ledger rejects non-CONFIRMED records.
-- [ ] Discovery provenance includes git SHA, scorer version, feature/manifest hashes, axis, verdict numbers, and design rule.
+- [x] Discovery Ledger helper implemented.
+- [x] Discovery Ledger rejects non-CONFIRMED records.
+- [x] Discovery provenance includes git SHA, scorer version, feature/manifest hashes, axis, verdict numbers, and design rule.
 - [ ] Stage-one threshold decision implemented.
-- [ ] Provisional KEEP cannot enter Discovery Ledger.
+- [x] Provisional KEEP cannot enter Discovery Ledger.
 - [ ] Gate controls are orchestrator-authored.
 - [ ] Modal gate-wave adapter is fakeable in tests.
 - [ ] Gate `starmap` uses `return_exceptions=True` and `wrap_returned_exceptions=False`.

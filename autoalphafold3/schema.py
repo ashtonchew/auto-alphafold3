@@ -192,6 +192,62 @@ class FalsificationResult(BaseModel):
         return self
 
 
+class DiscoveryProvenance(BaseModel):
+    """Provenance required for one confirmed Discovery Ledger record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    git_sha: str = Field(min_length=7)
+    scorer_version: Literal["calpha_lddt_v1"] = SCORER_VERSION
+    primary_metric: Literal["best_val_calpha_lddt"] = PRIMARY_METRIC
+    manifest_hashes: dict[str, str] = Field(min_length=1)
+    feature_fingerprints: dict[str, str] = Field(min_length=1)
+    baseline_id: str = Field(min_length=1)
+    current_best_trial_id: str = Field(min_length=1)
+    causal_component: str = Field(min_length=1)
+    predicted_axis: FalsificationAxis
+    predicted_direction: PredictionDirection
+    verdict_numbers: dict[str, float] = Field(min_length=1)
+    gate_thresholds: dict[str, float] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_provenance_numbers(self) -> DiscoveryProvenance:
+        for collection_name in ("manifest_hashes", "feature_fingerprints"):
+            collection = getattr(self, collection_name)
+            for key, value in collection.items():
+                if not key or not isinstance(value, str) or not value:
+                    raise ValueError(f"{collection_name} must contain non-empty string hashes")
+        for collection_name in ("verdict_numbers", "gate_thresholds"):
+            collection = getattr(self, collection_name)
+            for key, value in collection.items():
+                if not key or not math.isfinite(value):
+                    raise ValueError(f"{collection_name} values must be finite")
+        return self
+
+
+class DiscoveryRecord(BaseModel):
+    """One confirmed mechanism in the orchestrator-written Discovery Ledger."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "autoaf3.discovery.v1"
+    trial_id: str = Field(pattern=r"^T[0-9]{3,}$")
+    candidate_id: str = Field(min_length=1)
+    mechanism: str = Field(min_length=1)
+    axis_moved: FalsificationAxis
+    design_rule: str = Field(min_length=1)
+    falsification: FalsificationResult
+    provenance: DiscoveryProvenance
+
+    @model_validator(mode="after")
+    def validate_confirmed_falsification(self) -> DiscoveryRecord:
+        if self.falsification.verdict != FalsificationVerdict.CONFIRMED:
+            raise ValueError("DiscoveryRecord requires a CONFIRMED falsification verdict")
+        if self.axis_moved != self.provenance.predicted_axis:
+            raise ValueError("DiscoveryRecord axis_moved must match provenance predicted_axis")
+        return self
+
+
 class FoldCartographerReport(BaseModel):
     """Aggregated diagnostics emitted beside the primary scalar."""
 

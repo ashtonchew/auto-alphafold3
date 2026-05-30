@@ -252,7 +252,7 @@ def test_modal_control_plane_v4_entrypoints_are_import_safe() -> None:
         score_final_seed("T201", seed=2, split="smoke")
 
 
-def test_nanofold_preflight_gates_report_dependency_gaps() -> None:
+def test_nanofold_preflight_gates_report_real_or_missing_dependency_status() -> None:
     gates = run_nanofold_preflight_gates(config_path="configs/nanofold_dev_cpu_smoke.json")
     by_name = {gate.name: gate for gate in gates}
 
@@ -260,5 +260,9 @@ def test_nanofold_preflight_gates_report_dependency_gaps() -> None:
     assert by_name["parameter_count"].status in {"passed", "skipped"}
     if by_name["parameter_count"].status == "skipped":
         assert by_name["parameter_count"].reason == "dependency_missing"
-    assert by_name["tiny_forward"].status == "skipped"
-    assert by_name["finite_loss"].status == "skipped"
+    assert by_name["tiny_forward"].status in {"passed", "skipped"}
+    assert by_name["finite_loss"].status in {"passed", "skipped"}
+    if by_name["tiny_forward"].status == "skipped":
+        assert by_name["tiny_forward"].reason == "dependency_missing"
+    if by_name["finite_loss"].status == "skipped":
+        assert by_name["finite_loss"].reason == "dependency_missing"

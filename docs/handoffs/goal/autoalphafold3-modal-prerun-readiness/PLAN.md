@@ -39,7 +39,30 @@ Implementation approach:
 
 ## Feature 2: `feat/falsification-and-ledgers`
 
-Pending until Feature 1 is merged.
+Read-only agent findings:
+
+- Current schemas already cover registered predictions, orchestrator-authored
+  `FalsificationPlan`, `FalsificationResult`, verdict enums, confirmed-only
+  Discovery Ledger records, lifecycle validation, and patch-policy locks.
+- Gate waves are bounded and fakeable, use `starmap(..., order_outputs=True,
+  return_exceptions=True, wrap_returned_exceptions=False)`, and normalize
+  ordinary Modal exceptions into `INFRA_FAIL`.
+- Remaining hardening gaps are explicit aggregate timeout enforcement,
+  cancellation-style `BaseException` normalization, and lifecycle-ledger
+  patch-policy lock coverage.
+
+Implementation approach:
+
+- Keep gate controls orchestrator-authored and avoid live Modal calls.
+- Add an aggregate gate-wave timeout cap derived from per-control timeouts.
+- Normalize raised cancellation/base exceptions into structured gate evidence
+  rather than letting the wave escape without a ledger-visible reason.
+- Require canonical ledger and Discovery Ledger append helpers to reject
+  non-orchestrator writer roles.
+- Lock lifecycle ledger helpers against future search patches.
+- Add focused local tests for oversized aggregate timeout, cancellation
+  normalization, complete scored gate evidence, non-orchestrator writes, and
+  lifecycle-ledger lock coverage.
 
 ## Feature 3: `feat/baseline-scorer-readiness`
 

@@ -17,6 +17,7 @@ from autoalphafold3.schema import (
 )
 
 DEFAULT_DISCOVERY_LEDGER = Path("runs/discovery_ledger.jsonl")
+DISCOVERY_LEDGER_WRITER_ROLE = "orchestrator"
 REQUIRED_VERDICT_NUMBERS = (
     "gain_full",
     "gain_knockout",
@@ -66,9 +67,11 @@ def append_discovery_record(
     *,
     ledger_path: str | Path = DEFAULT_DISCOVERY_LEDGER,
     dedupe: bool = True,
+    writer_role: str = DISCOVERY_LEDGER_WRITER_ROLE,
 ) -> None:
     """Append a confirmed Discovery Ledger record with duplicate protection."""
 
+    _require_orchestrator_writer(writer_role)
     row = validate_discovery_record(record)
     path = Path(ledger_path)
     existing = read_discovery_ledger(ledger_path=path)
@@ -108,6 +111,11 @@ def validate_discovery_record(record: DiscoveryRecord | dict[str, object]) -> Di
     _require_axis_consistency(row)
     _require_verdict_evidence_consistency(row)
     return row
+
+
+def _require_orchestrator_writer(writer_role: str) -> None:
+    if writer_role != DISCOVERY_LEDGER_WRITER_ROLE:
+        raise DiscoveryLedgerError("Discovery Ledger writes require writer_role=orchestrator")
 
 
 def _require_confirmed_result(result: AutoFoldResult) -> None:

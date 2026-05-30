@@ -235,9 +235,20 @@ def test_discovery_ledger_duplicate_policy(tmp_path: Path) -> None:
         append_discovery_record(conflicting, ledger_path=ledger)
 
 
+def test_discovery_ledger_rejects_non_orchestrator_writer(tmp_path: Path) -> None:
+    ledger = tmp_path / "discovery.jsonl"
+
+    with pytest.raises(DiscoveryLedgerError, match="writer_role=orchestrator"):
+        append_discovery_record(discovery_record(), ledger_path=ledger, writer_role="trial_worker")
+
+    assert not ledger.exists()
+
+
 def test_patch_policy_denies_discovery_ledger_write_paths() -> None:
     with pytest.raises(PatchPolicyError, match="locked"):
         validate_patch_scope(["autoalphafold3/discovery_ledger.py"])
+    with pytest.raises(PatchPolicyError, match="locked"):
+        validate_patch_scope(["autoalphafold3/ledger.py"])
     with pytest.raises(PatchPolicyError, match="locked"):
         validate_patch_scope(["runs/discovery_ledger.jsonl"])
     with pytest.raises(PatchPolicyError, match="locked"):

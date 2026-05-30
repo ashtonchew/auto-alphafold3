@@ -18,6 +18,7 @@ DEFAULT_GATE_CLASS = "TrialRunner"
 DEFAULT_GATE_METHOD = "run"
 DEFAULT_GATE_TIMEOUT_SECONDS = 600
 DEFAULT_MAX_GATE_VARIANTS = 8
+DEFAULT_GATE_AGGREGATE_TIMEOUT_SECONDS = DEFAULT_GATE_TIMEOUT_SECONDS * DEFAULT_MAX_GATE_VARIANTS
 MAX_GATE_SEEDS = 5
 LOCKED_PATH_TOKENS = (
     "autoalphafold3-locked",
@@ -171,17 +172,42 @@ def build_gate_wave_controls(
 def run_gate_wave(function: GateWaveFunction, controls: Sequence[GateControl]) -> GateWaveReport:
     """Run a fake or Modal-like function with the required starmap contract."""
 
+    return run_gate_wave_with_timeout(
+        function,
+        controls,
+        aggregate_timeout_seconds=_aggregate_timeout_seconds(controls),
+    )
+
+
+def run_gate_wave_with_timeout(
+    function: GateWaveFunction,
+    controls: Sequence[GateControl],
+    *,
+    aggregate_timeout_seconds: int,
+) -> GateWaveReport:
+    """Run a bounded gate wave with an explicit aggregate timeout contract."""
+
+    if aggregate_timeout_seconds <= 0:
+        raise GateWaveError("gate aggregate_timeout_seconds must be positive")
     bounded = _validate_controls(controls)
+    requested_timeout = sum(control.timeout_seconds for control in bounded)
+    if requested_timeout > aggregate_timeout_seconds:
+        raise GateWaveError(
+            f"gate requested timeout {requested_timeout}s exceeds aggregate timeout {aggregate_timeout_seconds}s"
+        )
     try:
         raw_results = list(
             function.starmap(
                 [(control.payload, control.seed) for control in bounded],
+                kwargs={"aggregate_timeout_seconds": aggregate_timeout_seconds},
                 order_outputs=True,
                 return_exceptions=True,
                 wrap_returned_exceptions=False,
             )
         )
-    except Exception as exc:  # noqa: BLE001 - external adapter failures become infra evidence.
+    except BaseException as exc:  # noqa: BLE001 - external adapter failures become infra evidence.
+        if isinstance(exc, KeyboardInterrupt | SystemExit):
+            raise
         return _infra_report(bounded, "modal_starmap", exc)
 
     if len(raw_results) != len(bounded):
@@ -214,6 +240,33 @@ def run_modal_gate_wave(
     return run_gate_wave(method, bounded)
 
 
+def require_scored_gate_wave(report: GateWaveReport) -> GateWaveReport:
+    """Require complete scored evidence before Falsification Gate math runs."""
+
+    if report.status != TrialStatus.SCORED:
+        raise GateWaveError(f"gate wave must be SCORED before verdict math: {report.status.value}")
+    controls = _validate_controls(
+        [
+            GateControl(
+                gate_id=row.gate_id,
+                candidate_trial_id=row.candidate_trial_id,
+                control_kind=row.control_kind,
+                seed=row.seed,
+                payload=row.payload,
+            )
+            for row in report.controls
+        ]
+    )
+    expected_ids = {control.gate_id for control in controls}
+    observed_ids = {row.gate_id for row in report.controls}
+    if observed_ids != expected_ids:
+        raise GateWaveError("gate wave evidence does not match expected control ids")
+    bad_statuses = [f"{row.gate_id}:{row.status.value}" for row in report.controls if row.status != TrialStatus.SCORED]
+    if bad_statuses:
+        raise GateWaveError(f"gate wave has unscored controls: {', '.join(bad_statuses)}")
+    return report
+
+
 def _control_from_payload(
     *,
     plan: FalsificationPlan,
@@ -231,6 +284,7 @@ def _control_from_payload(
             "control_kind": kind.value,
             "seed": seed,
             "max_templates": 0,
+            "timeout_seconds": timeout_seconds,
         }
     )
     return GateControl(
@@ -241,6 +295,10 @@ def _control_from_payload(
         timeout_seconds=timeout_seconds,
         payload=payload,
     )
+
+
+def _aggregate_timeout_seconds(controls: Sequence[GateControl]) -> int:
+    return min(sum(control.timeout_seconds for control in controls), DEFAULT_GATE_AGGREGATE_TIMEOUT_SECONDS)
 
 
 def _validate_controls(controls: Sequence[GateControl]) -> list[GateControl]:
@@ -280,7 +338,7 @@ def _evidence_from_result(control: GateControl, raw: object) -> GateControlEvide
             metrics=dict(raw.get("metrics", {})),
             fold_cartographer=fold_cartographer,
             failure_signature=raw.get("failure_signature") if isinstance(raw.get("failure_signature"), str) else None,
-            payload=dict(raw.get("payload", {})),
+            payload=dict(raw.get("payload", control.payload)),
         )
     except Exception as exc:  # noqa: BLE001 - malformed control returns are infra evidence.
         return _infra_evidence(control, "modal_gate_control_result", exc)

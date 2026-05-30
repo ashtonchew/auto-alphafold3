@@ -21,11 +21,15 @@
 - [x] Mocked/offline Modal contract tests extended for first feature.
 - [x] Direct agent `modal run` and arbitrary Sandbox access remain forbidden by
   static contract.
-- [ ] Structured pre-registration schema implemented.
-- [ ] Falsification plan/result schemas implemented.
-- [ ] Gate verdict outcomes covered by pure local tests.
-- [ ] Gate controls are orchestrator-authored.
-- [ ] Gate and Discovery Ledger files locked by patch policy.
+- [x] Structured pre-registration schema implemented.
+- [x] Falsification plan/result schemas implemented.
+- [x] Gate verdict outcomes covered by pure local tests.
+- [x] Gate controls are orchestrator-authored.
+- [x] Gate-wave aggregate timeout is enforced before Modal submission.
+- [x] Gate cancellation/base exceptions normalize to structured infra evidence.
+- [x] Gate and Discovery Ledger files locked by patch policy.
+- [x] Non-orchestrator canonical ledger and Discovery Ledger writes reject.
+- [x] Missing or unscored gate controls reject before verdict math.
 - [ ] Baseline lock reader implemented.
 - [ ] Missing or incomplete baseline lock fails readiness honestly.
 - [ ] Scorer-only real artifact scoring contract implemented.

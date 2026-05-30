@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 from typing import Literal
 
+from autoalphafold3._tracing import span
 from autoalphafold3.falsification import FalsificationError, decide_falsification_verdict
 from autoalphafold3.schema import (
     AutoFoldResult,
@@ -73,6 +74,19 @@ def append_discovery_record(
 ) -> None:
     """Append a confirmed Discovery Ledger record with duplicate protection."""
 
+    with span("discovery_ledger_write", writer_role=str(writer_role), dedupe=dedupe):
+        return _append_discovery_record_impl(
+            record, ledger_path=ledger_path, dedupe=dedupe, writer_role=writer_role
+        )
+
+
+def _append_discovery_record_impl(
+    record: DiscoveryRecord | dict[str, object],
+    *,
+    ledger_path: str | Path = DEFAULT_DISCOVERY_LEDGER,
+    dedupe: bool = True,
+    writer_role: DiscoveryLedgerWriterRole,
+) -> None:
     _require_orchestrator_writer(writer_role)
     row = validate_discovery_record(record)
     path = Path(ledger_path)

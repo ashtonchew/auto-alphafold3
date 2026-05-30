@@ -9,6 +9,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Callable, Iterable
 
+from autoalphafold3._tracing import span
 from autoalphafold3.baseline_readiness import BaselineReadinessReport, audit_baseline_readiness
 from autoalphafold3.modal_assets import ModalAssetAudit, audit_modal_assets
 from autoalphafold3.modal_app import event_search_readiness_contract
@@ -115,6 +116,32 @@ def build_readiness_report(
 ) -> ReadinessReport:
     """Build a read-only report; this function never creates readiness evidence."""
 
+    with span("readiness_run", repo_root=str(repo_root), include_live_smoke=include_live_smoke):
+        return _build_readiness_report_impl(
+            repo_root=repo_root,
+            baseline_dir=baseline_dir,
+            config_path=config_path,
+            calibration_path=calibration_path,
+            pending_human_calibration_action=pending_human_calibration_action,
+            include_live_smoke=include_live_smoke,
+            approved_live_smoke_action=approved_live_smoke_action,
+            nanofold_gates=nanofold_gates,
+            modal_audit_runner=modal_audit_runner,
+        )
+
+
+def _build_readiness_report_impl(
+    *,
+    repo_root: str | Path = ".",
+    baseline_dir: str | Path = "runs/baseline",
+    config_path: str | Path = "configs/nanofold_dev_cpu_smoke.json",
+    calibration_path: str | Path = DEFAULT_CALIBRATION_PATH,
+    pending_human_calibration_action: str | None = None,
+    include_live_smoke: bool = False,
+    approved_live_smoke_action: str | None = None,
+    nanofold_gates: list[NanoFoldGateResult] | None = None,
+    modal_audit_runner: ModalAuditRunner | None = None,
+) -> ReadinessReport:
     root = Path(repo_root)
     baseline = _baseline_section(root / baseline_dir)
     mocked_modal_contract = _mocked_modal_contract_section()

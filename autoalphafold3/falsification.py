@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 
+from autoalphafold3._tracing import span
 from autoalphafold3.schema import (
     FalsificationResult,
     FalsificationVerdict,
@@ -54,36 +55,44 @@ def decide_falsification_verdict(
 ) -> FalsificationVerdict:
     """Apply the canonical five-verdict rule to scored gate evidence."""
 
-    for name, value in (
-        ("gain_full", gain_full),
-        ("gain_knockout", gain_knockout),
-        ("gain_placebo", gain_placebo),
-        ("seed_std", seed_std),
-        ("tau_attribution", tau_attribution),
-        ("rho_placebo", rho_placebo),
-        ("k_seed", k_seed),
+    with span(
+        "falsification_verdict",
+        gain_full=gain_full,
+        gain_knockout=gain_knockout,
+        gain_placebo=gain_placebo,
+        axis_prediction_held=axis_prediction_held,
+        seed_std=seed_std,
     ):
-        _require_finite(name, value)
-    if gain_full <= 0.0:
-        raise FalsificationError("gain_full must be positive for a gate verdict")
-    if seed_std < 0.0:
-        raise FalsificationError("seed_std must be non-negative")
-    if tau_attribution <= 0.0 or tau_attribution > 1.0:
-        raise FalsificationError("tau_attribution must be in (0, 1]")
-    if rho_placebo <= 0.0 or rho_placebo > 1.0:
-        raise FalsificationError("rho_placebo must be in (0, 1]")
-    if k_seed <= 0.0:
-        raise FalsificationError("k_seed must be positive")
+        for name, value in (
+            ("gain_full", gain_full),
+            ("gain_knockout", gain_knockout),
+            ("gain_placebo", gain_placebo),
+            ("seed_std", seed_std),
+            ("tau_attribution", tau_attribution),
+            ("rho_placebo", rho_placebo),
+            ("k_seed", k_seed),
+        ):
+            _require_finite(name, value)
+        if gain_full <= 0.0:
+            raise FalsificationError("gain_full must be positive for a gate verdict")
+        if seed_std < 0.0:
+            raise FalsificationError("seed_std must be non-negative")
+        if tau_attribution <= 0.0 or tau_attribution > 1.0:
+            raise FalsificationError("tau_attribution must be in (0, 1]")
+        if rho_placebo <= 0.0 or rho_placebo > 1.0:
+            raise FalsificationError("rho_placebo must be in (0, 1]")
+        if k_seed <= 0.0:
+            raise FalsificationError("k_seed must be positive")
 
-    if gain_full <= k_seed * seed_std:
-        return FalsificationVerdict.SEED_FRAGILE
-    if gain_placebo >= rho_placebo * gain_full:
-        return FalsificationVerdict.PLACEBO_KILL
-    if attributable_fraction(gain_full=gain_full, gain_knockout=gain_knockout) < tau_attribution:
-        return FalsificationVerdict.KNOCKOUT_SURVIVES
-    if not axis_prediction_held:
-        return FalsificationVerdict.AXIS_MISS
-    return FalsificationVerdict.CONFIRMED
+        if gain_full <= k_seed * seed_std:
+            return FalsificationVerdict.SEED_FRAGILE
+        if gain_placebo >= rho_placebo * gain_full:
+            return FalsificationVerdict.PLACEBO_KILL
+        if attributable_fraction(gain_full=gain_full, gain_knockout=gain_knockout) < tau_attribution:
+            return FalsificationVerdict.KNOCKOUT_SURVIVES
+        if not axis_prediction_held:
+            return FalsificationVerdict.AXIS_MISS
+        return FalsificationVerdict.CONFIRMED
 
 
 def build_falsification_result(

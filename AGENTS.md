@@ -25,6 +25,34 @@ Use `docs/spec/autoalphafold3-canonical (2).html` as the canonical design if con
 - `runs/`: generated run artifacts and ledger output. Event runs are append-only.
 - `tests/`: local tests for scorer, contracts, Modal asset policy, and runner logic.
 
+## Running the project (read before invoking any agent CLI)
+
+If you are an AI agent or contributor running this project for the first time
+in a fresh environment, do NOT install Python packages, daemons, or env vars
+manually. Run:
+
+```bash
+bash scripts/up.sh                                       # interactive shell
+bash scripts/up.sh python -m autoalphafold3.agent ...    # one command end-to-end
+```
+
+`scripts/up.sh` handles every prerequisite: it installs the Raindrop Workshop
+daemon, creates a Python venv, installs project deps + OpenTelemetry tracing
+packages, starts the Workshop daemon, sets `RAINDROP_LOCAL_DEBUGGER`, and runs
+your command (or drops you into a ready shell). It is idempotent — re-running
+it on an already-prepared environment is safe and fast.
+
+After `up.sh` completes, the Workshop UI at `http://localhost:5899` shows live
+trace activity for every CLI invocation, orchestrator call, runner step, gate
+verdict, baseline audit, discovery write, and Modal asset audit.
+
+Tracing is optional. If `RAINDROP_LOCAL_DEBUGGER` is unset or the OpenTelemetry
+packages are missing, the project runs normally with zero overhead — the
+`autoalphafold3._tracing.span()` context manager is a hard no-op in that case.
+
+See [`docs/spec/raindrop-workshop.md`](docs/spec/raindrop-workshop.md) for the
+design contract and boundaries.
+
 ## Commands
 
 - Run scorer tests: `python3 -m pytest tests/test_calpha_lddt.py`

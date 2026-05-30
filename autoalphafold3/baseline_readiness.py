@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from autoalphafold3._tracing import span
 from autoalphafold3.ledger import read_ledger
 from autoalphafold3.schema import PRIMARY_METRIC, SCORER_VERSION, AutoFoldResult, TrialStatus
 
@@ -99,6 +100,16 @@ def audit_baseline_readiness(
     baseline_dir: str | Path = DEFAULT_BASELINE_DIR,
 ) -> BaselineReadinessReport:
     """Validate existing baseline lock evidence without creating artifacts."""
+
+    with span("baseline_audit", baseline_dir=str(baseline_dir)):
+        return _audit_baseline_readiness_impl(baseline_dir=baseline_dir)
+
+
+def _audit_baseline_readiness_impl(
+    *,
+    baseline_dir: str | Path = DEFAULT_BASELINE_DIR,
+) -> BaselineReadinessReport:
+    """Implementation body for audit_baseline_readiness (wrapped for tracing)."""
 
     base = Path(baseline_dir)
     metrics_path = base / DEFAULT_METRICS

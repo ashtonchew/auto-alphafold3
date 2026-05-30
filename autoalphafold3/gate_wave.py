@@ -7,6 +7,7 @@ from typing import Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from autoalphafold3._tracing import span
 from autoalphafold3.modal_app import APP_NAME, WorkerRole, validate_execution_payload
 from autoalphafold3.schema import (
     FalsificationPlan,
@@ -171,11 +172,12 @@ def build_gate_wave_controls(
 def run_gate_wave(function: GateWaveFunction, controls: Sequence[GateControl]) -> GateWaveReport:
     """Run a fake or Modal-like function with the required starmap contract."""
 
-    return run_gate_wave_with_timeout(
-        function,
-        controls,
-        aggregate_timeout_seconds=_aggregate_timeout_seconds(controls),
-    )
+    with span("gate_wave_run", n_controls=len(controls)):
+        return run_gate_wave_with_timeout(
+            function,
+            controls,
+            aggregate_timeout_seconds=_aggregate_timeout_seconds(controls),
+        )
 
 
 def run_gate_wave_with_timeout(

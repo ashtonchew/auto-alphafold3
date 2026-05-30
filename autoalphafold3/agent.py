@@ -10,8 +10,10 @@ from autoalphafold3.orchestrator import poll_trial, submit_trial
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
 from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
 from autoalphafold3.gate_calibration import GateCalibrationError, calibrate_gate
+from autoalphafold3.gate_calibration_runner import GateCalibrationRunError, run_gate_calibration
 from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
 from autoalphafold3.llm_policy import AgentSearchPhase, default_llm_phase_policies, default_llm_phase_policy
+from autoalphafold3.modal_authority import ModalAuthorityError, audit_modal_event_authority
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.modal_assets import (
     ModalAssetAuditError,
@@ -56,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     readiness_parser.add_argument("--baseline-dir", default="runs/baseline")
     readiness_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
     readiness_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
+    readiness_parser.add_argument("--modal-authority-path", default="runs/modal_event_authority.json")
     readiness_parser.add_argument("--pending-human-calibration-action", default=None)
     readiness_parser.add_argument("--include-live-smoke", action="store_true")
     readiness_parser.add_argument("--human-approved-live-smoke-action", default=None)
@@ -82,6 +85,21 @@ def main(argv: list[str] | None = None) -> int:
     calibrate_parser.add_argument("--known-positive-evidence", default=None)
     calibrate_parser.add_argument("--mode", choices=("dry-run", "from-evidence"), default="dry-run")
     calibrate_parser.add_argument("--approve", default=None)
+
+    gate_calibration_run_parser = subparsers.add_parser("run-gate-calibration")
+    gate_calibration_run_parser.add_argument("--repo-root", default=".")
+    gate_calibration_run_parser.add_argument("--evidence-dir", default="runs/gate_calibration")
+    gate_calibration_run_parser.add_argument("--baseline-dir", default="runs/baseline")
+    gate_calibration_run_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
+    gate_calibration_run_parser.add_argument("--modal-env", default=None)
+    gate_calibration_run_parser.add_argument("--approve", default=None)
+
+    modal_authority_parser = subparsers.add_parser("audit-modal-authority")
+    modal_authority_parser.add_argument("--repo-root", default=".")
+    modal_authority_parser.add_argument("--authority-path", default="runs/modal_event_authority.json")
+    modal_authority_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
+    modal_authority_parser.add_argument("--modal-env", default=None)
+    modal_authority_parser.add_argument("--approve", default=None)
 
     fixture_parser = subparsers.add_parser("materialize-local-fixture")
     fixture_parser.add_argument("--repo-root", default=".")
@@ -150,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
             baseline_dir=args.baseline_dir,
             config_path=args.config_path,
             calibration_path=args.calibration_path,
+            modal_authority_path=args.modal_authority_path,
             pending_human_calibration_action=args.pending_human_calibration_action,
             include_live_smoke=args.include_live_smoke,
             approved_live_smoke_action=args.human_approved_live_smoke_action,
@@ -197,6 +216,35 @@ def main(argv: list[str] | None = None) -> int:
                 mode=args.mode,
             )
         except GateCalibrationError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "run-gate-calibration":
+        try:
+            result = run_gate_calibration(
+                repo_root=args.repo_root,
+                evidence_dir=args.evidence_dir,
+                baseline_dir=args.baseline_dir,
+                approval=args.approve,
+                mode=args.mode,
+                modal_env=args.modal_env,
+            )
+        except GateCalibrationRunError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "audit-modal-authority":
+        try:
+            result = audit_modal_event_authority(
+                repo_root=args.repo_root,
+                authority_path=args.authority_path,
+                approval=args.approve,
+                mode=args.mode,
+                modal_env=args.modal_env,
+            )
+        except ModalAuthorityError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))

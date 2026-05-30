@@ -105,7 +105,6 @@ class GateWaveFunction(Protocol):
         *,
         order_outputs: bool = True,
         return_exceptions: bool = False,
-        wrap_returned_exceptions: bool | None = None,
     ) -> object:
         """Run controls in parallel and return an iterable of control results."""
 
@@ -201,7 +200,6 @@ def run_gate_wave_with_timeout(
                 inputs,
                 order_outputs=True,
                 return_exceptions=True,
-                wrap_returned_exceptions=False,
             )
         )
     except BaseException as exc:  # noqa: BLE001 - external adapter failures become infra evidence.
@@ -221,6 +219,7 @@ def run_modal_gate_wave(
     modal_module: object | None = None,
     class_name: str = DEFAULT_GATE_CLASS,
     method_name: str = DEFAULT_GATE_METHOD,
+    environment_name: str | None = None,
 ) -> GateWaveReport:
     """Look up the deployed Modal trial runner and submit a bounded wave."""
 
@@ -231,7 +230,11 @@ def run_modal_gate_wave(
         except ModuleNotFoundError:
             return _infra_report(bounded, "modal_sdk_missing")
     try:
-        runner_cls = modal_module.Cls.from_name(APP_NAME, class_name)  # type: ignore[attr-defined]
+        runner_cls = modal_module.Cls.from_name(  # type: ignore[attr-defined]
+            APP_NAME,
+            class_name,
+            environment_name=environment_name,
+        )
         runner = runner_cls()
         method = getattr(runner, method_name)
     except Exception as exc:  # noqa: BLE001 - deployed lookup failures are infrastructure failures.

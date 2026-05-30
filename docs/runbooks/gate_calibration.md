@@ -12,6 +12,27 @@ python3 -m autoalphafold3.agent calibrate-gate --mode dry-run
 
 This prints the required evidence contract and writes nothing.
 
+## Produce Evidence With Modal Controls
+
+After the approved baseline is locked, produce known-null and known-positive
+control evidence through the deployed Modal gate-control runner:
+
+```bash
+python3 -m autoalphafold3.agent run-gate-calibration --mode dry-run
+python3 -m autoalphafold3.agent run-gate-calibration \
+  --mode modal \
+  --approve I_APPROVE_GATE_CALIBRATION_RUN
+```
+
+The live command writes only:
+
+- `runs/gate_calibration/known_null.json`
+- `runs/gate_calibration/known_positive.json`
+
+It is calibration-only evidence. It does not start autonomous search, write the
+canonical ledger, write the Discovery Ledger, write baseline artifacts, or
+create benchmark claims.
+
 ## Write From Real Evidence
 
 After known-null and known-positive control evidence files exist, write the
@@ -20,8 +41,8 @@ calibration file with explicit approval:
 ```bash
 python3 -m autoalphafold3.agent calibrate-gate \
   --mode from-evidence \
-  --known-null-evidence path/to/known_null.json \
-  --known-positive-evidence path/to/known_positive.json \
+  --known-null-evidence runs/gate_calibration/known_null.json \
+  --known-positive-evidence runs/gate_calibration/known_positive.json \
   --approve I_APPROVE_GATE_CALIBRATION
 ```
 

@@ -17,6 +17,7 @@ from autoalphafold3.schema import FalsificationVerdict, PRIMARY_METRIC, SCORER_V
 
 PUBLIC_VAL_SPLIT = "public_val_small"
 DEFAULT_CALIBRATION_PATH = Path("runs/falsification_gate_calibration.json")
+DEFAULT_MODAL_AUTHORITY_PATH = Path("runs/modal_event_authority.json")
 HUMAN_ACTION_MARKER = "Human-approved live calibration:"
 LIVE_SMOKE_MARKER = "Human-approved read-only live smoke:"
 BASELINE_LOCK_MARKER = "Human-approved baseline lock:"
@@ -107,6 +108,7 @@ def build_readiness_report(
     baseline_dir: str | Path = "runs/baseline",
     config_path: str | Path = "configs/nanofold_dev_cpu_smoke.json",
     calibration_path: str | Path = DEFAULT_CALIBRATION_PATH,
+    modal_authority_path: str | Path = DEFAULT_MODAL_AUTHORITY_PATH,
     pending_human_calibration_action: str | None = None,
     include_live_smoke: bool = False,
     approved_live_smoke_action: str | None = None,
@@ -118,7 +120,10 @@ def build_readiness_report(
     root = Path(repo_root)
     baseline = _baseline_section(root / baseline_dir)
     mocked_modal_contract = _mocked_modal_contract_section()
-    modal_event_authority = _modal_event_authority_section(mocked_modal_contract)
+    modal_event_authority = _modal_event_authority_section(
+        mocked_modal_contract,
+        authority_path=root / modal_authority_path,
+    )
     local_gates = _local_gates_section(
         repo_root=root,
         config_path=config_path,
@@ -215,7 +220,7 @@ def _mocked_modal_contract_section() -> ReadinessSection:
     )
 
 
-def _modal_event_authority_section(mocked_modal_contract: ReadinessSection) -> ReadinessSection:
+def _modal_event_authority_section(mocked_modal_contract: ReadinessSection, *, authority_path: Path) -> ReadinessSection:
     contract = mocked_modal_contract.details
     if mocked_modal_contract.status != ReadinessStatus.PASS:
         return ReadinessSection(
@@ -223,6 +228,23 @@ def _modal_event_authority_section(mocked_modal_contract: ReadinessSection) -> R
             certification_status=CertificationStatus.BLOCKED,
             problems=["Modal event authority cannot be certified until mocked Modal contracts pass"],
             details={"mocked_modal_contract_status": mocked_modal_contract.status.value},
+        )
+    if authority_path.exists():
+        try:
+            payload = json.loads(authority_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return ReadinessSection(
+                status=ReadinessStatus.FAIL,
+                certification_status=CertificationStatus.BLOCKED,
+                problems=[f"Modal event authority proof is unreadable: {exc}"],
+                details={"authority_path": str(authority_path)},
+            )
+        problems = _validate_modal_authority_payload(payload)
+        return ReadinessSection(
+            status=ReadinessStatus.FAIL if problems else ReadinessStatus.PASS,
+            certification_status=CertificationStatus.BLOCKED if problems else CertificationStatus.PASS_LIVE,
+            problems=problems,
+            details={"authority_path": str(authority_path), "authority": payload},
         )
     pending_live_action = contract.get(
         "pending_live_action",
@@ -236,6 +258,7 @@ def _modal_event_authority_section(mocked_modal_contract: ReadinessSection) -> R
             "required_event_authority": contract.get("required_event_authority"),
             "event_search_ready_locally": contract.get("event_search_ready_locally"),
             "local_scaffold_mode": contract.get("local_scaffold_mode"),
+            "authority_path": str(authority_path),
         },
     )
 
@@ -434,6 +457,30 @@ def _validate_calibration_payload(payload: object) -> list[str]:
     known_positive = payload.get("known_positive")
     problems.extend(_validate_calibration_record("known_null", known_null, expected_positive=False))
     problems.extend(_validate_calibration_record("known_positive", known_positive, expected_positive=True))
+    return problems
+
+
+def _validate_modal_authority_payload(payload: object) -> list[str]:
+    if not isinstance(payload, dict):
+        return ["Modal event authority proof must be a JSON object"]
+    required = {
+        "status": "PASS",
+        "app_name": "autoalphafold3-modal",
+        "authority_class": "TrustedOrchestrator",
+        "trusted_orchestrator": True,
+        "can_submit_trials": True,
+        "starts_search": False,
+        "writes_baseline": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "direct_modal_run_allowed": False,
+        "arbitrary_agent_sandbox_allowed": False,
+        "required_event_authority": "modal_hosted_trusted_orchestrator",
+    }
+    problems = []
+    for key, expected in required.items():
+        if payload.get(key) != expected:
+            problems.append(f"Modal event authority proof has invalid {key}")
     return problems
 
 

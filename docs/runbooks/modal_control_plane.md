@@ -39,6 +39,23 @@ Expected final layout:
 - `autoalphafold3-locked:/labels/public_val_labels.arrow`
 - `autoalphafold3-locked:/scorer_version.txt`
 
+## Modal Event Authority Proof
+
+After deployment, record the no-side-effect proof that the Modal-hosted trusted
+orchestrator is reachable and owns event submission authority:
+
+```bash
+python -m autoalphafold3.agent audit-modal-authority --mode dry-run
+python -m autoalphafold3.agent audit-modal-authority \
+  --mode modal \
+  --approve I_APPROVE_MODAL_EVENT_AUTHORITY
+```
+
+The live command calls `TrustedOrchestrator.authority_health` on the deployed
+app and writes only `runs/modal_event_authority.json`. It does not submit
+trials, start autonomous search, write `runs/baseline/**`, write the canonical
+ledger, or write the Discovery Ledger.
+
 ## Verified May 30, 2026 Asset Preconditions
 
 These data and lock-boundary conditions are already part of the hackathon-start contract:

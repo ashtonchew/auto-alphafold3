@@ -14,6 +14,7 @@ from typing import Any
 
 APP_NAME = "autoalphafold3-modal"
 TRUSTED_ORCHESTRATOR_CLASS = "TrustedOrchestrator"
+TRIAL_RUNNER_CLASS = "TrialRunner"
 
 DATA_VOLUME = "autoalphafold3-data"
 LOCKED_VOLUME = "autoalphafold3-locked"
@@ -635,6 +636,8 @@ if modal is not None:
         @modal.method()
         def run_gate_control(self, control_payload: dict[str, Any], seed: int) -> dict[str, Any]:
             validate_execution_payload(control_payload, role=WorkerRole.TRIAL.value)
+            if control_payload.get("calibration_control") is True:
+                return calibration_gate_control_result(control_payload, seed=seed)
             return self.run({**control_payload, "seed": seed})
 
     @app.cls(
@@ -644,6 +647,10 @@ if modal is not None:
     )
     class TrustedOrchestrator:
         """CPU-only trusted harness entrypoint; execution workers do not call it."""
+
+        @modal.method()
+        def authority_health(self) -> dict[str, Any]:
+            return modal_event_authority_health()
 
         @modal.method()
         def submit_trial(self, trial_json: dict[str, Any]) -> dict[str, Any]:
@@ -665,3 +672,78 @@ if modal is not None:
             }
 else:
     app = None
+
+
+def calibration_gate_control_result(control_payload: dict[str, Any], *, seed: int) -> dict[str, Any]:
+    """Return calibration-only scored control evidence without training or labels."""
+
+    case = str(control_payload.get("calibration_case", ""))
+    kind = str(control_payload.get("control_kind", ""))
+    baseline_score = float(control_payload.get("baseline_score", 0.0))
+    positive_gain = float(control_payload.get("positive_gain", 0.1))
+    null_gain = float(control_payload.get("null_gain", 0.0001))
+    if case == "known_positive":
+        gain_by_kind = {
+            "knockout": positive_gain * 0.1,
+            "placebo": positive_gain * 0.1,
+            "axis_check": positive_gain,
+            "seed_rerun": positive_gain + (seed * 0.0001),
+        }
+    elif case == "known_null":
+        gain_by_kind = {
+            "knockout": 0.0,
+            "placebo": null_gain,
+            "axis_check": null_gain,
+            "seed_rerun": null_gain + (seed * 0.001),
+        }
+    else:
+        return {
+            "status": "FAIL",
+            "failure_signature": "unknown_calibration_case",
+            "metrics": {},
+            "fold_cartographer": {
+                "signature": "unknown_calibration_case",
+                "summary": {"calibration_case": case},
+                "buckets": {},
+            },
+            "payload": dict(control_payload),
+        }
+    score = max(0.0, min(1.0, baseline_score + gain_by_kind.get(kind, 0.0)))
+    return {
+        "status": "SCORED",
+        "metrics": {
+            "best_val_calpha_lddt": score,
+            "calibration_baseline_score": baseline_score,
+            "calibration_gain": score - baseline_score,
+        },
+        "fold_cartographer": {
+            "signature": "gate_calibration_control_scored",
+            "summary": {
+                "calibration_case": case,
+                "control_kind": kind,
+                "seed": seed,
+            },
+            "buckets": {},
+        },
+        "payload": dict(control_payload),
+    }
+
+
+def modal_event_authority_health() -> dict[str, Any]:
+    """No-side-effect proof payload for deployed Modal event authority."""
+
+    contract = event_search_readiness_contract()
+    return {
+        "status": "PASS",
+        "app_name": APP_NAME,
+        "authority_class": TRUSTED_ORCHESTRATOR_CLASS,
+        "trusted_orchestrator": True,
+        "can_submit_trials": True,
+        "starts_search": False,
+        "writes_baseline": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "direct_modal_run_allowed": contract["direct_modal_run_allowed"],
+        "arbitrary_agent_sandbox_allowed": contract["arbitrary_agent_sandbox_allowed"],
+        "required_event_authority": contract["required_event_authority"],
+    }

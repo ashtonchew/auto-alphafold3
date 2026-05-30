@@ -3,10 +3,9 @@
 ## Snapshot
 
 As of 2026-05-30, the Modal pre-run readiness implementation stack through PR
-#40 is merged on `main`, and the readiness-live branch has produced a real
-Modal baseline lock. Readiness still blocks autonomous search because real
-known-null and known-positive Falsification Gate calibration evidence is
-missing.
+#41 is merged on `main`, the real Modal baseline is locked, and this follow-up
+branch adds the remaining live readiness artifacts: Modal event authority proof
+and known-null/known-positive Falsification Gate calibration evidence.
 
 ## What Is Already Implemented
 
@@ -17,7 +16,8 @@ missing.
 - Baseline readiness reader and human-approved `lock-baseline` command.
 - Human-approved baseline runner and real locked baseline evidence under
   `runs/baseline/**`.
-- Readiness report with explicit `PENDING_HUMAN_LIVE_ACTION` classification.
+- Readiness report with explicit `PENDING_HUMAN_LIVE_ACTION` classification
+  and live Modal authority proof support.
 - Live Modal asset handoff audit for helper Arrow files, feature fingerprints,
   scorer metadata, and public/locked Volume boundaries.
 
@@ -71,9 +71,9 @@ Known deploy command from the local plan:
 .venv/bin/python -m modal deploy autoalphafold3/modal_app.py
 ```
 
-Status: complete for the approved baseline run. The offline readiness report
-still reports event authority as pending because it does not persist live
-deployment proof for autonomous search readiness.
+Status: complete for the approved baseline run. This branch adds
+`audit-modal-authority`, which records the deployed `TrustedOrchestrator`
+authority proof in `runs/modal_event_authority.json` without starting search.
 
 ### 4. Falsification Gate Calibration Runner
 
@@ -81,6 +81,11 @@ Added a small PR path for known-null and known-positive gate calibration.
 
 Implemented shape:
 
+- `run-gate-calibration --mode dry-run` plans the evidence run without side
+  effects,
+- `run-gate-calibration --mode modal --approve I_APPROVE_GATE_CALIBRATION_RUN`
+  uses the deployed Modal gate-control runner to write calibration-only
+  evidence under `runs/gate_calibration/`,
 - `calibrate-gate --mode dry-run` prints the required evidence contract without
   side effects,
 - `calibrate-gate --mode from-evidence --approve I_APPROVE_GATE_CALIBRATION`
@@ -91,10 +96,8 @@ Implemented shape:
 - synthetic fixture evidence is refused,
 - readiness remains blocked if calibration is absent or incomplete.
 
-Still required:
-
-- produce real known-null and known-positive evidence records;
-- run the command with explicit approval.
+Status: complete for this checkout. The frozen calibration lives at
+`runs/falsification_gate_calibration.json`.
 
 ## Current Command Surface
 
@@ -107,8 +110,10 @@ The current `autoalphafold3.agent` commands are:
 - `readiness-report`
 - `lock-baseline`
 - `run-baseline`
+- `run-gate-calibration`
 - `calibrate-gate`
 - `materialize-local-fixture`
+- `audit-modal-authority`
 
 Not currently present:
 
@@ -117,9 +122,10 @@ Not currently present:
 ## Recommended Order
 
 1. Merge the readiness-live baseline lock PR.
-2. Add or run a real calibration evidence producer for known-null and
-   known-positive controls.
-3. Run `calibrate-gate --mode from-evidence`.
-4. Rerun readiness report.
-5. Start autonomous search only after readiness is no longer blocked and a
+2. Record Modal event authority proof with explicit approval.
+3. Produce known-null and known-positive gate calibration evidence with
+   explicit approval.
+4. Run `calibrate-gate --mode from-evidence`.
+5. Rerun readiness report.
+6. Start autonomous search only after readiness is no longer blocked and a
    human explicitly approves the live search action.

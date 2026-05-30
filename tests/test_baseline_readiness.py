@@ -31,6 +31,7 @@ def write_baseline_lock(tmp_path: Path, *, metrics_overrides: dict[str, object] 
         "scorer_version": "calpha_lddt_v1",
         "max_templates": 0,
         "manifests": {"train_tiny": SHA, "public_val_small": SHA},
+        "label_hashes": {"public_val_small": SHA},
         "metrics": {"best_val_calpha_lddt": 0.42},
         "fold_cartographer": {"signature": "baseline_locked", "summary": {}, "buckets": {}},
         "artifacts": {"metrics_json": "runs/baseline/metrics.json"},
@@ -146,6 +147,37 @@ def test_baseline_readiness_rejects_missing_public_val_feature_fingerprint(tmp_p
 
     assert report.status == "FAIL"
     assert any("features/public_val_small.arrow" in item for item in report.problems)
+
+
+def test_baseline_readiness_rejects_missing_label_hashes(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, metrics_overrides={"label_hashes": {}})
+
+    report = audit_baseline_readiness(baseline_dir=baseline)
+
+    assert report.status == "FAIL"
+    assert any("label hashes" in item for item in report.problems)
+
+
+def test_baseline_readiness_rejects_artifacts_outside_baseline_dir(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(
+        tmp_path,
+        metrics_overrides={"artifacts": {"metrics_json": "runs/trials/T001/metrics.json"}},
+    )
+
+    report = audit_baseline_readiness(baseline_dir=baseline)
+
+    assert report.status == "FAIL"
+    assert any("runs/baseline" in item for item in report.problems)
+
+
+def test_baseline_readiness_rejects_missing_identity_fields(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, metrics_overrides={"trial_id": "", "candidate_id": ""})
+
+    report = audit_baseline_readiness(baseline_dir=baseline)
+
+    assert report.status == "FAIL"
+    assert any("trial_id" in item for item in report.problems)
+    assert any("candidate_id" in item for item in report.problems)
 
 
 def test_baseline_readiness_reports_non_object_json_as_not_ready(tmp_path: Path) -> None:

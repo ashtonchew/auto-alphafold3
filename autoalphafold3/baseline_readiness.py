@@ -20,6 +20,7 @@ DEFAULT_FEATURE_FINGERPRINTS = "feature_fingerprints.json"
 PUBLIC_VAL_SPLIT = "public_val_small"
 REQUIRED_MANIFEST_HASHES = ("train_tiny", "public_val_small")
 REQUIRED_FEATURE_FINGERPRINTS = ("features/train_tiny.arrow", "features/public_val_small.arrow")
+REQUIRED_LABEL_HASHES = ("public_val_small",)
 
 
 class BaselineReadinessError(RuntimeError):
@@ -154,6 +155,7 @@ def audit_baseline_readiness(
 
     score = _extract_score(metrics, problems)
     manifest_hashes_valid = _validate_manifest_hashes(metrics, problems)
+    label_hashes_valid = _validate_label_hashes(metrics, problems)
     feature_fingerprints_valid = _validate_feature_fingerprints(fingerprints, problems)
     max_templates_zero = _has_zero_templates(metrics, fingerprints, error_report)
     if not max_templates_zero:
@@ -162,6 +164,8 @@ def audit_baseline_readiness(
         problems.append("baseline metrics must include fold_cartographer")
     if not isinstance(error_report, dict) or error_report.get("scorer_only") is not True:
         problems.append("baseline error_report must prove scorer_only=true")
+    _validate_baseline_identity(metrics, problems)
+    _validate_baseline_artifacts(metrics, error_report, problems)
 
     status: BaselineReadinessStatus = "FAIL" if problems else "PASS"
     return BaselineReadinessReport(
@@ -175,7 +179,7 @@ def audit_baseline_readiness(
         baseline_score=score,
         scorer_version=str(scorer_version) if scorer_version is not None else None,
         split=str(split) if split is not None else None,
-        manifest_hashes_valid=manifest_hashes_valid,
+        manifest_hashes_valid=manifest_hashes_valid and label_hashes_valid,
         feature_fingerprints_valid=feature_fingerprints_valid,
         max_templates_zero=max_templates_zero,
         current_best_trial_id=str(metrics.get("trial_id")) if score is not None else None,
@@ -275,6 +279,18 @@ def _validate_manifest_hashes(metrics: dict[str, object], problems: list[str]) -
     return True
 
 
+def _validate_label_hashes(metrics: dict[str, object], problems: list[str]) -> bool:
+    labels = metrics.get("label_hashes")
+    if not isinstance(labels, dict):
+        problems.append("baseline metrics must include label_hashes")
+        return False
+    missing = [name for name in REQUIRED_LABEL_HASHES if not _looks_like_sha256(labels.get(name))]
+    if missing:
+        problems.append(f"baseline label hashes missing or invalid: {', '.join(missing)}")
+        return False
+    return True
+
+
 def _validate_feature_fingerprints(fingerprints: dict[str, object], problems: list[str]) -> bool:
     if not fingerprints:
         problems.append("baseline feature fingerprints are empty")
@@ -290,6 +306,35 @@ def _validate_feature_fingerprints(fingerprints: dict[str, object], problems: li
             problems.append(f"baseline feature_fingerprints.json missing SHA256 for {path}")
             valid = False
     return valid
+
+
+def _validate_baseline_identity(metrics: dict[str, object], problems: list[str]) -> None:
+    for key in ("trial_id", "candidate_id"):
+        value = metrics.get(key)
+        if not isinstance(value, str) or not value.strip():
+            problems.append(f"baseline metrics must include non-empty {key}")
+
+
+def _validate_baseline_artifacts(
+    metrics: dict[str, object],
+    error_report: dict[str, object],
+    problems: list[str],
+) -> None:
+    for owner, payload in (("metrics", metrics), ("error_report", error_report)):
+        artifacts = payload.get("artifacts")
+        if artifacts is None:
+            continue
+        if not isinstance(artifacts, dict):
+            problems.append(f"baseline {owner}.artifacts must be an object")
+            continue
+        for key, value in artifacts.items():
+            if isinstance(value, str) and not _is_baseline_artifact_path(value):
+                problems.append(f"baseline artifact path must stay under runs/baseline: {key}")
+
+
+def _is_baseline_artifact_path(value: str) -> bool:
+    path = Path(value)
+    return not path.is_absolute() and ".." not in path.parts and path.as_posix().startswith("runs/baseline/")
 
 
 def _has_zero_templates(

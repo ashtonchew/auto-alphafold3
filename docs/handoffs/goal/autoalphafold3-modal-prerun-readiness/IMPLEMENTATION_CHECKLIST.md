@@ -30,11 +30,13 @@
 - [x] Gate and Discovery Ledger files locked by patch policy.
 - [x] Non-orchestrator canonical ledger and Discovery Ledger writes reject.
 - [x] Missing or unscored gate controls reject before verdict math.
-- [ ] Baseline lock reader implemented.
-- [ ] Missing or incomplete baseline lock fails readiness honestly.
-- [ ] Scorer-only real artifact scoring contract implemented.
-- [ ] Asset audit validates required files and separation.
-- [ ] Official runs enforce `max_templates=0`.
+- [x] Baseline lock reader implemented.
+- [x] Missing or incomplete baseline lock fails readiness honestly.
+- [x] Baseline label-hash, identity, and artifact path validation implemented.
+- [x] Scorer-only real artifact scoring contract implemented.
+- [x] Asset audit validates required files and separation.
+- [x] Public data Volume rejects locked-label filenames and locked prefixes.
+- [x] Official runs enforce `max_templates=0`.
 - [ ] Readiness CLI/report implemented.
 - [ ] Readiness report distinguishes local, mocked Modal, approved live,
   pending-human-live, and blocked evidence.

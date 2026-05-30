@@ -32,6 +32,7 @@ def write_baseline_lock(tmp_path: Path) -> Path:
         "scorer_version": "calpha_lddt_v1",
         "max_templates": 0,
         "manifests": {"train_tiny": SHA, "public_val_small": SHA},
+        "label_hashes": {"public_val_small": SHA},
         "metrics": {"best_val_calpha_lddt": 0.42},
         "fold_cartographer": {"signature": "baseline_locked", "summary": {}, "buckets": {}},
     }

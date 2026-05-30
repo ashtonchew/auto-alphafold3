@@ -560,8 +560,12 @@ if modal is not None:
         "autoalphafold3",
         copy=True,
     )
-    train_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow", "pydantic").add_local_python_source(
+    train_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow", "pydantic", "torch").add_local_python_source(
         "autoalphafold3",
+        copy=True,
+    ).add_local_dir(
+        "configs",
+        remote_path="/root/configs",
         copy=True,
     ).add_local_dir(
         "external/nanofold",

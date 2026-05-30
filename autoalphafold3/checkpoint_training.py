@@ -17,7 +17,7 @@ from autoalphafold3.schema import PRIMARY_METRIC, SCORER_VERSION
 CHECKPOINT_MANIFEST_SCHEMA = "autoaf3.checkpoint_manifest.v1"
 DEFAULT_CHECKPOINT_FILENAME = "checkpoint.pt"
 DEFAULT_CHECKPOINT_MANIFEST = "checkpoint_manifest.json"
-DEFAULT_TRAIN_FEATURES = "train_tiny.arrow"
+DEFAULT_TRAIN_FEATURES = "nanofold_event_small_no_templates.arrow"
 
 
 class CheckpointTrainingError(RuntimeError):

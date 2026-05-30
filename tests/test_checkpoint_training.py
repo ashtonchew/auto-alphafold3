@@ -50,7 +50,7 @@ def manifest_payload() -> dict[str, object]:
         "max_templates": 0,
         "seed": 0,
         "config_path": "configs/nanofold_dev_cpu_smoke.json",
-        "features_path": "/mnt/autoalphafold3/features/train_tiny.arrow",
+        "features_path": "/mnt/autoalphafold3/features/nanofold_event_small_no_templates.arrow",
         "scorer_version": "calpha_lddt_v1",
         "primary_metric": "best_val_calpha_lddt",
         "losses": {"total_loss": 1.0},

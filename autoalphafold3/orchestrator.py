@@ -33,6 +33,7 @@ def submit_trial(
     manifest_paths: dict[str, str] | None = None,
     mode: str = "dry_run",
     enforce_git_diff: bool = False,
+    strict_nanofold_gates: bool = False,
 ) -> str:
     """Run preflight and submit a trial in dry-run or explicit Modal mode.
 
@@ -46,6 +47,7 @@ def submit_trial(
         changed_paths=changed_paths,
         manifest_paths=manifest_paths,
         enforce_git_diff=enforce_git_diff,
+        strict_nanofold_gates=strict_nanofold_gates,
     )
     if mode == "modal":
         return _submit_modal(preflight.trial.model_dump(mode="json"), repo_root=repo_root, ledger_path=ledger_path)

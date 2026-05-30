@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import autoalphafold3.agent as agent_cli
 from autoalphafold3.ledger import read_ledger
 from autoalphafold3.orchestrator import poll_trial, submit_trial
 from autoalphafold3.render_overlay import ca_trace_to_pdb, render_sample_overlay
@@ -59,6 +60,23 @@ def _write_trial(tmp_path: Path, trial_id: str = "T010") -> Path:
     path = tmp_path / f"{trial_id}.json"
     path.write_text(json.dumps(_trial_payload(trial_id)), encoding="utf-8")
     return path
+
+
+def test_agent_strict_preflight_enables_strict_nanofold_gates(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_submit_trial(*args: object, **kwargs: object) -> str:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return "dryrun:T010"
+
+    monkeypatch.setattr(agent_cli, "submit_trial", fake_submit_trial)
+
+    rc = agent_cli.main(["submit", "trial.json", "--strict-preflight"])
+
+    assert rc == 0
+    assert captured["kwargs"]["enforce_git_diff"] is True
+    assert captured["kwargs"]["strict_nanofold_gates"] is True
 
 
 def test_modal_submit_and_poll_with_mocked_sdk(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

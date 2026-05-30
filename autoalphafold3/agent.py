@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
             manifest_paths=manifest_paths,
             mode=args.mode,
             enforce_git_diff=args.enforce_git_diff or args.strict_preflight,
+            strict_nanofold_gates=args.strict_preflight,
         )
         print(json.dumps({"call_id": call_id}, sort_keys=True))
         return 0

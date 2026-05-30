@@ -11,6 +11,7 @@ import pytest
 from autoalphafold3.modal_assets import (
     DATA_VOLUME,
     LOCKED_VOLUME,
+    ModalAssetAudit,
     ModalAssetAuditError,
     audit_modal_assets,
     require_search_ready_assets,
@@ -127,7 +128,7 @@ class FakeModalVolumes:
 
 
 def test_modal_asset_audit_passes_clean_two_volume_layout() -> None:
-    fake = FakeModalVolumes(locked=True)
+    fake = FakeModalVolumes(locked=True, arrow_bytes=_arrow_ipc_bytes())
 
     report = audit_modal_assets(lister=fake.ls, reader=fake.read)
 
@@ -152,6 +153,20 @@ def test_modal_asset_audit_reads_arrow_bytes_when_available() -> None:
         "train_tiny": "readable",
         "public_val_small": "readable",
     }
+
+
+@pytest.mark.parametrize("status", ["skipped_pyarrow_unavailable", "skipped_text_reader", "failed"])
+def test_search_ready_assets_require_readable_arrow_features(status: str) -> None:
+    report = ModalAssetAudit(
+        status="PASS",
+        locked_asset_layout="separate_locked_volume",
+        official_lock_boundary=True,
+        target_layout="two_volume",
+        arrow_readability={"train_tiny": "readable", "public_val_small": status},
+    )
+
+    with pytest.raises(ModalAssetAuditError, match="readable Arrow features"):
+        require_search_ready_assets(report)
 
 
 def test_modal_asset_audit_fails_missing_locked_assets() -> None:

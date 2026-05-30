@@ -87,3 +87,20 @@ Best-practice approach:
 - Use deterministic JSONL writes with exact duplicate idempotency and conflicting duplicate rejection.
 - Lock `autoalphafold3/discovery_ledger.py` and canonical `runs/discovery_ledger.jsonl` paths in patch-policy coverage before search.
 - Do not write real Discovery Ledger records, benchmark artifacts, baseline metrics, canonical ledgers, or `runs/**` files during tests.
+
+## PR 4: `feat/two-stage-orchestrator`
+
+Grounding was performed with two read-only subagents:
+
+- Orchestrator/spec grounding: implement local stage-one decision logic only; require a ready baseline/current-best; make `KEEP` provisional and ledger-visible as gate-required.
+- Test grounding: use `tmp_path` baseline/ledger/discovery paths only; cover KEEP, DISCARD, FAIL, INFRA_FAIL, missing baseline refusal, lifecycle transitions, and Discovery Ledger refusal for provisional `KEEP`.
+
+Best-practice approach:
+
+- Add stage-one decision helpers to `autoalphafold3/orchestrator.py` without changing Modal submission behavior.
+- Require `current_best_from_baseline_and_ledger(...)`; never default current best to `0.0`.
+- Emit `KEEP` only as provisional with `discovery=UNCONFIRMED` and no falsification evidence.
+- Emit `DISCARD` for valid scores that do not beat the configured threshold.
+- Emit `FAIL` for invalid/non-finite scoring payloads and preserve `INFRA_FAIL` rows for infrastructure failures.
+- Append only canonical ledger rows in this slice; Discovery Ledger writes remain exclusively through `autoalphafold3/discovery_ledger.py` after confirmed gate evidence.
+- Keep tests synthetic and local; do not write real `runs/**`, baseline metrics, benchmark artifacts, Modal runs, gate verdict artifacts, or Discovery Ledger records.

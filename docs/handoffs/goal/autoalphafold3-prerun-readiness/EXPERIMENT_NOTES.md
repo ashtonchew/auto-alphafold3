@@ -28,3 +28,11 @@ Synthetic unit tests may use in-memory scalar evidence and temporary directories
 - Ran `python3 -m pytest -p no:cacheprovider`: 121 passed, 2 skipped.
 - Ran `python3 .claude/skill-evals/run_offline_evals.py`: all 148 checks passed.
 - No real Discovery Ledger records, canonical ledger entries, benchmark artifacts, baseline metrics, Modal runs, `runs/**` files, or autonomous search trials were created.
+
+## 2026-05-30: `feat/two-stage-orchestrator`
+
+- Added only synthetic `tmp_path` two-stage orchestration contract tests.
+- Ran `python3 -m pytest tests/test_two_stage_orchestrator.py -q -p no:cacheprovider`: 11 passed.
+- Ran `python3 -m pytest -p no:cacheprovider`: 132 passed, 2 skipped.
+- Ran `python3 .claude/skill-evals/run_offline_evals.py`: all 148 checks passed.
+- No gate verdicts, real Discovery Ledger records, canonical ledger entries outside `tmp_path`, benchmark artifacts, baseline metrics, Modal runs, repo `runs/**` files, or autonomous search trials were created.

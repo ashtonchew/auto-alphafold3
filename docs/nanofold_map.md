@@ -59,10 +59,14 @@ Do not edit these during search:
 
 Local import smoke is implemented in `autoalphafold3/nanofold_adapter.py`.
 
-Expected current behavior in this Codex environment:
+Expected behavior after creating a repo-local venv and installing
+`requirements.txt`:
 
 - `nanofold` base package imports.
-- training modules report missing `torch` if PyTorch is not installed.
-- feature-generation entrypoint reports missing `pymongo` if feature-generation dependencies are not installed.
+- training modules import with PyTorch available.
+- feature-generation entrypoint imports with PyMongo available.
 
-Those missing dependencies are acceptable for this non-download slice. They are environment prerequisites for later Docker/Modal work, not benchmark failures.
+If `torch`, `pymongo`, or `modal` are missing from the active interpreter, create
+or refresh `.venv` from the root `requirements.txt`. The cached Arrow features
+and Modal Volumes remove the need for event-time feature rebuilding; they do not
+install local Python packages into the active environment.

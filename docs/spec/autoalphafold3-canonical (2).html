@@ -1,0 +1,1829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>auto-AlphaFold3 — Internal Spec v4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fafaf7;
+    --bg-tint: #f1ede4;
+    --bg-tint-2: #ebe6da;
+    --ink: #1a1a1a;
+    --ink-muted: #5e5e5e;
+    --ink-faint: #8a8a8a;
+    --rule: #d8d2c4;
+    --rule-strong: #b8b0a0;
+    --accent: #8c2c1f;
+    --accent-faint: #b06352;
+    --green: #2d5a3a;
+    --serif: "Source Serif 4", "Iowan Old Style", "Charter", "Georgia", serif;
+    --mono: "JetBrains Mono", "Menlo", "Consolas", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--serif); font-size: 19px; line-height: 1.7;
+    font-feature-settings: "onum" 1, "kern" 1, "liga" 1;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  }
+  .page { max-width: 920px; margin: 0 auto; padding: 80px 32px 120px; }
+
+  header.doc-head { border-bottom: 1px solid var(--rule); padding-bottom: 28px; margin-bottom: 48px; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-muted); margin-bottom: 14px; }
+  h1.doc-title { font-family: var(--serif); font-weight: 600; font-size: 38px; line-height: 1.15; letter-spacing: -0.01em; margin: 0 0 12px 0; color: var(--ink); }
+  .doc-subtitle { font-family: var(--serif); font-style: italic; font-size: 19px; color: var(--ink-muted); line-height: 1.45; margin: 0 0 20px 0; }
+  .meta-row { font-family: var(--mono); font-size: 12px; color: var(--ink-muted); }
+  .meta-row span { display: inline-block; margin-right: 24px; }
+  .meta-row span:last-child { margin-right: 0; }
+  .meta-row span strong { color: var(--ink); font-weight: 500; }
+
+  nav.toc { background: transparent; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding: 22px 0; margin: 0 0 56px 0; }
+  nav.toc .toc-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 12px; }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; columns: 2; column-gap: 32px; font-size: 15px; }
+  nav.toc li { padding: 3px 0; break-inside: avoid; }
+  nav.toc a { color: var(--ink); text-decoration: none; display: flex; align-items: baseline; gap: 12px; }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc .toc-num { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); min-width: 26px; flex-shrink: 0; }
+  nav.toc .toc-title { font-style: italic; }
+  nav.toc .toc-new { color: var(--accent); font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; margin-left: 6px; font-style: normal; }
+
+  section { margin-bottom: 56px; scroll-margin-top: 48px; }
+  section > h2 { position: relative; font-family: var(--serif); font-weight: 600; font-size: 22px; line-height: 1.25; letter-spacing: -0.005em; margin: 0 0 8px 0; color: var(--ink); padding-right: 56px; }
+  section > h2 .sec-num { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--accent); letter-spacing: 0.04em; margin-right: 8px; }
+  section > h2 .sec-new { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--accent); font-weight: 600; padding: 2px 6px; border: 1px solid var(--accent); }
+  section .sec-rule { border: 0; border-top: 1px solid var(--rule); margin: 0 0 22px 0; }
+  h3 { font-family: var(--serif); font-weight: 600; font-size: 16px; margin: 28px 0 8px 0; color: var(--ink); }
+  h4 { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; color: var(--ink-muted); margin: 20px 0 8px 0; }
+  p { margin: 0 0 14px 0; }
+
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(140, 44, 31, 0.25); transition: border-color 0.15s; }
+  a:hover { border-bottom-color: var(--accent); }
+  code { font-family: var(--mono); font-size: 15px; background: var(--bg-tint); padding: 1px 5px; border-radius: 2px; color: var(--ink); }
+  code + code { margin-left: 3px; }
+  em { font-style: italic; }
+  strong { font-weight: 600; }
+  .num { font-family: var(--mono); font-feature-settings: "tnum" 1; }
+
+  pre { background: var(--bg-tint); border: 1px solid var(--rule); border-radius: 3px; padding: 16px 18px; overflow-x: auto; font-family: var(--mono); font-size: 14.5px; line-height: 1.55; color: var(--ink); margin: 14px 0 20px 0; }
+  pre code { background: none; padding: 0; font-size: 14.5px; }
+  .code-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin: 18px 0 -10px 0; padding-left: 2px; }
+
+  .callout { background: var(--bg-tint); border-left: 2px solid var(--accent); padding: 16px 20px 14px 20px; margin: 22px 0; font-size: 15.5px; line-height: 1.55; }
+  .callout-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin-bottom: 6px; }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .numbers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin: 22px 0; }
+  .numbers-grid .cell { background: var(--bg-tint); padding: 14px 16px 12px; }
+  .numbers-grid .cell .label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-muted); margin-bottom: 4px; }
+  .numbers-grid .cell .value { font-family: var(--mono); font-size: 17px; color: var(--ink); font-weight: 500; }
+  .numbers-grid .cell .note { font-family: var(--serif); font-size: 13px; font-style: italic; color: var(--ink-muted); margin-top: 2px; }
+
+  .stages { margin: 22px 0; }
+  .stage { border-top: 1px solid var(--rule); padding: 18px 0; display: grid; grid-template-columns: 64px 1fr; gap: 18px; }
+  .stage:last-child { border-bottom: 1px solid var(--rule); }
+  .stage .stage-num { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: var(--accent); font-weight: 600; padding-top: 4px; }
+  .stage .stage-body h5 { font-family: var(--serif); font-weight: 600; font-size: 16px; margin: 0 0 4px 0; }
+  .stage .stage-body .stage-shape { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: 0.04em; margin-bottom: 8px; }
+  .stage .stage-body p { font-size: 15px; margin: 0 0 6px 0; }
+  .stage .stage-body .stage-cost { font-family: var(--mono); font-size: 12px; color: var(--ink-muted); font-style: italic; }
+
+  ul, ol { padding-left: 22px; margin: 8px 0 18px 0; }
+  ul li, ol li { margin-bottom: 6px; padding-left: 4px; }
+  ul li::marker { color: var(--ink-faint); }
+  ol li::marker { color: var(--ink-faint); font-family: var(--mono); font-size: 13px; }
+
+  .checklist { list-style: none; padding: 0; margin: 14px 0 18px 0; }
+  .checklist li { position: relative; padding: 5px 0 5px 28px; font-size: 16px; line-height: 1.55; }
+  .checklist li::before { content: "□"; position: absolute; left: 0; top: 5px; font-family: var(--mono); font-size: 16px; color: var(--accent); line-height: 1.55; }
+
+  .perm-table { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
+  .perm-col { border: 1px solid var(--rule); padding: 16px 18px; background: var(--bg); }
+  .perm-col h6 { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; margin: 0 0 10px 0; font-weight: 600; }
+  .perm-col.allow h6 { color: var(--green); }
+  .perm-col.deny h6 { color: var(--accent); }
+  .perm-col ul { padding: 0; margin: 0; list-style: none; }
+  .perm-col li { font-size: 14px; padding: 4px 0; border-bottom: 1px solid var(--rule); line-height: 1.4; }
+  .perm-col li:last-child { border-bottom: none; }
+  .perm-col li code { font-size: 12.5px; }
+  .perm-col .why { font-style: italic; color: var(--ink-muted); font-size: 13px; }
+
+  .ledger { list-style: none; padding: 0; margin: 14px 0; }
+  .ledger li { border-top: 1px solid var(--rule); padding: 12px 0; display: grid; grid-template-columns: 1fr; gap: 4px; }
+  .ledger li:last-child { border-bottom: 1px solid var(--rule); }
+  .ledger .risk { font-family: var(--serif); color: var(--ink); }
+  .ledger .mit { font-family: var(--serif); font-style: italic; font-size: 14.5px; color: var(--ink-muted); padding-left: 14px; border-left: 2px solid var(--rule-strong); }
+  .ledger .mit::before { content: "Mitigation. "; font-style: normal; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin-right: 6px; }
+
+  .timeline { list-style: none; padding: 0; margin: 18px 0; }
+  .timeline li { display: grid; grid-template-columns: 72px 1fr; gap: 18px; padding: 10px 0; border-top: 1px solid var(--rule); }
+  .timeline li:last-child { border-bottom: 1px solid var(--rule); }
+  .timeline .when { font-family: var(--mono); font-size: 12px; color: var(--accent); padding-top: 3px; letter-spacing: 0.02em; }
+  .timeline .what { font-family: var(--serif); font-size: 15.5px; line-height: 1.5; }
+
+  .aside { font-size: 14px; color: var(--ink-muted); font-style: italic; border-top: 1px solid var(--rule); padding-top: 14px; margin-top: 24px; }
+
+  figure.diagram { margin: 28px 0 32px 0; padding: 24px 0 20px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); text-align: center; }
+  figure.diagram svg { max-width: 100%; height: auto; }
+  figure.diagram figcaption { font-family: var(--mono); font-size: 11.5px; color: var(--ink-muted); letter-spacing: 0.04em; margin-top: 12px; padding: 0 16px; text-align: center; }
+  figure.diagram figcaption .fig-num { color: var(--accent); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-right: 6px; }
+
+  dl.terms { margin: 14px 0 20px; display: grid; grid-template-columns: 1fr; gap: 14px; }
+  dl.terms dt { font-family: var(--serif); font-weight: 600; color: var(--ink); margin-bottom: 2px; }
+  dl.terms dt .sci { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.06em; color: var(--ink-faint); font-weight: 400; margin-left: 8px; }
+  dl.terms dd { margin: 0; color: var(--ink-muted); font-size: 15.5px; line-height: 1.55; }
+
+  .refs { margin-top: 24px; }
+  .refs h4 { margin: 24px 0 8px 0; }
+  .refs ol { list-style: none; padding: 0; margin: 0; counter-reset: ref; }
+  .refs ol li {
+    position: relative;
+    padding: 9px 0 9px 36px;
+    font-size: 15px;
+    line-height: 1.55;
+    border-top: 1px dotted var(--rule);
+    overflow-wrap: anywhere;
+  }
+  .refs ol li:first-child { border-top: none; }
+  .refs ol li::before {
+    counter-increment: ref;
+    content: "[" counter(ref) "]";
+    position: absolute;
+    left: 0;
+    top: 11px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+  }
+  .refs ol li .title { font-style: italic; color: var(--ink); }
+  .refs ol li .src { color: var(--ink-muted); font-size: 14px; }
+  .refs a { border-bottom-color: transparent; }
+  .refs a:hover { border-bottom-color: var(--accent); }
+
+  footer.doc-foot { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--rule); font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
+  footer.doc-foot span:last-child { float: right; }
+  footer.doc-foot::after { content: ""; display: block; clear: both; }
+
+  @media print {
+    :root { --bg: #ffffff; --bg-tint: #f5f2eb; }
+    body { font-size: 11pt; line-height: 1.5; }
+    .page { max-width: 100%; padding: 0; margin: 0; }
+    nav.toc { page-break-after: always; }
+    section { page-break-inside: avoid; }
+    h2 { page-break-after: avoid; }
+    pre, figure, .callout, .numbers-grid, .perm-table, .stage { page-break-inside: avoid; }
+    a { color: var(--ink); border-bottom: none; }
+    a[href^="http"]::after { content: " (" attr(href) ")"; font-family: var(--mono); font-size: 9pt; color: var(--ink-faint); }
+    footer.doc-foot { display: none; }
+  }
+  @media (max-width: 640px) {
+    .page { padding: 48px 20px 80px; }
+    h1.doc-title { font-size: 30px; }
+    nav.toc ol { columns: 1; }
+    .numbers-grid, .perm-table { grid-template-columns: 1fr; }
+    .timeline li, .stage { grid-template-columns: 60px 1fr; gap: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="doc-head">
+  <div class="eyebrow">Internal spec · Hackathon planning · v4 canonical</div>
+  <h1 class="doc-title">auto-AlphaFold3</h1>
+  <p class="doc-subtitle">GPT-5.5 autoresearch for AlphaFold3-lite protein folding.</p>
+  <div class="meta-row">
+    <span><strong>Event</strong> · Modal Autoresearch Hackathon</span>
+    <span><strong>Date</strong> · Saturday, May 2026</span>
+    <span><strong>Window</strong> · ~10h</span>
+    <span><strong>Status</strong> · canonical — control plane + Fold Cartographer</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-label">Contents</div>
+  <ol>
+    <li><a href="#s0"><span class="toc-num">§0</span><span class="toc-title">Background — why this problem, why now</span></a></li>
+    <li><a href="#s1"><span class="toc-num">§1</span><span class="toc-title">Autoresearch from first principles</span></a></li>
+    <li><a href="#s2"><span class="toc-num">§2</span><span class="toc-title">Why auto-AlphaFold3 fits the shape</span></a></li>
+    <li><a href="#s3"><span class="toc-num">§3</span><span class="toc-title">The science, plainly</span></a></li>
+    <li><a href="#s4"><span class="toc-num">§4</span><span class="toc-title">Methodology &amp; search space</span></a></li>
+    <li><a href="#s5"><span class="toc-num">§5</span><span class="toc-title">Agent stack &amp; tooling</span></a></li>
+    <li><a href="#s6"><span class="toc-num">§6</span><span class="toc-title">Data and benchmark</span></a></li>
+    <li><a href="#s7"><span class="toc-num">§7</span><span class="toc-title">Where Modal comes in</span></a></li>
+    <li><a href="#s8"><span class="toc-num">§8</span><span class="toc-title">Pre-event prep</span></a></li>
+    <li><a href="#s9"><span class="toc-num">§9</span><span class="toc-title">Estimated lines of code</span></a></li>
+    <li><a href="#s10"><span class="toc-num">§10</span><span class="toc-title">Risk assessment</span></a></li>
+    <li><a href="#s11"><span class="toc-num">§11</span><span class="toc-title">The demo</span></a></li>
+    <li><a href="#s12"><span class="toc-num">§12</span><span class="toc-title">Timeline</span></a></li>
+    <li><a href="#s13"><span class="toc-num">§13</span><span class="toc-title">Success criteria</span></a></li>
+    <li><a href="#s14"><span class="toc-num">§14</span><span class="toc-title">Starter program.md</span></a></li>
+    <li><a href="#refs"><span class="toc-num">§R</span><span class="toc-title">References &amp; sources</span></a></li>
+  </ol>
+</nav>
+
+<section id="s0">
+  <h2><span class="sec-num">§ 0</span> <span class="sec-title">Background — why this problem, why now</span></h2>
+  <hr class="sec-rule">
+
+  <p>Protein folding is one of the cleanest scientific ML stories a hackathon can show on stage: an amino-acid sequence goes in, a three-dimensional backbone comes out, and the audience can see whether the predicted shape is plausible. It is high-impact because structure drives biology: proteins bind, catalyze, signal, misfold, and fail according to geometry.</p>
+
+  <p>But the target is not Google DeepMind's real AlphaFold3. Full AlphaFold3 is a large, production-grade biomolecular-complex model. It predicts joint structures for proteins, nucleic acids, small molecules, ions, and modified residues. Its official repository is an inference pipeline with parameter access and use constraints, not a hackathon-scale training substrate. Claiming that we improve, beat, reproduce, or train full AlphaFold3 would be false framing.</p>
+
+  <p>The right target is an <strong>AlphaFold3-lite research sandbox</strong>: small enough to read, train, profile, and patch; real enough that architectural and training changes mean something. That is why the implementation base is <a href="https://github.com/ogchen/nanofold"><code>ogchen/nanofold</code></a>. NanoFold is based on the AlphaFold2 and AlphaFold3 papers, is designed to train on a single mid-tier GPU, restricts the problem to monomer protein chains, predicts backbone atoms rather than full biomolecular complexes, and includes a real preprocessing stack for mmCIF structures, MSAs, templates, and Arrow IPC feature dumps.</p>
+
+  <div class="callout">
+    <div class="callout-label">Core hypothesis</div>
+    <p><strong>GPT-5.5 can act as an autoresearcher for protein folding, discovering AlphaFold3-lite design improvements.</strong> auto-AlphaFold3 wraps a NanoFold-style AlphaFold3-lite implementation in an autoresearch loop: GPT-5.5 proposes architecture, training, loss, sampler, and optimization changes; Modal runs fixed-budget experiments through a hardened control plane; the locked evaluator returns validation C-alpha lDDT; the agent keeps improvements and logs the research trajectory.</p>
+  </div>
+
+  <p>We are using <code>ogchen/nanofold</code> because it is already an AlphaFold3-lite research sandbox, not because it matches real AlphaFold3. The project makes one honest claim: we run autoresearch over a small protein-folding model, under a locked benchmark, and search for design improvements.</p>
+
+  <h3>0.1 &nbsp;The canonical twist: Fold Cartographer</h3>
+  <p>The differentiated idea is not "Parameter Golf, but for proteins." Parameter Golf taught the compute pattern: smoke small, fan out exploration, drop to one sandbox for debugging, spike validation, and scale to zero when idle. auto-AlphaFold3 adds a folding-specific research layer: <strong>Fold Cartographer</strong>.</p>
+
+  <p>Fold Cartographer sits between the locked scorer and the GPT-5.5 agent. The primary score remains one number — best validation C-alpha lDDT — but the locked scorer also emits an aggregated geometry diagnostic report. Rather than slicing a tiny validation set into a noisy length × MSA-depth × region cross-product, it routes on four orthogonal, literature-grounded failure axes: local geometry, long-range topology, distogram-versus-coordinate decoupling, and stability/compute. This mirrors how the field already reasons about structure confidence — AlphaFold's own pLDDT (local geometry) versus PAE (confidence in the relative position of residue pairs, i.e. long-range topology), and CASP's emphasis on long-range contacts. The agent uses these signatures to choose the next move family. It does not optimize diagnostics directly; it optimizes locked validation C-alpha lDDT.</p>
+
+  <p>This is folding-specific and performance-relevant. A language-model compression run gets scalar loss. A folding run gets a 3D object. Every failure contains geometry: long-range contacts missing, local backbone unstable, pair representation learning contacts while the coordinate path fails, low-MSA examples underperforming, diffusion sampler too noisy, or recycling underused. Fold Cartographer turns those failures into routed research hypotheses.</p>
+
+  <h3>0.2 &nbsp;Why Modal is still central</h3>
+  <p>Modal is the elastic GPU lab, but the autoresearch agent does not design Modal infrastructure during the event. The compute architecture is predesigned from the Parameter Golf/autoresearch pattern: deploy the experiment app once, call many fixed-budget jobs through a typed runner, write per-trial artifacts to durable Volumes, use one debug sandbox when needed, and scale down while GPT-5.5 thinks. The folding agent spends its reasoning budget on protein-folding hypotheses, not cloud architecture.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="auto-AlphaFold3 canonical architecture diagram">
+      <defs>
+        <marker id="arrow0" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8c2c1f"/></marker>
+        <style>
+          .n-bg { fill: #fafaf7; stroke: #8c2c1f; stroke-width: 1.2; }
+          .n-tint { fill: #f1ede4; stroke: #8c2c1f; stroke-width: 1.2; }
+          .n-strong { fill: #ebe6da; stroke: #8c2c1f; stroke-width: 1.5; }
+          .lbl0 { font-family: "JetBrains Mono", monospace; font-size: 11px; fill: #1a1a1a; }
+          .lbl0-sub { font-family: "Source Serif 4", serif; font-style: italic; font-size: 10.5px; fill: #5e5e5e; }
+          .lbl0-axis { font-family: "JetBrains Mono", monospace; font-size: 9.5px; fill: #8a8a8a; letter-spacing: 0.08em; }
+          .lbl0-panel { font-family: "JetBrains Mono", monospace; font-size: 10px; fill: #8c2c1f; letter-spacing: 0.1em; font-weight: 600; }
+          .flow0 { stroke: #8c2c1f; stroke-width: 1.2; fill: none; }
+          .flow0-thin { stroke: #b06352; stroke-width: 1; fill: none; stroke-dasharray: 3 3; }
+        </style>
+      </defs>
+      <text x="14" y="20" class="lbl0-panel">AUTO-ALPHAFOLD3 · CANONICAL LOOP</text>
+      <text x="14" y="34" class="lbl0-axis">ALPHAFOLD3-LITE · FOLD CARTOGRAPHER · PRE-HARDENED MODAL CONTROL PLANE</text>
+
+      <rect class="n-tint" x="20" y="58" width="112" height="64" rx="2"/>
+      <text x="76" y="80" class="lbl0" text-anchor="middle">NanoFold data</text>
+      <text x="76" y="97" class="lbl0-sub" text-anchor="middle">mmCIF, MSA,</text>
+      <text x="76" y="110" class="lbl0-sub" text-anchor="middle">empty templates, Arrow</text>
+      <line class="flow0" x1="132" y1="90" x2="162" y2="90" marker-end="url(#arrow0)"/>
+
+      <rect class="n-strong" x="164" y="58" width="118" height="64" rx="2"/>
+      <text x="223" y="80" class="lbl0" text-anchor="middle">GPT-5.5</text>
+      <text x="223" y="97" class="lbl0-sub" text-anchor="middle">hypothesis +</text>
+      <text x="223" y="110" class="lbl0-sub" text-anchor="middle">patch + JSON</text>
+      <line class="flow0" x1="282" y1="90" x2="312" y2="90" marker-end="url(#arrow0)"/>
+
+      <rect class="n-bg" x="314" y="58" width="124" height="64" rx="2"/>
+      <text x="376" y="80" class="lbl0" text-anchor="middle">orchestrator</text>
+      <text x="376" y="97" class="lbl0-sub" text-anchor="middle">preflight, budget,</text>
+      <text x="376" y="110" class="lbl0-sub" text-anchor="middle">spawn, ledger</text>
+      <line class="flow0" x1="438" y1="90" x2="468" y2="90" marker-end="url(#arrow0)"/>
+
+      <rect class="n-strong" x="470" y="58" width="116" height="64" rx="2"/>
+      <text x="528" y="80" class="lbl0" text-anchor="middle">Modal worker</text>
+      <text x="528" y="97" class="lbl0-sub" text-anchor="middle">fixed-budget</text>
+      <text x="528" y="110" class="lbl0-sub" text-anchor="middle">train / sample</text>
+      <line class="flow0" x1="586" y1="90" x2="616" y2="90" marker-end="url(#arrow0)"/>
+
+      <rect class="n-tint" x="618" y="58" width="96" height="64" rx="2"/>
+      <text x="666" y="80" class="lbl0" text-anchor="middle">locked score</text>
+      <text x="666" y="97" class="lbl0-sub" text-anchor="middle">C-alpha lDDT</text>
+      <text x="666" y="110" class="lbl0-sub" text-anchor="middle">+ diagnostics</text>
+
+      <path class="flow0" d="M 666 122 Q 666 164, 526 164"/>
+      <line class="flow0" x1="526" y1="164" x2="454" y2="164" marker-end="url(#arrow0)"/>
+      <rect class="n-bg" x="318" y="142" width="136" height="56" rx="2"/>
+      <text x="386" y="164" class="lbl0" text-anchor="middle">Fold Cartographer</text>
+      <text x="386" y="182" class="lbl0-sub" text-anchor="middle">failure signature</text>
+      <path class="flow0" d="M 318 170 Q 210 170, 210 122" marker-end="url(#arrow0)"/>
+
+      <line x1="50" y1="245" x2="670" y2="245" stroke="#d8d2c4" stroke-width="1"/>
+      <text x="360" y="272" class="lbl0-axis" text-anchor="middle">AGENT MAY EDIT MODEL/TRAINING SEARCH SURFACE · AGENT MAY NOT EDIT BENCHMARK CONTRACT OR MODAL CONTROL PLANE</text>
+      <text x="360" y="298" class="lbl0-sub" text-anchor="middle">The artifact is a research trajectory: hypotheses, geometry diagnostics, sampler trials, Modal jobs, checkpoints, overlays, and validated score.</text>
+    </svg>
+    <figcaption><span class="fig-num">Fig. 0</span>The canonical architecture. The compute plan is creator-designed; the agent submits folding experiments through a hardened runner and reasons over geometry diagnostics.</figcaption>
+  </figure>
+
+  <div class="numbers-grid">
+    <div class="cell"><div class="label">Primary metric</div><div class="value">best validation C-alpha lDDT</div><div class="note">Backbone geometry against true structures</div></div>
+    <div class="cell"><div class="label">Base repo</div><div class="value">ogchen/nanofold</div><div class="note">AlphaFold3-lite sandbox, not full AlphaFold3</div></div>
+    <div class="cell"><div class="label">Unique twist</div><div class="value">Fold Cartographer</div><div class="note">Orthogonal geometry-diagnostic routing: local / long-range / realize-in-3D</div></div>
+    <div class="cell"><div class="label">Modal pattern</div><div class="value">deploy once, call many</div><div class="note">Typed trials, autoscaling caps, per-run artifacts</div></div>
+  </div>
+</section>
+
+<section id="s1">
+  <h2><span class="sec-num">§ 1</span> <span class="sec-title">Autoresearch from first principles</span></h2>
+  <hr class="sec-rule">
+
+  <p>Autoresearch is not "ask an LLM for ideas." It is a controlled loop:</p>
+  <ol>
+    <li>The agent reads the current repo, configs, logs, and constraints.</li>
+    <li>It writes one hypothesis before editing anything.</li>
+    <li>It makes one coherent model/training/sampler change.</li>
+    <li>It submits a typed fixed-budget experiment to the orchestrator.</li>
+    <li>The orchestrator runs preflight gates and spawns a Modal worker.</li>
+    <li>The locked scorer returns validation C-alpha lDDT and diagnostics.</li>
+    <li>Fold Cartographer turns diagnostics into a failure signature.</li>
+    <li>The agent keeps, reverts, or diagnoses the change.</li>
+    <li>The local orchestrator writes the canonical ledger entry.</li>
+  </ol>
+
+  <p>For auto-AlphaFold3, the scalar is validation C-alpha lDDT. The editable surface is NanoFold-style architecture and training code. The fixed budget is a small training or inference-only sampler run on preprocessed Arrow features. The compute substrate is Modal. The locked contract is the validation split, scorer, raw labels, result parser, feature outputs, and baseline ledger.</p>
+
+  <div class="callout">
+    <div class="callout-label">Autoresearch contract</div>
+    <p>The agent may edit the model/training/sampler search surface, but not the benchmark contract or the Modal control plane. If it can change the scorer, split, validation labels, preprocessing outputs, result parser, or infrastructure guardrails, the project stops being research and becomes evaluator hacking. The exact editable and locked file lists are canonical in §4.</p>
+  </div>
+
+  <p>The research claim is the trajectory, not a single lucky checkpoint. A good run should read like this: "The agent saw that long-range contact precision improved while C-alpha lDDT stayed flat; it inferred the pair representation was learning distances but the coordinate path was not using them; it changed the geometry-loss ramp and recycling schedule; the score improved; it then tested whether the mechanism survived a seed rerun." That is an autoresearch story, not a grid search.</p>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§ 2</span> <span class="sec-title">Why auto-AlphaFold3 fits the shape</span></h2>
+  <hr class="sec-rule">
+
+  <p>Folding-model autoresearch is heavier than probe autoresearch, but it has a stronger demo and a richer research surface. It fits the shape for six reasons.</p>
+
+  <h4>1. AlphaFold3-lite gives meaningful architecture surface</h4>
+  <p>NanoFold is not a black-box API. It exposes input embedding, MSA processing, template features, Pairformer-style reasoning, recycling, diffusion-style coordinate generation, distogram loss, diffusion/coordinate loss, training, dataset streaming, checkpointing, gradient checkpointing, and <code>torch.compile</code>. GPT-5.5 can make scientifically legible changes.</p>
+
+  <h4>2. The metric is a scalar judges understand</h4>
+  <p>Best validation C-alpha lDDT asks: how close is the predicted protein backbone geometry to the true structure, using alpha carbon positions? Higher is better. Loss curves, contact precision, runtime, memory, parameter count, NaNs, and OOMs are diagnostics. The scoreboard is one number.</p>
+
+  <h4>3. Folding gives richer feedback than Parameter Golf</h4>
+  <p>Parameter Golf has scalar compression loss. Folding gives geometry. The same C-alpha lDDT miss can be local loop instability, bad long-range packing, low-MSA failure, pair-contact failure, coordinate-head failure, or diffusion-sampler failure. Fold Cartographer gives the agent a domain-specific map of what went wrong.</p>
+
+  <h4>4. Training trials are feasible with tiny configs and Modal</h4>
+  <p>A full folding model is expensive. A NanoFold-style monomer model on a small fixed train subset is manageable. The event plan uses tiny crop sizes, reduced MSA depth, reduced trunk depth for smoke, short training windows, single-seed exploration, inference-only sampler trials, and final multi-seed validation only for the best candidate.</p>
+
+  <h4>5. Diffusion sampler golf is a cheap inner loop</h4>
+  <p>Because NanoFold has a diffusion module with inference-time schedule knobs, the agent can run inference-only sampler experiments on a fixed checkpoint. Sampler trials search diffusion steps, noise schedule, step scale, sample count, and label-free sample selection. They are far cheaper than retraining and directly tied to AlphaFold3-lite design.</p>
+
+  <h4>6. Structure prediction creates visual artifacts</h4>
+  <p>Protein folding produces shapes. The demo can show a baseline predicted backbone, the true backbone, the agent-improved prediction, the geometry error report, and the trajectory that got there. Even a modest numerical improvement is easier to sell when paired with a visible overlay and a coherent failure-to-fix mechanism.</p>
+
+  <div class="callout">
+    <div class="callout-label">SimplexFold as inspiration, not base</div>
+    <p><a href="https://github.com/ChrisHayduk/SimplexFold">SimplexFold</a> is useful because it shows the ambition bar: a bold folding architecture hypothesis, explicit higher-order geometric states, benchmark discipline, and trajectory-ready artifacts. auto-AlphaFold3 does not use SimplexFold as the implementation base. It uses NanoFold / AlphaFold3-lite as its base.</p>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§ 3</span> <span class="sec-title">The science, plainly</span></h2>
+  <hr class="sec-rule">
+
+  <p>The biology can be explained without drowning judges in jargon. Use these definitions consistently.</p>
+
+  <dl class="terms">
+    <dt>Protein sequence <span class="sci">input</span></dt>
+    <dd>A protein is a chain of amino acids. The sequence is the one-dimensional string. Folding predicts how that string sits in three-dimensional space.</dd>
+
+    <dt>Protein structure <span class="sci">output</span></dt>
+    <dd>The 3D arrangement of the atoms in the protein. In this hackathon, we care mainly about monomer backbone geometry, not full complexes with ligands, DNA, RNA, or multiple protein chains.</dd>
+
+    <dt>C-alpha backbone <span class="sci">simplified geometry</span></dt>
+    <dd>Each amino acid has an alpha carbon. Connecting those alpha carbon positions gives a clean trace of the protein backbone. It is less detailed than all-atom structure but excellent for fast scoring and visualization.</dd>
+
+    <dt>lDDT <span class="sci">local distance difference test</span></dt>
+    <dd>A structure-quality score based on whether local distances in the predicted structure match local distances in the true structure. C-alpha lDDT applies this idea to alpha carbon positions. Plain English: how close the predicted protein backbone geometry is to the true structure, using the alpha carbon positions.</dd>
+
+    <dt>MSA <span class="sci">multiple sequence alignment</span></dt>
+    <dd>A stack of related protein sequences from evolution. Correlated mutations can reveal which residues touch in 3D. Folding models use MSAs as evolutionary hints.</dd>
+
+    <dt>Templates <span class="sci">known related structures</span></dt>
+    <dd>Existing protein structures that resemble the target sequence. Templates can help when a related fold has already been solved, but this hackathon benchmark disables them with <code>max_templates=0</code> so every trial folds from the same no-template input contract.</dd>
+
+    <dt>AlphaFold2 vs. AlphaFold3 <span class="sci">high level</span></dt>
+    <dd>AlphaFold2 popularized modern deep-learning protein structure prediction with MSA/template features, pair representations, Evoformer-style reasoning, recycling, and a structure module. AlphaFold3 broadened the target to biomolecular complexes and moved toward Pairformer-style reasoning plus diffusion-based coordinate generation. auto-AlphaFold3 borrows the AlphaFold3-lite flavor; it does not reproduce full AlphaFold3.</dd>
+
+    <dt>NanoFold / AlphaFold3-lite <span class="sci">our sandbox</span></dt>
+    <dd>A small, hackable protein-folding implementation inspired by AlphaFold2 and AlphaFold3. It is monomer-focused, trainable on modest GPUs, and appropriate for agent-driven architecture/training/sampler search.</dd>
+
+    <dt>Fold Cartographer <span class="sci">our twist</span></dt>
+    <dd>A locked diagnostic layer that converts folding failures into aggregated geometry signatures along four orthogonal axes: local geometry, long-range topology, distogram-versus-coordinate decoupling, and stability/compute. The local-versus-long-range split mirrors AlphaFold's pLDDT-versus-PAE confidence pair.</dd>
+
+    <dt>Design improvement <span class="sci">what the agent discovers</span></dt>
+    <dd>A change to architecture, loss, training curriculum, optimizer, recycling, diffusion/noising, sampler, feature handling, or runtime that improves locked validation C-alpha lDDT without changing the evaluator or validation split.</dd>
+  </dl>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§ 4</span> <span class="sec-title">Methodology &amp; search space</span></h2>
+  <hr class="sec-rule">
+
+  <p>The agent should not be restricted to a single config file. That would make sense for a frozen-probe plan; it is too weak for folding architecture research. The agent may edit a broad but designated search surface: selected NanoFold model/training modules, an <code>autoalphafold3/</code> patch area, configs, loss definitions, sampler wrappers, and training schedules. It may not edit scoring, split, preprocessing output, result parser, baseline ledger, or Modal control plane.</p>
+
+  <h4>Search families</h4>
+  <ul>
+    <li><strong>Architecture width/depth.</strong> Pair representation width, single representation width, number of trunk blocks, transition widths, head dimensions.</li>
+    <li><strong>Pairformer / attention variants.</strong> Pair attention bias, triangle update simplifications, dropout placement, gated residuals, norm order, attention head count.</li>
+    <li><strong>Diffusion / noising schedule.</strong> Training noise schedule, diffusion steps, loss weighting by noise level, train/sampling mismatch.</li>
+    <li><strong>Diffusion sampler golf.</strong> Inference-only search over sampler steps, <code>gamma_0</code>, <code>gamma_min</code>, <code>noise_scale</code>, <code>step_scale</code>, <code>s_max</code>, <code>s_min</code>, <code>p</code>, number of stochastic samples, and label-free sample-selection rules.</li>
+    <li><strong>Recycling.</strong> Number of recycles, random recycle range during training, recycle schedule, and early-run reductions for speed.</li>
+    <li><strong>Auxiliary losses.</strong> Distogram/contact objectives, confidence heads, pLDDT-like diagnostics, alignment losses, and loss ramps.</li>
+    <li><strong>Geometry losses.</strong> Coordinate loss, local-distance loss, bond/angle regularizers, backbone-only losses, clash proxies when cheap.</li>
+    <li><strong>Distogram/contact losses.</strong> Distance-bin loss, contact precision diagnostics, harder contact weighting, long-range contact weighting.</li>
+    <li><strong>Curriculum.</strong> Crop length, MSA depth, short-to-long sequence schedule.</li>
+    <li><strong>Optimizer/scheduler.</strong> AdamW parameters, weight decay, warmup, cosine decay, gradient clipping, accumulation, batch size.</li>
+    <li><strong>Memory/runtime optimization.</strong> bfloat16, gradient checkpointing, torch.compile toggles, batch sizing, model width reductions that permit more steps.</li>
+    <li><strong>Feature handling.</strong> MSA dropout, feature normalization, empty-template placeholder behavior, MSA subsampling.</li>
+  </ul>
+
+  <h4>Fold Cartographer diagnostic targets</h4>
+  <p>Before each new hypothesis, the agent reads the latest <code>error_report.json</code> and chooses exactly one of four orthogonal diagnostic targets. Each is one robust aggregate computable on a tiny validation set — not a fine-grained bucket cross-product — and each routes to a distinct move-family cluster:</p>
+  <ul>
+    <li><code>local_geometry_weak</code> (pLDDT-like; mean local lDDT, short-range contact precision) → try geometry loss, local backbone regularizers, termini/loop augmentation.</li>
+    <li><code>long_range_topology_weak</code> (PAE-like; long-range contact precision, sequence separation ≥ 24) → try Pairformer/triangle updates, distogram weighting, crop curriculum.</li>
+    <li><code>distogram_good_lddt_flat</code> (pair head learns contacts but the 3D path does not follow) → try coordinate loss, recycling, diffusion sampler.</li>
+    <li><code>stability_compute</code> (NaN/OOM rate, runtime, peak memory) → try width/depth, gradient clipping, checkpointing, <code>torch.compile</code>.</li>
+  </ul>
+  <p>Sequence length and MSA depth are reported as two or three coarse buckets for context only; the agent does not route on them during search, because per-bucket estimates on a small validation set are too noisy to steer hypotheses.</p>
+
+  <h4>Allowed vs. locked surfaces</h4>
+  <div class="perm-table">
+    <div class="perm-col allow">
+      <h6>Agent may edit</h6>
+      <ul>
+        <li><code>autoalphafold3/</code> patch modules</li>
+        <li>Selected <code>nanofold/train</code> model/training modules</li>
+        <li>Experiment configs and loss schedules</li>
+        <li>Diffusion/noising/sampler wrappers</li>
+        <li>Optimizer and scheduler setup</li>
+        <li>Recycling and curriculum settings</li>
+        <li>Auxiliary heads and diagnostics consumers</li>
+        <li>Model speed/memory optimizations</li>
+      </ul>
+    </div>
+    <div class="perm-col deny">
+      <h6>Agent may not edit</h6>
+      <ul>
+        <li>Public validation split definition</li>
+        <li>Hidden validation split definition</li>
+        <li>Scoring script and metric computation</li>
+        <li>Raw validation labels</li>
+        <li>Preprocessed feature outputs during the event</li>
+        <li>Baseline result ledger</li>
+        <li>Result parser and leaderboard renderer</li>
+        <li><code>autoalphafold3/modal_app.py</code> control plane</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="code-label">autoalphafold3/schema.py — structural sketch</p>
+<pre><code>from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Literal
+
+MoveFamily = Literal[
+    "width_depth",
+    "pairformer_attention",
+    "diffusion_schedule",
+    "diffusion_sampler_golf",
+    "recycling",
+    "auxiliary_loss",
+    "geometry_loss",
+    "curriculum",
+    "optimizer_scheduler",
+    "feature_handling",
+    "memory_runtime",
+]
+
+BudgetTier = Literal["smoke", "trial", "sampler", "debug", "final"]
+
+@dataclass(frozen=True)
+class AutoFoldTrial:
+    trial_id: str
+    parent_commit: str
+    hypothesis: str
+    move_family: MoveFamily
+    diagnostic_target: str
+    prediction: str
+
+    # patch/config submitted by agent; validated by orchestrator
+    patch_path: Path
+    config_path: Path
+    budget: BudgetTier = "trial"
+    seed: int = 0
+    max_steps: int = 600
+    max_wall_minutes: int = 35
+
+    # benchmark contract; locked labels/manifests are scorer-only, not trial inputs
+    train_features: Path = Path("/mnt/autoalphafold3-features/train_tiny.arrow")
+    public_val_features: Path = Path("/mnt/autoalphafold3-features/public_val_small.arrow")
+    trial_output_root: Path = Path("/mnt/autoalphafold3-runs/trials")
+    scorer_version: str = "calpha_lddt_v1"
+    primary_metric: str = "best_val_calpha_lddt"
+
+    # safety limits
+    max_params: int = 75_000_000
+    max_gpu_mem_gb: int = 40
+    cost_cap_usd: float = 12.0
+
+@dataclass
+class FoldCartographerReport:
+    best_val_calpha_lddt: float
+    delta_vs_baseline: float
+    val_loss: float
+    coordinate_loss: float | None
+    distogram_loss: float | None
+    # local-geometry axis
+    contact_precision_short: float | None
+    local_lddt: float | None
+    # long-range-topology axis (CASP-style separation >= 24)
+    contact_precision_long: float | None
+    # distogram-vs-coordinate axis (pair head good, 3D flat)
+    distogram_coordinate_gap: float | None
+    # report-only context: coarse length buckets; NOT routed on during search
+    calpha_lddt_by_length: dict[str, float]
+    # exactly one of the four orthogonal axes:
+    #   local_geometry_weak | long_range_topology_weak | distogram_good_lddt_flat | stability_compute
+    failure_signature: list[str]
+    # stability/compute axis
+    runtime_seconds: float
+    peak_gpu_mem_gb: float
+    param_count: int
+    nan_oom_status: str
+
+@dataclass
+class AutoFoldResult:
+    trial_id: str
+    status: Literal["KEEP", "DISCARD", "FAIL", "INFRA_FAIL"]
+    primary: dict[str, float]
+    diagnostics: FoldCartographerReport
+    git_commit: str | None
+    postmortem: str
+</code></pre>
+
+  <h4>Decision rule</h4>
+  <p>During search, a candidate is a <strong>KEEP</strong> if it improves best validation C-alpha lDDT over the current best by a minimum threshold and does not create unacceptable NaN/OOM/runtime behavior. A candidate is <strong>DISCARD</strong> if it fails the metric, violates budget, or only improves by noise. A candidate is <strong>FAIL</strong> if the training path breaks. A candidate is <strong>INFRA_FAIL</strong> if the Modal worker or artifact path fails independent of the patch.</p>
+
+  <p>During broad search, single-seed noise is tolerated. During final validation, the best candidate gets multiple seeds on the fixed public validation split, plus optional hidden validation if staged before the event. The hidden split is final-only; it is not used for search diagnostics.</p>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§ 5</span> <span class="sec-title">Agent stack &amp; tooling</span></h2>
+  <hr class="sec-rule">
+
+  <p>This section is the key correction. The autoresearch agent should not be told to read Modal's Parameter Golf/autoresearch blog or design the compute plan. That was the creator's job. The compute architecture is already designed from the Parameter Golf pattern and encoded in a hardened Modal control plane. The folding agent focuses on NanoFold / AlphaFold3-lite research hypotheses.</p>
+
+  <div class="callout">
+    <div class="callout-label">Corrected Modal contract</div>
+    <p>The Modal compute architecture is creator-designed. The agent submits <code>AutoFoldTrial</code> JSON objects through the local orchestrator. It may not call <code>modal run</code> directly, spawn arbitrary sandboxes, modify Volumes, change GPU types, raise <code>max_containers</code>, or edit <code>autoalphafold3/modal_app.py</code> during search.</p>
+  </div>
+
+  <h3>5.1 &nbsp;Control-plane / worker split</h3>
+  <p>The platform has three layers:</p>
+  <ol>
+    <li><strong>GPT-5.5 agent.</strong> Reads repo, configs, logs, and diagnostics. Writes one hypothesis, one patch, one <code>AutoFoldTrial</code>.</li>
+    <li><strong>Local orchestrator.</strong> Validates patch scope, checks forbidden files, enforces budget/resource tier, runs preflight, submits to deployed Modal function, polls results, writes canonical ledger.</li>
+    <li><strong>Modal workers.</strong> Trial/sampler workers load preprocessed Arrow features, apply the patch in an isolated workspace, and write predictions/checkpoints under trial-scoped <code>/runs</code> paths. A separate scorer-only worker mounts locked labels/manifests, computes metrics, and returns canonical diagnostics.</li>
+  </ol>
+
+  <p>This separation keeps the scientific search broad while narrowing the operational surface. The agent can make real architecture/training/sampler changes, but it cannot mutate the infrastructure that enforces cost, locking, and scoring.</p>
+
+  <h3>5.2 &nbsp;Deploy once, call many</h3>
+  <p>The Modal app is deployed once before the search loop. Trials are launched through <code>modal.Function.from_name(...).spawn(...)</code> or <code>.remote(...)</code>. Do not issue many concurrent <code>modal run</code> processes. This avoids app teardown conflicts, keeps images and Volume mounts consistent, and makes job polling deterministic.</p>
+
+  <p class="code-label">autoalphafold3/orchestrator.py — structural sketch</p>
+<pre><code>import json
+import time
+from pathlib import Path
+import modal
+
+APP_NAME = "autoalphafold3"
+LEDGER = Path("runs/ledger.jsonl")
+FORBIDDEN = {
+    "autoalphafold3/modal_app.py",
+    "autoalphafold3/locked_scorer.py",
+    "autoalphafold3/result_parser.py",
+    "locked/",
+    "runs/baseline/",
+}
+
+def preflight(trial: dict) -&gt; None:
+    check_forbidden_files_unchanged(FORBIDDEN)
+    check_config_schema(trial["config_path"])
+    check_patch_scope(trial["patch_path"])
+    check_param_count_under_cap(trial)
+    run_tiny_forward_pass(trial)
+    run_one_batch_loss_check(trial)
+    run_scorer_dry_run_schema_check()
+
+def submit_trial(trial: dict) -&gt; str:
+    preflight(trial)
+    fn = modal.Function.from_name(APP_NAME, "run_trial")
+    call = fn.spawn(trial)
+    return call.object_id
+
+def poll_call(call_id: str, timeout_s: int = 3600) -&gt; dict:
+    call = modal.FunctionCall.from_id(call_id)
+    start = time.time()
+    while time.time() - start &lt; timeout_s:
+        try:
+            return call.get(timeout=0)
+        except TimeoutError:
+            time.sleep(10)
+    return {"status": "INFRA_FAIL", "reason": "timeout", "call_id": call_id}
+
+def poll_scored_trial(run_call_id: str) -&gt; dict:
+    artifact = poll_call(run_call_id)
+    if artifact.get("status") == "INFRA_FAIL":
+        return artifact
+    score_fn = modal.Function.from_name(APP_NAME, "score_trial")
+    score_call = score_fn.spawn(artifact["trial_id"])
+    metrics = poll_call(score_call.object_id)
+    append_ledger({"trial_id": artifact["trial_id"], "artifact": artifact, "metrics": metrics})
+    return metrics
+
+def append_ledger(row: dict) -&gt; None:
+    LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    with LEDGER.open("a") as f:
+        f.write(json.dumps(row, sort_keys=True) + "\n")
+</code></pre>
+
+  <h3>5.3 &nbsp;Agent-accessible tools</h3>
+  <ul>
+    <li><strong>GPT-5.5 / Codex / goal mode.</strong> Researcher and code editor. It proposes hypotheses and writes patches.</li>
+    <li><strong>Local orchestrator.</strong> The only approved way to submit experiments.</li>
+    <li><strong>Git.</strong> Every KEEP is a commit. The commit message starts with move family and diagnostic target.</li>
+    <li><strong>Fold Cartographer reports.</strong> Aggregated diagnostics used to route the next hypothesis.</li>
+    <li><strong>Locked scoring.</strong> The agent receives metrics and diagnostic summaries. It does not edit the scorer.</li>
+    <li><strong>Cost caps and failure statuses.</strong> NaNs, OOMs, shape errors, timeouts, and infra failures are first-class outcomes.</li>
+  </ul>
+
+  <h3>5.4 &nbsp;Storage discipline</h3>
+  <p>Workers never append to one shared ledger. Each trial worker writes into its own directory: <code>/runs/trials/T123/artifact_manifest.json</code>, <code>training_log.json</code>, <code>stdout.log</code>, <code>stderr.log</code>, <code>patch.diff</code>, checkpoint, and optional overlay-ready coordinates. The scorer-only worker reads that artifact directory and returns metrics plus an <code>error_report</code> payload; the local orchestrator merges those returned diagnostics into <code>runs/ledger.jsonl</code>. This avoids Volume write contention and keeps postmortems clean.</p>
+
+  <h3>5.5 &nbsp;Preflight gates</h3>
+  <ul>
+    <li>Patch-scope check: forbidden files unchanged.</li>
+    <li>Config schema check: all required NanoFold keys present.</li>
+    <li>Parameter-count check: under cap.</li>
+    <li>Tiny forward pass: no shape error.</li>
+    <li>One-batch loss check: finite <code>total_loss</code>, diffusion loss, and distogram loss.</li>
+    <li>Scorer dry-run: canonical JSON schema valid.</li>
+    <li>Only then launch fixed-budget training or sampler evaluation.</li>
+  </ul>
+</section>
+
+<section id="s6">
+  <h2><span class="sec-num">§ 6</span> <span class="sec-title">Data and benchmark</span></h2>
+  <hr class="sec-rule">
+
+  <p>Data is the make-or-break constraint. Full folding preprocessing is too slow and too failure-prone to discover on event day.</p>
+
+  <div class="callout">
+    <div class="callout-label">Data rule</div>
+    <p><strong>Preprocess before event.</strong> During the event, never run full MSA/database preprocessing except tiny smoke checks. The hackathon starts from preprocessed Arrow IPC features, a tiny train subset, a fixed public validation split, and a working NanoFold default/tiny baseline.</p>
+  </div>
+
+  <h3>6.1 &nbsp;NanoFold data path</h3>
+  <p>NanoFold consumes PDB/mmCIF structural inputs, searches sequence databases for MSAs, can search template databases, and writes Arrow IPC feature dumps. The relevant preprocessing for this hackathon includes mmCIF parsing from PDB, small BFD / Uniclust30-style sequence search for MSAs, empty template placeholders, and Arrow IPC feature output. This is real protein-folding data work, not something to debug after kickoff.</p>
+
+  <div class="callout">
+    <div class="callout-label">No-template benchmark</div>
+    <p><strong>Pin <code>max_templates=0</code> for all official runs.</strong> A template is a previously solved structure of a similar protein. Allowing templates changes the task: the model can lean on an external solved-shape hint instead of folding from sequence, MSA/evolutionary signal, and learned geometry alone. It also makes setup heavier because a template database must be provisioned, searched, versioned, and locked.</p>
+    <p>The simpler and cleaner hackathon contract is no-template NanoFold: template tensors may exist as empty schema placeholders, but the event does not require template DB access, template search, template-sensitive diagnostics, or agent control over template retrieval. This reduces leak risk and keeps every baseline and agent trial on the same input contract.</p>
+  </div>
+
+  <h3>6.2 &nbsp;Canonical Modal Volume</h3>
+  <p>The current hackathon public-data store is the Modal Volume <code>autoalphafold3-data</code> in the <code>modal-ai-hackathon</code> workspace, mounted at <code>/mnt/autoalphafold3</code>. The completed local-to-Modal handoff uploaded the event-small no-template dataset on 2026-05-30. Event jobs should consume these cached files directly; they should not run PDB/mmCIF/MSA database preprocessing during the event.</p>
+  <p>The uploaded public bundle intentionally excludes reduced MSA databases and the local PDB70 directory. PDB70 is out of scope because official runs are pinned to <code>max_templates=0</code>. The data Volume contains selected raw mmCIFs, preprocessed Arrow features, provenance, and feature fingerprints. The locked Volume contains active manifests, public validation labels, and scorer-version metadata. If larger future preprocessing is needed, run it as a pre-event data-owner task and write a new immutable feature artifact rather than mutating this one during agent trials.</p>
+
+  <div class="callout">
+    <div class="callout-label">Completed data handoff</div>
+    <p><strong>Status: uploaded and smoke-verified in Modal.</strong> The canonical feature file is <code>/mnt/autoalphafold3/features/nanofold_event_small_no_templates.arrow</code>. It contains 48 NanoFold IPC records: 32 <code>train_tiny</code> chains and 16 <code>public_val_small</code> chains. Template columns exist and are empty for every record. MSA fields <code>msa</code>, <code>has_deletion</code>, and <code>deletion_value</code> are present.</p>
+    <p>Modal smoke result: <code>event_records=48</code>, <code>train_records=32</code>, <code>public_val_records=16</code>, <code>raw_mmcif=48</code>, <code>templates_empty=true</code>. The smoke mounted <code>autoalphafold3-data</code> and <code>autoalphafold3-locked</code> read-only, opened the Arrow files with PyArrow, checked record counts, verified empty template placeholders, and confirmed <code>/locked</code> is absent from the public data Volume.</p>
+  </div>
+
+  <p>Validation labels and scorer metadata now live in the separate scorer-only Modal Volume <code>autoalphafold3-locked</code>, mounted at <code>/mnt/autoalphafold3-locked</code> only for scorer/final-validation paths. Agent-accessible trial workers mount <code>autoalphafold3-data</code> read-only and must not mount <code>autoalphafold3-locked</code>.</p>
+  <p>This matches Modal Volume's intended write-once/read-many shape: raw inputs, public features, and baselines are written during pre-event prep, committed once, and read many times by training, sampler, scorer, and visualization jobs. Labels are read only by scorer/final-validation code. Event jobs may write only to trial-specific directories under <code>/runs</code>. They may not concurrently modify shared files, rewrite <code>/features</code>, or mount locked labels outside scorer/final-validation code.</p>
+
+  <p class="code-label">repo implementation artifacts for this handoff</p>
+<pre><code>configs/nanofold_dataset_local.json          # local 32/16 no-template dataset config
+configs/nanofold_event_small_candidates.txt # exact 48-chain event-small candidate list
+configs/nanofold_smoke_candidates.txt       # exact 8/4 local tiny candidate list
+docs/local_nanofold_preprocessing.md        # local preprocessing runbook
+docs/data/preprocessing_runbook.md          # Modal/public-data preprocessing runbook
+scripts/nanofold_preprocess_no_templates.py # wraps NanoFold preprocessing with max_templates=0
+scripts/verify_nanofold_no_template_features.py
+scripts/modal_volume_smoke.py               # mounts both Modal Volumes and verifies handoff
+scripts/prepare_nanofold_data.py            # select/download/lightweight labels/fingerprints/upload helper
+</code></pre>
+
+  <p class="code-label">completed Volume layout — <code>autoalphafold3-data</code></p>
+<pre><code>/mnt/autoalphafold3/
+  raw/
+    mmcif/                          # 48 selected public RCSB mmCIF files
+
+  features/                         # read-only during event
+    nanofold_event_small_no_templates.arrow   # 48 NanoFold IPC records, max_templates=0
+    train_tiny.arrow                          # lightweight helper features, 32 records
+    public_val_small.arrow                    # lightweight helper features, 16 records
+    feature_fingerprints.json                 # hashes for uploaded artifacts
+
+  provenance.json
+</code></pre>
+
+  <p class="code-label">event write layout — same Volume, created by orchestrator/trials</p>
+<pre><code>/mnt/autoalphafold3/
+  runs/                             # one writer per trial dir
+    baseline/
+    trials/T001/
+      artifact_manifest.json
+      training_log.json
+      stdout.log
+      stderr.log
+      patch.diff
+      checkpoint.pt
+    final_validation/T001/
+
+  local-ledger/                      # orchestrator-owned, not worker-owned
+    ledger.jsonl
+    leaderboard.md
+</code></pre>
+
+  <p class="code-label">scorer-only Volume layout — <code>autoalphafold3-locked</code></p>
+<pre><code>/mnt/autoalphafold3-locked/
+  manifests/
+    train_tiny.json                         # 32 chains for event-small
+    public_val_small.json                   # 16 chains for event-small
+    hidden_val.json                 # optional final-only
+  labels/
+    public_val_labels.arrow
+  scorer.py
+  scorer_version.txt                # uploaded bootstrap marker
+</code></pre>
+
+  <h3>6.3 &nbsp;Locked benchmark wrapper</h3>
+  <p>NanoFold's default config has a train split ratio. That is fine for development, but not sufficient for a locked benchmark. auto-AlphaFold3 adds a fixed dataset adapter that loads explicit public feature files for training and prediction, records feature hashes, and refuses random split behavior in official trials. A separate scorer-only wrapper loads locked validation manifests and labels, then stamps every scored result with scorer, feature, manifest, and label versions.</p>
+
+  <h3>6.4 &nbsp;Splits</h3>
+  <ul>
+    <li><strong>Train subset.</strong> Fixed small subset of preprocessed monomer chains for fast experiments. Size is chosen by runtime, not ambition.</li>
+    <li><strong>Public validation subset.</strong> Fixed, small, fully locked. The agent sees metrics and aggregated diagnostics, not labels or split construction.</li>
+    <li><strong>Baseline ledger.</strong> Contains NanoFold default/tiny baseline metrics, immutable after T+1.</li>
+  </ul>
+
+  <h3>6.5 &nbsp;Metric and diagnostics</h3>
+  <p>The primary scalar is <strong>best validation C-alpha lDDT</strong>. Diagnostics are the four orthogonal Fold Cartographer axes — local geometry (local lDDT, short-range contact precision), long-range topology (long-range contact precision), distogram-versus-coordinate gap, and stability/compute (runtime, memory, parameter count, NaN/OOM rate) — plus coordinate/distogram loss and final seed variance. lDDT by coarse length bucket is reported for context only, never routed on. Diagnostics are emitted by the locked scorer and summarized by Fold Cartographer.</p>
+
+  <h3>6.6 &nbsp;Default/tiny baseline</h3>
+  <p>The first baseline is the upstream NanoFold default path on the smallest feasible setup. The second is a local <code>auto_tiny</code> config that preserves the training/evaluation path while shrinking crop length, MSA depth, trunk depth, diffusion steps, batch size, and train steps for fast smoke experiments. The public scoreboard compares agent candidates against the best baseline available by T+1.</p>
+</section>
+
+<section id="s7">
+  <h2><span class="sec-num">§ 7</span> <span class="sec-title">Where Modal comes in</span></h2>
+  <hr class="sec-rule">
+
+  <p>Modal is the elastic GPU lab for autonomous folding experiments. The deeper claim is sharper than "we used Modal for GPUs." Parameter Golf proved Modal can elastically scale <em>how much</em> compute an agent uses; auto-AlphaFold3 proves it can elastically scale <em>what kind</em>. A single folding-research session naturally spans five sharply different execution modes, and the agent moves between them with small orchestration changes. NanoFold-lite is primarily independent single-GPU training and inference, so this plan uses parallel independent single-GPU jobs by default; multi-GPU is useful only if the training code actually runs distributed execution, which it does not here.</p>
+
+  <div class="callout">
+    <div class="callout-label">The five-mode + routing thesis</div>
+    <p>Folding autoresearch demands five distinct execution modes in one session: a massive parallel CPU fan-out for data, cheap single-GPU training trials, a few-hundred-job inference-only sampler burst, a one-Sandbox debug drop, and a final validation/render spike &mdash; then scale to zero while GPT-5.5 thinks. Each maps to specific Modal primitives and a budget tier from <code>schema.py</code>. The original autoresearch run hit roughly 113 experiments across 238 GPU-hours on a near-uniform language-model task; folding's work is not uniform, which makes it a stronger demonstration of Modal's actual value.</p>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 410" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="auto-AlphaFold3 execution modes diagram">
+      <defs>
+        <marker id="arrow7" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8c2c1f"/></marker>
+        <style>
+          .f7-bg { fill:#fafaf7; stroke:#8c2c1f; stroke-width:1.2; }
+          .f7-tint { fill:#f1ede4; stroke:#8c2c1f; stroke-width:1.2; }
+          .f7-strong { fill:#ebe6da; stroke:#8c2c1f; stroke-width:1.5; }
+          .f7-pre { fill:#f1ede4; stroke:#8c2c1f; stroke-width:1.2; stroke-dasharray:4 3; }
+          .f7-lbl { font-family:"JetBrains Mono",monospace; font-size:11px; fill:#1a1a1a; }
+          .f7-sub { font-family:"Source Serif 4",serif; font-style:italic; font-size:10.5px; fill:#5e5e5e; }
+          .f7-axis { font-family:"JetBrains Mono",monospace; font-size:9.5px; fill:#8a8a8a; letter-spacing:.08em; }
+          .f7-panel { font-family:"JetBrains Mono",monospace; font-size:10px; fill:#8c2c1f; letter-spacing:.1em; font-weight:600; }
+          .f7-k { font-family:"JetBrains Mono",monospace; font-size:13px; fill:#8c2c1f; font-weight:600; }
+          .f7-flow { stroke:#8c2c1f; stroke-width:1.2; fill:none; }
+          .f7-flowthin { stroke:#b06352; stroke-width:1; fill:none; stroke-dasharray:3 3; }
+        </style>
+      </defs>
+
+      <text x="14" y="20" class="f7-panel">AUTO-ALPHAFOLD3 &#183; EXECUTION MODES + GPU ROUTING</text>
+      <text x="14" y="34" class="f7-axis">ONE ORCHESTRATOR &#183; ONE MODAL APP &#183; FIVE EXECUTION MODES &#183; SCALE TO ZERO</text>
+
+      <path class="f7-flow" d="M 320 92 C 210 36, 140 50, 100 150" marker-end="url(#arrow7)"/>
+      <text x="214" y="40" class="f7-axis" text-anchor="middle">metrics + diagnostics &#8594;</text>
+
+      <rect class="f7-strong" x="22" y="152" width="140" height="94" rx="2"/>
+      <text x="92" y="180" class="f7-lbl" text-anchor="middle">orchestrator</text>
+      <text x="92" y="197" class="f7-sub" text-anchor="middle">GPT-5.5 &#183; deploy on code</text>
+      <text x="92" y="211" class="f7-sub" text-anchor="middle">spawn / map &#183; poll</text>
+      <text x="92" y="231" class="f7-sub" text-anchor="middle">Fold Cartographer</text>
+      <text x="92" y="262" class="f7-axis" text-anchor="middle">idle &#8594; scale to 0</text>
+
+      <path class="f7-flowthin" d="M 162 168 C 245 100, 250 81, 318 81" marker-end="url(#arrow7)"/>
+      <path class="f7-flow" d="M 162 176 C 248 150, 252 137, 318 137" marker-end="url(#arrow7)"/>
+      <path class="f7-flow" d="M 162 188 C 250 190, 280 193, 318 193" marker-end="url(#arrow7)"/>
+      <path class="f7-flow" d="M 162 200 C 248 238, 252 249, 318 249" marker-end="url(#arrow7)"/>
+      <path class="f7-flow" d="M 162 210 C 248 288, 252 305, 318 305" marker-end="url(#arrow7)"/>
+
+      <rect class="f7-pre" x="320" y="58" width="246" height="46" rx="2"/>
+      <text x="333" y="86" class="f7-k">A</text>
+      <text x="356" y="78" class="f7-lbl">preprocess &#183; Function.map</text>
+      <text x="356" y="94" class="f7-sub">CPU fan-out &#183; pre-event &#183; scale &#8594; 0</text>
+
+      <rect class="f7-bg" x="320" y="114" width="246" height="46" rx="2"/>
+      <text x="333" y="142" class="f7-k">B</text>
+      <text x="356" y="134" class="f7-lbl">run_trial &#183; spawn &#8594; get</text>
+      <text x="356" y="150" class="f7-sub">1&#215;GPU &#183; fallback list &#183; main loop</text>
+
+      <rect class="f7-strong" x="320" y="170" width="246" height="46" rx="2"/>
+      <text x="333" y="198" class="f7-k">C</text>
+      <text x="356" y="190" class="f7-lbl">sample_once &#183; Function.map</text>
+      <text x="356" y="206" class="f7-sub">~50&#215; inference burst &#183; scale &#8594; 0</text>
+
+      <rect class="f7-bg" x="320" y="226" width="246" height="46" rx="2"/>
+      <text x="333" y="254" class="f7-k">D</text>
+      <text x="356" y="246" class="f7-lbl">debug &#183; Sandbox.create</text>
+      <text x="356" y="262" class="f7-sub">1&#215; GPU &#183; SSH &#183; NaN / OOM only</text>
+
+      <rect class="f7-bg" x="320" y="282" width="246" height="46" rx="2"/>
+      <text x="333" y="310" class="f7-k">E</text>
+      <text x="356" y="302" class="f7-lbl">final_validate &#183; spawn</text>
+      <text x="356" y="318" class="f7-sub">3&#8211;5&#215; &#183; multi-seed + render</text>
+
+      <path class="f7-flowthin" d="M 443 328 L 443 354"/>
+      <line x1="40" y1="348" x2="704" y2="348" stroke="#d8d2c4" stroke-width="1"/>
+      <text x="44" y="343" class="f7-axis">DURABLE VOLUMES &#183; commit / reload (background + on shutdown)</text>
+
+      <rect class="f7-tint" x="320" y="356" width="108" height="42" rx="2"/>
+      <text x="374" y="374" class="f7-lbl" text-anchor="middle">features</text>
+      <text x="374" y="389" class="f7-sub" text-anchor="middle">read-only</text>
+
+      <rect class="f7-tint" x="436" y="356" width="108" height="42" rx="2"/>
+      <text x="490" y="374" class="f7-lbl" text-anchor="middle">locked</text>
+      <text x="490" y="389" class="f7-sub" text-anchor="middle">read-only</text>
+
+      <rect class="f7-bg" x="552" y="356" width="152" height="42" rx="2"/>
+      <text x="628" y="374" class="f7-lbl" text-anchor="middle">runs</text>
+      <text x="628" y="389" class="f7-sub" text-anchor="middle">read-write &#183; 1 writer / dir</text>
+    </svg>
+    <figcaption><span class="fig-num">Fig. 7</span>Five execution modes. One orchestrator and one Modal app drive a pre-event CPU fan-out (A), single-GPU trials (B), an inference-only sampler burst (C), an interactive debug Sandbox (D), and a validation spike (E), over durable Volumes. GPUs scale to zero between waves; metrics and geometry diagnostics return to the orchestrator.</figcaption>
+  </figure>
+
+  <h3>7.1 &nbsp;Execution modes</h3>
+  <div class="stages">
+    <div class="stage">
+      <div class="stage-num">MODE A</div>
+      <div class="stage-body">
+        <h5>Parallel CPU fan-out &mdash; build the benchmark</h5>
+        <div class="stage-shape">Function.map &middot; Volume.commit &middot; pre-event &middot; CPU &middot; scale &#8594; 0</div>
+        <p>mmCIF parsing and MSA search over hundreds of monomer chains is embarrassingly parallel, heavy, and one-shot. Template fields are written as empty placeholders because the benchmark is pinned to <code>max_templates=0</code>. One <code>preprocess_chain.map(all_ids)</code> wave builds the Arrow feature set into the data Volume, then releases. Parameter Golf had no such phase &mdash; its data was plain text.</p>
+        <p class="stage-cost">This is the feasibility hinge: it runs before T+0. During the event, trials read cached features; full database preprocessing is banned except tiny smoke checks. Tier: pre-event prep (&sect;8).</p>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="stage-num">MODE B</div>
+      <div class="stage-body">
+        <h5>Single-GPU training trials &mdash; broad search</h5>
+        <div class="stage-shape">spawn &#8594; FunctionCall.get &middot; gpu="A100-80GB" (pinned) &middot; max_containers 2&#8211;6</div>
+        <p>The orchestrator submits typed <code>AutoFoldTrial</code> jobs through <code>Function.from_name(...).spawn(...)</code> and polls <code>FunctionCall.get(timeout=0)</code> via the status Dict &mdash; the documented job-queue pattern, results retained for up to seven days. Independent single-GPU trials fan out in parallel. All official trials run on one pinned <code>A100-80GB</code> Function: 80&nbsp;GB covers the tiny no-template crops, and a single fixed tier keeps the runtime and peak-memory numbers in the <code>stability_compute</code> diagnostic comparable across trials. A mixed-tier fallback list would let the scheduler vary the GPU and confound those comparisons, so it is avoided for scored trials.</p>
+        <p class="stage-cost">Tier: <code>trial</code>. The main loop.</p>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="stage-num">MODE C</div>
+      <div class="stage-body">
+        <h5>Inference-only sampler burst &mdash; the signature</h5>
+        <div class="stage-shape">Function.map &middot; gpu="A100"/"L40S" &middot; max_containers ~50 &middot; scaledown_window 20s</div>
+        <p>Because the diffusion sampler runs on a <em>frozen</em> checkpoint, hundreds of sampling configs &mdash; step counts, noise schedules, seeds &mdash; fire in one <code>sample_once.map(grid)</code> wave, each a few seconds long. Modal spikes the container pool toward fifty and collapses to zero in about a minute. Mounts are read-only and jobs return label-free sample artifacts/signals rather than each committing to the Volume, which avoids concurrent-commit contention and keeps validation labels out of the sampler path. The wave of samples <em>is</em> the conformational ensemble the demo renders.</p>
+        <p class="stage-cost">Tier: <code>sampler</code>. The cheapest, most parallel, most visible Modal moment on stage; it has no analog in Parameter Golf, which has no cheap parallel inference loop.</p>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="stage-num">MODE D</div>
+      <div class="stage-body">
+        <h5>Interactive debug Sandbox &mdash; triggered drop</h5>
+        <div class="stage-shape">Sandbox.create(image, gpu) &middot; one at a time &middot; exec inspect</div>
+        <p>Open one debug Sandbox only on explicit triggers: three consecutive shape errors in the same family, two OOMs after a budget downgrade, NaNs in both baseline and candidate paths, or scorer failure on a previously valid checkpoint. <code>modal.Sandbox.create()</code> provisions an exec-able GPU container with the training image in seconds; inspect the checkpoint, shape, or OOM, then terminate.</p>
+        <p class="stage-cost">Tier: <code>debug</code>. Drops are orchestrator/human-triggered, not agent-discretionary, and serial by design &mdash; no point parallelizing a sequential bug hunt.</p>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="stage-num">MODE E</div>
+      <div class="stage-body">
+        <h5>Validation spike &mdash; multi-seed + render, then zero</h5>
+        <div class="stage-shape">fan-out candidates &#215; seeds &middot; gpu="H100" &middot; render overlays &middot; scaledown_window 60s</div>
+        <p>Final-only. At T+7, stop broad search; rerun the best one to three candidates across multiple seeds on the locked public split; use hidden validation only here; render predicted-vs-true backbone overlays for baseline and best candidate. Scale up briefly, validate honestly, scale down.</p>
+        <p class="stage-cost">Tier: <code>final</code>. The only place hidden validation is touched.</p>
+      </div>
+    </div>
+  </div>
+
+  <p>After each trial the scorer-only function returns canonical metrics plus an <code>error_report</code> payload; Fold Cartographer summarizes the failure signature, and the agent must choose one diagnostic target before proposing the next patch. Metrics and diagnostics return to the orchestrator (Fig. 7), so the loop reasons over geometry failure modes, not a single scalar, and the scorer never needs writable access to the trial artifact mount.</p>
+
+  <h3>7.2 &nbsp;Resource tiers mapped to primitives</h3>
+  <div class="numbers-grid">
+    <div class="cell"><div class="label">smoke</div><div class="value">L40S/A100 &middot; 1 job</div><div class="note">Sandbox or single spawn; full loop test</div></div>
+    <div class="cell"><div class="label">trial</div><div class="value">spawn &middot; A100-80GB &middot; 2&#8211;6 jobs</div><div class="note">One pinned tier; main search</div></div>
+    <div class="cell"><div class="label">sampler</div><div class="value">Function.map &middot; ~50</div><div class="note">Frozen-checkpoint burst; scale-to-zero</div></div>
+    <div class="cell"><div class="label">debug</div><div class="value">Sandbox.create &middot; 1</div><div class="note">exec inspect; NaN/OOM/shape only</div></div>
+    <div class="cell"><div class="label">final</div><div class="value">H100 &middot; 3&#8211;5 jobs</div><div class="note">Multi-seed + overlay render</div></div>
+  </div>
+
+  <p><strong>SDK target.</strong> Build and validate this handoff against the latest stable Modal Python client, <code>modal==1.4.3</code> (released 2026-05-18). Do not rely on a broad <code>modal&gt;=1.0.0</code> install for the event control plane, because the handoff uses current Volume mount options, commit/reload behavior, image copy semantics, job queue calls, and Sandbox APIs.</p>
+
+  <p class="code-label">autoalphafold3/modal_app.py &mdash; single-tier skeleton (copy=False mounts; see &sect;7.4)</p>
+<pre><code>import modal
+import re
+
+app = modal.App("autoalphafold3")
+
+data_v   = modal.Volume.from_name("autoalphafold3-data", create_if_missing=False)
+locked_v = modal.Volume.from_name("autoalphafold3-locked", create_if_missing=False)
+features_ro = data_v.with_mount_options(read_only=True, sub_path="/features")
+runs_rw = data_v.with_mount_options(sub_path="/runs")
+runs_ro = data_v.with_mount_options(read_only=True, sub_path="/runs")
+locked_ro = locked_v.with_mount_options(read_only=True)
+status_d = modal.Dict.from_name("autoalphafold3-status", create_if_missing=True)
+DATA = "/mnt/autoalphafold3"                 # full data mount, pre-event preprocessing only
+FEATURES = "/mnt/autoalphafold3-features"    # event read-only subpath mount
+RUNS = "/mnt/autoalphafold3-runs"            # event run-artifact subpath mount
+LOCKED = "/mnt/autoalphafold3-locked"
+TRIAL_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+PUBLIC_SCORING_SPLIT = "public_val_small"
+
+def validate_trial_id(trial_id: str) -&gt; str:
+    if not TRIAL_ID_RE.fullmatch(trial_id):
+        raise ValueError(f"invalid trial_id: {trial_id}")
+    return trial_id
+
+def validate_seed(seed: int) -&gt; int:
+    if not isinstance(seed, int) or seed &lt; 0:
+        raise ValueError(f"invalid seed: {seed}")
+    return seed
+
+def trial_artifact_dir(trial_id: str) -&gt; str:
+    trial_id = validate_trial_id(trial_id)
+    return f"{RUNS}/trials/{trial_id}"
+
+def final_seed_dir(trial_id: str, seed: int) -&gt; str:
+    trial_id = validate_trial_id(trial_id)
+    seed = validate_seed(seed)
+    return f"{RUNS}/final_validation/{trial_id}/seed_{seed}"
+
+# Slow-changing, cached, reproducible. Pin EVERY version (see 7.4). Editable code is
+# mounted with copy=False so a patch re-uploads only the mount, not an image layer.
+train_image = (
+    modal.Image.from_registry("nvidia/cuda:12.6.0-devel-ubuntu22.04", add_python="3.12")
+    .pip_install("torch==2.6.0", "pyarrow==18.1.0", "biopython==1.84",
+                 "matplotlib==3.9.2")
+    .workdir("/root")
+    .add_local_dir("nanofold",       "/root/nanofold",       copy=False)
+    .add_local_dir("autoalphafold3", "/root/autoalphafold3", copy=False)
+)
+scorer_image = (
+    modal.Image.debian_slim()
+    .pip_install("pyarrow==18.1.0", "biopython==1.84")
+    .workdir("/root")
+    .add_local_file("autoalphafold3/locked_scorer.py",
+                    "/root/autoalphafold3/locked_scorer.py",
+                    copy=True)  # baked, non-editable scorer code
+)
+cpu_image = modal.Image.debian_slim().apt_install("hmmer", "hhsuite") \
+                .pip_install("biopython==1.84", "pyarrow==18.1.0")
+
+# ---- MODE A - pre-event parallel CPU fan-out: build public features, then scale to zero ----
+@app.function(image=cpu_image, cpu=8.0, timeout=30 * 60, volumes={DATA: data_v})
+def preprocess_chain(pdb_id: str) -&gt; dict:
+    feats = run_msa_search_with_empty_templates(pdb_id)  # heavy, one-shot, pre-event only
+    write_arrow(feats, f"{DATA}/features/{pdb_id}.arrow")
+    data_v.commit()
+    return {"pdb_id": pdb_id, "ok": True}
+#   results = list(preprocess_chain.map(all_chain_ids))   # one wave, hundreds of containers
+
+# ---- MODE B - single-GPU training trial; orchestrator submits via spawn, polls status_d ----
+def _run_trial_impl(trial_json: dict) -&gt; dict:
+    """One fixed-budget NanoFold / AlphaFold3-lite experiment; writes artifacts, not scores."""
+    features_ro.reload()
+    trial_id = trial_json["trial_id"]
+    trial_out = trial_artifact_dir(trial_id)
+    status_d[trial_id] = {"state": "running", "budget": trial_json["budget"]}
+    from autoalphafold3.runner import run_fixed_budget_trial
+    try:
+        artifact_manifest = run_fixed_budget_trial(trial_json, features_dir=FEATURES, output_dir=trial_out)
+        status_d[trial_id] = {"state": "artifact_ready", "artifact_dir": trial_out}
+        runs_rw.commit()  # persist only this trial's /runs/trials/{trial_id}/ artifacts
+        return {"trial_id": trial_id, "artifact_dir": trial_out, "manifest": artifact_manifest}
+    except Exception as exc:
+        status_d[trial_id] = {"state": "failed", "error": repr(exc)}
+        runs_rw.commit()
+        raise
+
+@app.function(
+    image=train_image,
+    gpu="A100-80GB",                     # one pinned tier -> comparable runtime/memory diagnostics
+    max_containers=6, scaledown_window=60, timeout=45 * 60,
+    volumes={FEATURES: features_ro, RUNS: runs_rw},
+)
+def run_trial(trial_json: dict) -&gt; dict:
+    return _run_trial_impl(trial_json)
+
+@app.function(image=scorer_image, cpu=2.0, timeout=10 * 60, volumes={RUNS: runs_ro, LOCKED: locked_ro})
+def score_trial(trial_id: str) -&gt; dict:
+    """Scorer-only path: locked labels are visible only to baked scorer code."""
+    split = PUBLIC_SCORING_SPLIT   # broad search never chooses hidden/final-only splits
+    runs_ro.reload()      # see trial artifacts committed by run_trial
+    locked_ro.reload()    # see locked manifests/labels committed during prep
+    from autoalphafold3.locked_scorer import score_trial_artifacts
+    metrics = score_trial_artifacts(
+        artifact_dir=trial_artifact_dir(trial_id),
+        manifest_path=f"{LOCKED}/manifests/{split}.json",
+        labels_path=f"{LOCKED}/labels/{split.replace('_small', '')}_labels.arrow",
+        scorer_version_path=f"{LOCKED}/scorer_version.txt",
+    )
+    status_d[trial_id] = {"state": "scored", "metrics": metrics}
+    return metrics
+
+# ---- MODE C - inference-only sampler-golf burst on a FROZEN checkpoint (the signature) ----
+@app.function(
+    image=train_image, gpu="A100",
+    max_containers=50, scaledown_window=20, timeout=5 * 60,   # many tiny jobs, fast teardown
+    volumes={FEATURES: features_ro, RUNS: runs_ro},   # read-only; return label-free artifacts/signals
+)
+def sample_once(cfg: dict) -&gt; dict:
+    """One diffusion sample under one schedule/seed; seconds long; checkpoint unchanged."""
+    features_ro.reload()
+    runs_ro.reload()
+    return sample_label_free(load_frozen_ckpt(cfg["ckpt"]), cfg["schedule"], cfg["seed"])
+#   ensemble = list(sample_once.map(sampler_grid))            # 200+ configs -&gt; spike -&gt; zero
+
+# ---- MODE D - interactive debug Sandbox, opened only on trigger rules, one at a time ----
+def open_debug_sandbox() -&gt; modal.Sandbox:
+    return modal.Sandbox.create(
+        app=app, image=train_image, gpu="H100",
+        volumes={FEATURES: features_ro, RUNS: runs_ro},
+    )   # exec in, inspect NaN/OOM/shape, then .terminate()
+
+# ---- MODE E - final-only multi-seed validation; brief spike, then scale down ----
+@app.function(
+    image=train_image, gpu="H100",
+    max_containers=5, scaledown_window=60, timeout=90 * 60,
+    volumes={FEATURES: features_ro, RUNS: runs_rw},
+)
+def final_validate_seed(trial_json: dict, seed: int) -&gt; dict:
+    """Generate final-seed predictions; scoring remains scorer-only."""
+    features_ro.reload()
+    runs_rw.reload()      # see checkpoints/artifacts committed by earlier trial jobs
+    from autoalphafold3.runner import run_final_validation
+    trial_id = trial_json["trial_id"]
+    output_dir = final_seed_dir(trial_id, seed)
+    result = run_final_validation(trial_json, seed=seed, features_dir=FEATURES, output_dir=output_dir)
+    runs_rw.commit()
+    return {"trial_id": trial_id, "seed": seed, "artifact_dir": output_dir, "result": result}
+
+@app.function(image=scorer_image, cpu=2.0, timeout=10 * 60, volumes={RUNS: runs_ro, LOCKED: locked_ro})
+def score_final_seed(trial_id: str, seed: int, split: str = "public_val_small") -&gt; dict:
+    if split != PUBLIC_SCORING_SPLIT:
+        raise ValueError(f"invalid scoring split: {split}")
+    runs_ro.reload()
+    locked_ro.reload()
+    from autoalphafold3.locked_scorer import score_trial_artifacts
+    return score_trial_artifacts(
+        artifact_dir=final_seed_dir(trial_id, seed),
+        manifest_path=f"{LOCKED}/manifests/{split}.json",
+        labels_path=f"{LOCKED}/labels/{split.replace('_small', '')}_labels.arrow",
+        scorer_version_path=f"{LOCKED}/scorer_version.txt",
+    )
+</code></pre>
+
+  <h3>7.3 &nbsp;The demo moment that only folding can show</h3>
+  <p>Most teams present a finished trajectory. The sampler-golf burst (Mode C) is a live <code>Function.map</code> over a few hundred frozen-checkpoint sampling configs: the Modal dashboard's container count visibly spikes toward fifty and falls back to zero in about a minute, and the returned samples render directly as a conformational ensemble &mdash; rigid core tight, flexible loops smeared. One Modal action produces the most literal possible picture of the elastic GPU lab <em>and</em> a real folding-science result. The full demo artifact (trajectory, best lDDT, error map, overlays, job history, hypothesis log) is assembled in &sect;11.</p>
+
+  <div class="callout">
+    <div class="callout-label">Stage line</div>
+    <p>"Parameter Golf showed Modal can elastically scale how much compute an agent uses. Protein folding needs five execution modes in one session &mdash; a parallel MSA fan-out, single-GPU training trials, a few-hundred-job inference-only sampler burst, a one-Sandbox debug drop, and a final validation/render spike. This is the workload Modal was built for."</p>
+  </div>
+
+  <h3>7.4 &nbsp;How the agent's code edits reach Modal</h3>
+  <p>A deployed Modal function runs the code captured when it was deployed, so the loop needs a disciplined answer to one question: how does a GPT-5.5 patch to NanoFold reach the GPU container &mdash; fast, and reproducibly? Separate the slow-changing <em>image</em> from the fast-changing <em>code</em>, then run the loop at two rates: redeploy only on a code change, and <code>spawn</code>/<code>map</code> freely on config-only changes.</p>
+
+  <div class="callout">
+    <div class="callout-label">The rule</div>
+    <p>Pin the image (CUDA base + exact library versions) so heavy layers cache and stay reproducible. Add the editable dirs with <code>copy=False</code> so they mount at container startup instead of baking an image layer &mdash; a code patch then re-uploads only the mount, not a layer. Redeploy when the editable-surface git SHA changes; otherwise just submit more jobs against the current deployment.</p>
+  </div>
+
+  <h4>Two rates, one chokepoint</h4>
+  <div class="stages">
+    <div class="stage">
+      <div class="stage-num">CODE</div>
+      <div class="stage-body">
+        <h5>Editable surface changed</h5>
+        <p>Preflight &#8594; <code>modal deploy</code> (copy=False mount re-upload, seconds) &#8594; record git SHA + app revision. Because <code>spawn</code> targets a deployed function, deploy is the single point every code change passes through &mdash; which is exactly where the hardened preflight sits. Forbidden-files, scorer dry-run, and schema validation run <em>before</em> deploy, so a patch touching the locked surface can never ship to a worker.</p>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="stage-num">CONFIG</div>
+      <div class="stage-body">
+        <h5>Config / seed / schedule only</h5>
+        <p>No deploy. Route to the current deployed trial Function and call <code>spawn(...)</code>, or call <code>sample_once.map(...)</code> against the current deployment. Most of a sweep changes only config, so the expensive step fires rarely while cheap fan-outs run freely.</p>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="stage-num">DEBUG</div>
+      <div class="stage-body">
+        <h5>Mode D exception</h5>
+        <p>No deploy. A Sandbox with the current committed SHA and live <code>copy=False</code> mount gives fast inspection cycles while hunting a NaN. It is human-triggered, read-only against <code>/runs</code>, and the agent may not apply new patches inside the Sandbox outside the orchestrator wave.</p>
+      </div>
+    </div>
+  </div>
+
+  <p class="code-label">autoalphafold3 orchestrator &mdash; deploy on code, spawn on config, freeze per wave</p>
+<pre><code>EDITABLE = ["nanofold", "autoalphafold3/runner.py", "autoalphafold3/sampler.py"]
+last_deployed_sha = None
+last_deployed_app_rev = None
+
+def run_wave(proposal):
+    global last_deployed_sha, last_deployed_app_rev
+    apply_patch(repo, proposal.patch)              # mutate working tree ONCE, before launch
+    preflight(repo, proposal)                      # forbidden-files + scorer dry-run + schema
+                                                   #   -&gt; abort the wave on any failure
+
+    sha = git_commit(repo, EDITABLE, proposal)     # content-addressed code snapshot
+    if sha != last_deployed_sha:                   # did the editable surface change?
+        last_deployed_app_rev = sh("modal deploy autoalphafold3/modal_app.py")   # copy=False -&gt; mount re-upload
+        last_deployed_sha = sha
+    # else: pure config/seed sweep -&gt; no deploy
+
+    fn = modal.Function.from_name("autoalphafold3", "run_trial")   # one pinned trial Function
+    calls = [fn.spawn(t) for t in proposal.trials]                 # fan out the frozen wave
+    artifacts = [poll(c) for c in calls]                           # each trial wrote /runs/trials/{id}
+    score_trial = modal.Function.from_name("autoalphafold3", "score_trial")
+    score_calls = [score_trial.spawn(a["trial_id"]) for a in artifacts]
+    metrics = [poll(c) for c in score_calls]                       # scorer-only function sees labels
+    record(proposal, sha=sha, app_rev=last_deployed_app_rev,
+           scorer_version=metrics[0]["scorer_version"],
+           features_hash=metrics[0]["features_hash"])
+    return keep_or_revert(metrics)                 # only now may the next patch be applied
+</code></pre>
+
+  <h4>Why freeze the tree per wave</h4>
+  <p>With <code>copy=False</code>, a container reads the editable dirs at startup. If the orchestrator patched source while a wave's containers were still launching, jobs in the same wave could run different code and the keep/revert decision would be meaningless. So the working tree is mutated exactly once per wave &mdash; apply patch, commit, deploy-if-changed, launch, wait &mdash; and the next patch waits until the wave resolves.</p>
+
+  <p class="aside">The strongest Modal story is not peak GPU count. It is elasticity across both amount and kind: a one-shot data fan-out, durable Volumes with background commits, independent trials, an inference-only sampler burst, one-Sandbox debugging, a bounded validation spike, and scale-to-zero while the agent reasons over geometry diagnostics. Every trial records the exact code, app revision, scorer, and features it ran against, so the research trajectory is reproducible, not just fast.</p>
+</section>
+
+<section id="s8">
+  <h2><span class="sec-num">§ 8</span> <span class="sec-title">Pre-event prep</span></h2>
+  <hr class="sec-rule">
+
+  <p>Pre-event prep is the difference between a folding demo and a preprocessing postmortem. The team should arrive with a working smoke baseline, preprocessed features in the canonical <code>autoalphafold3-data</code> Modal Volume, deployed Modal app, locked scorer, and an initial <code>program.md</code>. The event is for autoresearch, not data plumbing.</p>
+
+  <div class="callout">
+    <div class="callout-label">Current prep status</div>
+    <p><strong>Data preprocessing and upload are complete for event-small.</strong> The <code>modal-ai-hackathon</code> workspace contains <code>autoalphafold3-data</code> with 48 selected public mmCIFs, <code>nanofold_event_small_no_templates.arrow</code>, provenance, and fingerprints, plus <code>autoalphafold3-locked</code> with active 32/16 manifests and public validation labels. The next handoff step is not data generation; it is wiring Modal training/evaluation workers to consume public features read-only and mounting locked labels only in scorer/final-validation code.</p>
+  </div>
+
+  <h3>8.1 &nbsp;Team roles</h3>
+  <div class="perm-table">
+    <div class="perm-col">
+      <h6 style="color: var(--ink-muted);">Protein/data owner</h6>
+      <ul>
+        <li>Maintain the completed 32/16 event-small train/validation split</li>
+        <li>Treat mmCIF/MSA preprocessing with <code>max_templates=0</code> as complete for event-small</li>
+        <li>Own the canonical <code>autoalphafold3-data</code> and scorer-only <code>autoalphafold3-locked</code> Volume layouts</li>
+        <li>Keep selected raw mmCIFs, Arrow IPC features, fingerprints, and run artifacts in the data Volume</li>
+        <li>Keep validation labels, scorer code, and scorer version metadata in scorer-only mounts during agent trials</li>
+        <li>Define scorer and C-alpha lDDT parser</li>
+        <li>Build Fold Cartographer report schema</li>
+        <li>Own validation-label lockout</li>
+      </ul>
+    </div>
+    <div class="perm-col">
+      <h6 style="color: var(--ink-muted);">Model/Modal owner</h6>
+      <ul>
+        <li>Make NanoFold train/eval run on Modal</li>
+        <li>Build and deploy Modal app once</li>
+        <li>Implement <code>Function.from_name(...).spawn(...)</code> path</li>
+        <li>Manage Volumes, checkpoints, logs, GPU jobs</li>
+        <li>Implement preflight gates and debug triggers</li>
+        <li>Keep cost caps visible</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="perm-table">
+    <div class="perm-col">
+      <h6 style="color: var(--ink-muted);">Agent/demo owner</h6>
+      <ul>
+        <li>Create autoresearch harness</li>
+        <li>Create result ledger and trajectory visualization</li>
+        <li>Configure GPT-5.5 / Codex / goal-mode loop</li>
+        <li>Build diagnostic target routing UI</li>
+        <li>Implement protein overlay renderer</li>
+        <li>Own final story: what GPT-5.5 discovered</li>
+      </ul>
+    </div>
+    <div class="perm-col">
+      <h6 style="color: var(--accent);">Shared rule</h6>
+      <ul>
+        <li>No full preprocessing during event</li>
+        <li>No scorer edits after baseline lock</li>
+        <li>No hidden validation until final rerun</li>
+        <li>No direct <code>modal run</code> from the agent</li>
+        <li>No "we improved AlphaFold3" claims</li>
+        <li>No SimplexFold implementation dependency</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>8.2 &nbsp;Checklist</h3>
+  <h4>Repo and architecture</h4>
+  <ul class="checklist">
+    <li>Clone <code>ogchen/nanofold</code> and run local import smoke.</li>
+    <li>Read README, docs, config files, Docker setup, training pipeline, preprocessing pipeline, and model files under <code>nanofold/train</code>.</li>
+    <li>Map editable modules: trunk, Pairformer, diffusion, losses, trainer, config, dataset wrapper.</li>
+    <li>Create <code>autoalphafold3/</code> patch area and adapter layer.</li>
+    <li>Create <code>docs/framing.md</code>: AlphaFold3-lite, not full AlphaFold3.</li>
+  </ul>
+
+  <h4>Data and features</h4>
+  <ul class="checklist">
+    <li><strong>Done.</strong> Created Modal Volumes <code>autoalphafold3-data</code> and <code>autoalphafold3-locked</code> in workspace <code>modal-ai-hackathon</code>.</li>
+    <li><strong>Done.</strong> Uploaded 48 selected public PDB/mmCIF inputs into <code>/mnt/autoalphafold3/raw/mmcif</code>.</li>
+    <li><strong>Done.</strong> Ran local NanoFold no-template MSA preprocessing with small BFD and Uniclust30; no PDB70/template search was used.</li>
+    <li><strong>Done.</strong> Uploaded <code>/mnt/autoalphafold3/features/nanofold_event_small_no_templates.arrow</code> with 48 records.</li>
+    <li><strong>Done.</strong> Uploaded lightweight helper files <code>train_tiny.arrow</code> and <code>public_val_small.arrow</code>; no <code>train_small.arrow</code> exists for this event-small handoff.</li>
+    <li><strong>Done.</strong> Uploaded <code>feature_fingerprints.json</code> and <code>provenance.json</code> to the data Volume.</li>
+    <li><strong>Done.</strong> Uploaded active manifests, <code>public_val_labels.arrow</code>, and <code>scorer_version.txt</code> to <code>autoalphafold3-locked</code>.</li>
+    <li><strong>Done.</strong> Removed bootstrap <code>/locked</code> from <code>autoalphafold3-data</code>.</li>
+    <li><strong>Done.</strong> Ran Modal-side two-Volume smoke: 48 event records, 32 train records, 16 public validation records, 48 raw mmCIFs, empty template placeholders, locked Volume mounted separately.</li>
+    <li>Optionally stage hidden validation labels in <code>autoalphafold3-locked</code> for final-only scoring.</li>
+  </ul>
+
+  <h4>Baseline, scorer, and Fold Cartographer</h4>
+  <ul class="checklist">
+    <li>Run NanoFold default/tiny baseline on Modal.</li>
+    <li>Verify C-alpha lDDT computation on a known toy structure.</li>
+    <li>Emit canonical metric JSON with validation loss, coordinate loss, contact precision, runtime, memory, parameter count, and NaN/OOM status.</li>
+    <li>Emit <code>error_report.json</code> with aggregated failure signatures.</li>
+    <li>Freeze baseline result ledger by T+1.</li>
+    <li>Make result parser and scorer read-only after baseline lock.</li>
+  </ul>
+
+  <h4>Modal and agent</h4>
+  <ul class="checklist">
+    <li>Build Docker/Modal image with NanoFold dependencies, torch, Arrow, and rendering dependencies.</li>
+    <li><strong>Done for data.</strong> <code>autoalphafold3-data</code> exists with <code>/raw</code>, <code>/features</code>, and <code>provenance.json</code>; <code>autoalphafold3-locked</code> exists with manifests, labels, and scorer-version metadata.</li>
+    <li>Deploy <code>autoalphafold3-modal</code> once before search.</li>
+    <li>Test <code>modal.Function.from_name(...).spawn(...)</code> and polling path.</li>
+    <li>Test one GPU Function and one debug Sandbox.</li>
+    <li>Create budget cap and visible dashboard.</li>
+    <li>Create initial <code>program.md</code> from §14.</li>
+    <li>Create trajectory visualization skeleton and overlay renderer skeleton.</li>
+  </ul>
+</section>
+
+<section id="s9">
+  <h2><span class="sec-num">§ 9</span> <span class="sec-title">Estimated lines of code</span></h2>
+  <hr class="sec-rule">
+
+  <p>The base model exists; the work is making it safe, fast, measurable, diagnostic, and agent-editable.</p>
+
+  <div class="numbers-grid">
+    <div class="cell"><div class="label">Modal app</div><div class="value">~180 LOC</div><div class="note">One pinned runner, Volumes, status, caps</div></div>
+    <div class="cell"><div class="label">Local orchestrator</div><div class="value">~240 LOC</div><div class="note">Preflight, spawn, poll, ledger</div></div>
+    <div class="cell"><div class="label">NanoFold adapter</div><div class="value">~240 LOC</div><div class="note">Config injection, checkpoint path, fixed manifests</div></div>
+    <div class="cell"><div class="label">Autoresearch harness</div><div class="value">~220 LOC</div><div class="note">Hypothesis loop, patch apply/revert</div></div>
+    <div class="cell"><div class="label">C-alpha lDDT scorer</div><div class="value">~180 LOC</div><div class="note">Locked metric, diagnostics, JSON schema</div></div>
+    <div class="cell"><div class="label">Fold Cartographer</div><div class="value">~140 LOC</div><div class="note">Four orthogonal failure axes</div></div>
+    <div class="cell"><div class="label">Sampler golf harness</div><div class="value">~160 LOC</div><div class="note">Inference schedules and label-free selection</div></div>
+    <div class="cell"><div class="label">Result ledger</div><div class="value">~100 LOC</div><div class="note">Append-only JSONL + markdown summary</div></div>
+    <div class="cell"><div class="label">Trajectory viz</div><div class="value">~220 LOC</div><div class="note">Trial plot, move families, diagnostics</div></div>
+    <div class="cell"><div class="label">Overlay renderer</div><div class="value">~180 LOC</div><div class="note">Predicted vs. true C-alpha backbone</div></div>
+    <div class="cell"><div class="label">program.md</div><div class="value">~100 lines</div><div class="note">Agent instructions and locks</div></div>
+    <div class="cell"><div class="label">Total</div><div class="value">~1,900 LOC</div><div class="note">Mostly glue, locks, diagnostics, and demo</div></div>
+  </div>
+</section>
+
+<section id="s10">
+  <h2><span class="sec-num">§ 10</span> <span class="sec-title">Risk assessment</span></h2>
+  <hr class="sec-rule">
+
+  <ul class="ledger">
+    <li><div class="risk"><strong>Preprocessing takes too long.</strong> MSA preprocessing can consume the whole event.</div><div class="mit">Preprocess before event. Store Arrow IPC features in <code>autoalphafold3-data</code>. During the event, only run tiny smoke checks against already-prepared paths. Keep templates disabled with <code>max_templates=0</code>.</div></li>
+    <li><div class="risk"><strong>Training loop is too slow for 10 hours.</strong> Folding models are heavier than probe heads.</div><div class="mit">Use <code>auto_tiny</code>, short budgets, sampler-only inner loops, and final multi-seed only for best candidates.</div></li>
+    <li><div class="risk"><strong>Agent mutates infrastructure.</strong> If the agent edits Modal app, scoring, or budget caps, the loop becomes unsafe.</div><div class="mit">Modal app is locked. Agent submits typed trials only. Orchestrator checks forbidden files before every run.</div></li>
+    <li><div class="risk"><strong>Default NanoFold random split violates benchmark lock.</strong> A ratio split is not a locked evaluator.</div><div class="mit">Use explicit manifests and manifest hashes through <code>locked_dataset.py</code>. Refuse official trials using random split.</div></li>
+    <li><div class="risk"><strong>Loss-only evaluation lacks prediction C-alpha lDDT.</strong> NanoFold's training path reports losses; the demo needs structures and C-alpha lDDT.</div><div class="mit">Implement separate prediction-artifact generation and scorer-only lDDT: checkpoint load, inference/sample path, C-alpha extraction, locked scorer call, and overlay-ready coordinates stay separated by the Volume boundary.</div></li>
+    <li><div class="risk"><strong>Agent creates unstable architecture.</strong> Broad editable surface can break tensor shapes.</div><div class="mit">Patch through scaffolded patterns where possible. Add shape tests, param-count checks, tiny forward pass, and automatic rollback for failure states.</div></li>
+    <li><div class="risk"><strong>NaNs and OOMs dominate the ledger.</strong> Diffusion losses and mixed precision can destabilize.</div><div class="mit">Treat NaN/OOM as FAIL. Log honestly, downgrade budget only within rules, and use one debug sandbox under trigger rules.</div></li>
+    <li><div class="risk"><strong>Validation C-alpha lDDT is noisy.</strong> Small validation subsets can produce false positives.</div><div class="mit">Use a keep threshold above baseline noise. Rerun final candidates across multiple seeds and report mean/variance.</div></li>
+    <li><div class="risk"><strong>Diagnostics leak labels or become objective hacking.</strong> Rich diagnostics can tempt overfitting to public validation.</div><div class="mit">Diagnostics are aggregated, locked, and public-val only. Hidden validation remains final-only. Primary metric stays best validation C-alpha lDDT.</div></li>
+    <li><div class="risk"><strong>Shared ledger writes collide.</strong> Multiple workers appending one file can lose data.</div><div class="mit">Workers write only per-trial directories. Local orchestrator is the single ledger writer.</div></li>
+    <li><div class="risk"><strong>Modal GPU image issues.</strong> Torch, CUDA, pyarrow, and NanoFold dependencies can fail inside the container.</div><div class="mit">Build and test image before event. Pin dependencies. Keep a minimal fallback image that runs tiny baseline and scorer.</div></li>
+    <li><div class="risk"><strong>Unfair "AlphaFold3" overclaim.</strong> Judges may infer we modified real AlphaFold3.</div><div class="mit">Repeat the framing everywhere: NanoFold-style AlphaFold3-lite sandbox, not full AlphaFold3.</div></li>
+    <li><div class="risk"><strong>SimplexFold comparison distracts from NanoFold base.</strong> The project could drift into explaining another repo.</div><div class="mit">Use SimplexFold only as ambition/demo reference. All implementation, metrics, and patches live in NanoFold / auto-AlphaFold3.</div></li>
+    <li><div class="risk"><strong>Demo does not improve score.</strong> The final candidate may only match baseline or improve modestly.</div><div class="mit">Build the demo around trajectory, diagnostics, hypotheses, failure signatures, Modal jobs, and overlays. A modest improvement with mechanism still lands.</div></li>
+  </ul>
+</section>
+
+<section id="s11">
+  <h2><span class="sec-num">§ 11</span> <span class="sec-title">The demo</span></h2>
+  <hr class="sec-rule">
+
+  <p>The demo should work even if the final improvement is modest. The audience should see GPT-5.5 running a real folding-research loop, not a team hand-picking a lucky config.</p>
+
+  <h3>Demo sequence</h3>
+  <ol>
+    <li><strong>Show baseline NanoFold validation C-alpha lDDT.</strong> Start with the honest baseline and a baseline structure overlay.</li>
+    <li><strong>Show the agent's experiment trajectory.</strong> Trial number on x-axis, best validation C-alpha lDDT on y-axis, point color by move family, marker shape by status.</li>
+    <li><strong>Show Fold Cartographer.</strong> Display the latest failure signatures: long-range contacts, local backbone, low-MSA, diffusion instability, runtime/memory.</li>
+    <li><strong>Highlight a few hypotheses and interventions.</strong> For example: distogram ramp, recycling schedule, sampler steps, MSA-depth curriculum, geometry loss.</li>
+    <li><strong>Show current best.</strong> Report best validation C-alpha lDDT, validation loss, contact precision, coordinate loss, runtime, memory, and parameter count.</li>
+    <li><strong>Show predicted vs. true backbone overlay before/after.</strong> If visually improved, great. If not, explain the metric and failure map.</li>
+    <li><strong>Show Modal job history.</strong> Smoke, sweep, sampler jobs, debug drop, validation spike, scale-down.</li>
+    <li><strong>Close with what GPT-5.5 discovered.</strong> A coherent AlphaFold3-lite design mechanism, not just "score went up."</li>
+  </ol>
+
+  <h3>Trajectory visualization</h3>
+  <p>Each point is a trial. Hover shows hypothesis, diagnostic target, intervention, prediction, outcome, C-alpha lDDT, diagnostics, and postmortem. KEEP points are outlined. FAIL points are muted but visible. Sampler-only trials have a distinct shape so judges see the fast inner loop.</p>
+
+  <h3>Protein overlay renderer</h3>
+  <p>A simple C-alpha backbone trace is enough: true backbone, baseline prediction, and best candidate. The overlay should be generated from run artifacts so the team can rerender after final validation.</p>
+
+  <h3>Winning stage line</h3>
+  <p>"We did not modify Google DeepMind's AlphaFold3. We used an AlphaFold3-inspired minimal implementation as a hackable research sandbox, gave GPT-5.5 a locked C-alpha lDDT benchmark, geometry diagnostics, and an elastic Modal GPU lab, and let it discover AlphaFold3-lite design changes."</p>
+</section>
+
+<section id="s12">
+  <h2><span class="sec-num">§ 12</span> <span class="sec-title">Timeline</span></h2>
+  <hr class="sec-rule">
+
+  <p>Ten-hour event plan. This assumes pre-event preprocessing, Modal deployment, baseline smoke, and scorer validation are complete.</p>
+
+  <ul class="timeline">
+    <li><span class="when">Pre</span><span class="what"><strong>Before event.</strong> Completed so far: authenticated <code>modal-ai-hackathon</code>, created <code>autoalphafold3-data</code> and <code>autoalphafold3-locked</code>, uploaded the 48-chain event-small no-template dataset, moved labels/manifests into the locked Volume, and verified both Volumes from Modal. Remaining: deploy the Modal training/eval app, run NanoFold default/tiny baseline, create scorer, create Fold Cartographer, create <code>program.md</code>, create trajectory and overlay skeletons, set budget cap.</span></li>
+    <li><span class="when">T+0</span><span class="what"><strong>Smoke.</strong> Run tiny NanoFold config on Modal. Verify train/eval/checkpoint/render loop. Confirm scorer returns validation C-alpha lDDT and diagnostics.</span></li>
+    <li><span class="when">T+1</span><span class="what"><strong>Baseline fixed.</strong> Baseline NanoFold default/tiny score written to immutable ledger. Public validation split and parser locked. Modal control-plane locks verified.</span></li>
+    <li><span class="when">T+2</span><span class="what"><strong>Agent begins.</strong> GPT-5.5 reads repo, configs, logs, <code>program.md</code>, and the latest baseline error report. First hypotheses are watched manually for patch discipline.</span></li>
+    <li><span class="when">T+2–7</span><span class="what"><strong>Parallel experiments.</strong> Agent proposes model/training/sampler changes. Orchestrator runs preflight and spawns Modal jobs. Metrics, checkpoints, logs, NaNs, OOMs, and Fold Cartographer reports return to the ledger. Humans intervene only for infrastructure failures or benchmark-lock violations.</span></li>
+    <li><span class="when">T+7</span><span class="what"><strong>Validation spike.</strong> Stop broad search. Rerun best candidates with multiple seeds on fixed public validation split. Render backbone overlays.</span></li>
+    <li><span class="when">T+8</span><span class="what"><strong>Visualization.</strong> Generate trajectory plot, Modal job-history panel, baseline-vs-best table, Fold Cartographer panel, and structure overlays.</span></li>
+    <li><span class="when">T+9</span><span class="what"><strong>Slides.</strong> Five-slide story: problem, AlphaFold3-lite sandbox, diagnostic autoresearch loop, Modal control plane, best result and mechanism.</span></li>
+    <li><span class="when">T+10</span><span class="what"><strong>Demo.</strong> Show baseline, trajectory, diagnostics, best candidate, overlays, Modal scaling, and the agent's research log. Be explicit that this is AlphaFold3-lite, not real AlphaFold3.</span></li>
+  </ul>
+</section>
+
+<section id="s13">
+  <h2><span class="sec-num">§ 13</span> <span class="sec-title">Success criteria</span></h2>
+  <hr class="sec-rule">
+
+  <h4>Minimum viable</h4>
+  <ul>
+    <li>NanoFold runs on Modal from preprocessed Arrow features.</li>
+    <li>A baseline validation C-alpha lDDT score exists.</li>
+    <li>GPT-5.5 completes multiple fixed-budget experiments through the orchestrator.</li>
+    <li>Fold Cartographer emits at least one useful error report.</li>
+    <li>The result trajectory exists and is readable.</li>
+    <li>At least one nontrivial candidate is validated on the fixed public split.</li>
+  </ul>
+
+  <h4>Strong</h4>
+  <ul>
+    <li>Validation C-alpha lDDT improves over the NanoFold default/tiny baseline.</li>
+    <li>The agent identifies a coherent design mechanism, not just a random config bump.</li>
+    <li>Fold Cartographer diagnostics explain why the mechanism helped.</li>
+    <li>The structure overlay shows visible improvement or stable quality under a better score.</li>
+    <li>The Modal story is clear: Volumes, deployed runner, GPU jobs, debug sandbox, validation spike, scale-down.</li>
+  </ul>
+
+  <h4>Winning</h4>
+  <ul>
+    <li>Clear improvement over baseline under the locked validation scorer.</li>
+    <li>Interpretable AlphaFold3-lite design improvement: architecture, loss, curriculum, optimizer, diffusion sampler, or feature-handling mechanism.</li>
+    <li>Multiple-seed confirmation for the best candidate.</li>
+    <li>The trajectory reads like real research: hypotheses, diagnostics, failures, pivots, and mechanism.</li>
+    <li>The demo has structure overlay visual wow, Fold Cartographer differentiation, and Modal scaling/autoresearch credibility.</li>
+  </ul>
+</section>
+
+<section id="s14">
+  <h2><span class="sec-num">§ 14</span> <span class="sec-title">Starter program.md</span></h2>
+  <hr class="sec-rule">
+
+  <p>This is the agent's operating document. It removes the bad instruction that the agent should read Modal's blog or design Modal infrastructure. The Modal plan is already encoded in the control plane.</p>
+
+  <p class="code-label">program.md — canonical v0</p>
+<pre><code># auto-AlphaFold3 — GPT-5.5 autoresearch for AlphaFold3-lite folding
+
+## Core hypothesis
+
+GPT-5.5 can act as an autoresearcher for protein folding, discovering
+AlphaFold3-lite design improvements.
+
+We are NOT modifying, reproducing, training, improving, or beating Google
+DeepMind's real AlphaFold3. We are using ogchen/nanofold as a small
+NanoFold-style AlphaFold3-lite research sandbox.
+
+## Objective
+
+Maximize best validation C-alpha lDDT under the locked benchmark.
+
+C-alpha lDDT means: how close the predicted protein backbone geometry is to
+the true structure, using alpha carbon positions.
+
+Primary metric:
+    best_val_calpha_lddt
+
+Diagnostics (four orthogonal Fold Cartographer axes + context):
+    local_geometry:    local_lddt, contact_precision_short
+    long_range:        contact_precision_long      # CASP separation >= 24
+    distogram_vs_3d:   distogram_coordinate_gap
+    stability_compute: runtime_seconds, peak_gpu_memory_gb, param_count, nan_oom_status
+    losses:            val_loss, diffusion_loss, distogram_loss, coordinate_loss
+    context_only:      calpha_lddt_by_length       # coarse buckets; not routed on
+    final_only:        seed_variance_for_final_validation
+
+## Read before proposing changes
+
+Read these first, in order:
+
+1. README.md
+2. docs/framing.md
+3. configs/auto_tiny.json
+4. autoalphafold3/editable_surface.md
+5. autoalphafold3/benchmark_contract.md
+6. runs/baseline/metrics.json
+7. runs/baseline/error_report.json
+8. runs/ledger.jsonl tail
+9. The selected NanoFold model/training files named in editable_surface.md
+
+Do not start by guessing. Understand the current training path, scoring path,
+Fold Cartographer report, and allowed edit surface.
+
+## Implementation base
+
+Base repo:
+    ogchen/nanofold
+
+Use NanoFold / AlphaFold3-lite as the implementation base.
+
+SimplexFold may be studied for architecture, benchmark, diagnostic, and
+test-discipline inspiration only. Do not switch the implementation base to
+SimplexFold.
+
+## Modal contract
+
+The Modal compute architecture is already designed.
+
+You may not edit:
+    autoalphafold3/modal_app.py
+    autoalphafold3/orchestrator.py
+    autoalphafold3/locked_scorer.py
+    autoalphafold3/result_parser.py
+    locked/
+    runs/baseline/
+
+during search unless a human explicitly unlocks infrastructure repair mode.
+
+To run an experiment:
+    python -m autoalphafold3.agent submit trials/T###.json
+
+Do not call `modal run` directly during the search loop.
+Do not spawn Modal Sandboxes yourself.
+Do not change GPU type, max_containers, timeout, Volumes, or cost caps directly.
+Do not append to the canonical ledger yourself; the orchestrator writes it.
+
+Your job is protein-folding research:
+- write one hypothesis
+- patch the allowed NanoFold / AlphaFold3-lite search surface
+- submit a fixed-budget trial
+- read canonical metrics and Fold Cartographer diagnostics
+- log outcome and postmortem
+- keep or revert
+
+If infrastructure fails, log `INFRA_FAIL` and stop that trial.
+Do not fix the scorer, split, locked data, or Modal control plane.
+
+## What you may edit
+
+You may edit the model/training/sampler search surface:
+
+- autoalphafold3/ patch modules
+- selected nanofold/train model modules listed in editable_surface.md
+- experiment config files
+- loss weights
+- training curriculum
+- optimizer/scheduler
+- diffusion/noising schedule if present in the active path
+- diffusion sampler settings and label-free sample selection
+- recycling settings
+- Pairformer / attention block variants
+- auxiliary heads
+- geometry losses
+- memory/speed optimizations
+
+The agent may edit the model/training/sampler search surface, but not the
+benchmark contract or Modal control plane.
+
+## What you may NOT edit
+
+Do not modify:
+
+- public validation split definition
+- hidden validation split definition
+- scoring script
+- metric computation
+- raw validation labels
+- data preprocessing outputs during the event
+- baseline result ledger
+- result parser
+- any locked Volume file
+- any script that rebuilds public validation features
+- any script that changes benchmark fingerprints
+- Modal app, resource tiers, GPU types, max_containers, or timeout caps
+
+If you think the scorer or split is wrong, write a note in the ledger and stop.
+Do not patch it.
+
+## Data rule
+
+Do not run full MSA/database preprocessing during the event.
+
+Template policy:
+- Pin max_templates=0 for every official baseline, trial, and final validation.
+- Treat template tensors as empty schema placeholders only.
+- Do not provision, search, or mutate a template database during the event.
+- Do not use template-sensitive diagnostics; the benchmark is intentionally no-template.
+
+Allowed:
+- read existing Arrow IPC features
+- run tiny smoke preprocessing only if explicitly marked smoke
+- inspect feature metadata
+- train and evaluate on preprocessed features
+
+Forbidden:
+- launch full PDB/mmCIF/MSA preprocessing
+- enable templates or fetch template structures
+- rebuild validation features
+- change train/validation membership
+- fetch extra structures to improve validation
+
+## Diagnostic routing rule
+
+Before each new hypothesis, read the latest `error_report.json`.
+
+Choose exactly one of four orthogonal diagnostic targets:
+- local_geometry_weak        # pLDDT-like: local lDDT, short-range contacts
+- long_range_topology_weak   # PAE-like: long-range contact precision (separation >= 24)
+- distogram_good_lddt_flat   # pair head learns contacts but 3D does not follow
+- stability_compute          # NaN/OOM rate, runtime, peak memory
+
+Your next intervention must explain how it addresses that target.
+
+Do not optimize diagnostics directly. The only primary metric is
+best validation C-alpha lDDT.
+
+## The loop
+
+For each trial:
+
+1. Read current best result, latest error_report.json, and last 20 ledger entries.
+2. Choose exactly ONE diagnostic target.
+3. Choose exactly ONE move family.
+4. Write a hypothesis BEFORE editing code.
+5. Predict the expected effect on validation C-alpha lDDT and diagnostics.
+6. Patch the allowed model/training/sampler surface.
+7. Create one AutoFoldTrial JSON.
+8. Submit through the approved orchestrator command.
+9. Read canonical metrics and Fold Cartographer report.
+10. Decide KEEP, DISCARD, FAIL, or INFRA_FAIL.
+11. Commit KEEP runs.
+12. Revert DISCARD runs.
+13. Log FAIL and INFRA_FAIL honestly.
+14. Write a postmortem.
+
+## Move families
+
+Rotate among these. Do not get stuck in one family.
+
+1. width_depth
+2. pairformer_attention
+3. diffusion_schedule
+4. diffusion_sampler_golf
+5. recycling
+6. auxiliary_loss
+7. geometry_loss
+8. curriculum
+9. optimizer_scheduler
+10. feature_handling
+11. memory_runtime
+
+## Diffusion sampler golf rules
+
+Sampler golf is inference-only unless explicitly paired with a training move.
+
+Allowed:
+- adjust inference diffusion steps
+- adjust gamma/noise/step scale
+- adjust number of stochastic samples
+- use label-free sample selection rules
+- compare sampler runtime vs. C-alpha lDDT after locked scoring
+
+Forbidden:
+- select samples using validation labels directly
+- tune sample selection on hidden validation
+- call the sampler result a model-training improvement unless checkpoint is unchanged
+
+## Hypothesis log format
+
+Before the run, append:
+
+TRIAL: &lt;id&gt;
+FAMILY: &lt;move_family&gt;
+DIAGNOSTIC_TARGET: &lt;target&gt;
+HYPOTHESIS: &lt;one mechanistic sentence&gt;
+INTERVENTION: &lt;what you will change&gt;
+PREDICTION: &lt;expected score/diagnostic behavior&gt;
+
+After the run, append:
+
+OUTCOME:
+    status = KEEP | DISCARD | FAIL | INFRA_FAIL
+    best_val_calpha_lddt = &lt;float or null&gt;
+    delta_vs_best = &lt;signed float or null&gt;
+    val_loss = &lt;float or null&gt;
+    contact_precision_short = &lt;float or null&gt;
+    contact_precision_long = &lt;float or null&gt;
+    coordinate_loss = &lt;float or null&gt;
+    runtime_seconds = &lt;float or null&gt;
+    peak_gpu_memory_gb = &lt;float or null&gt;
+    nan_oom_status = &lt;ok|nan|oom|shape_error|timeout|infra_fail&gt;
+    failure_signature = &lt;list&gt;
+
+POSTMORTEM:
+    &lt;Did the prediction hold? What should be tried next?&gt;
+
+## Decision rule
+
+KEEP if:
+- best_val_calpha_lddt improves over current best by the configured threshold
+- no NaN/OOM/shape failure
+- runtime and memory are within cap
+- parameter count is within cap
+- improvement is not explained by invalid evaluation
+
+DISCARD if:
+- score does not improve enough
+- diagnostics regress badly without score gain
+- patch is too expensive
+- patch is incoherent or too broad
+
+FAIL if:
+- NaN
+- OOM
+- shape error
+- timeout
+- scorer cannot run
+- checkpoint cannot be loaded
+
+INFRA_FAIL if:
+- Modal function fails before running trial logic
+- Volume unavailable
+- image/dependency issue
+- orchestrator cannot poll result
+
+A FAIL is not shameful. A hidden or misreported FAIL is unacceptable.
+
+## Git discipline
+
+For KEEP:
+    git add &lt;changed files&gt;
+    git commit -m "[&lt;family&gt;:&lt;diagnostic_target&gt;] &lt;hypothesis summary&gt;"
+
+For DISCARD:
+    git checkout -- &lt;changed files&gt;
+
+For FAIL:
+    preserve the log and stack trace under runs/trials/&lt;id&gt;/
+    revert code unless the fix is a minimal model/training repair in allowed files
+
+## Stuck rule
+
+If 8 consecutive trials fail to improve best_val_calpha_lddt:
+
+1. Stop making small variations of the same move.
+2. Switch to a move family not used in the last 20 trials.
+3. Choose a different diagnostic target if the current target has been tried 4 times.
+4. Write why the switch is rational.
+
+Examples:
+- Contact precision improves but lDDT does not: try geometry_loss, recycling, or sampler.
+- Loss falls but lDDT is flat: try auxiliary_loss balance or curriculum.
+- OOMs dominate: try memory_runtime or width_depth reduction.
+- Low-MSA examples underperform: try feature_handling or curriculum.
+
+## Final validation
+
+Do not run multi-seed validation during broad search.
+
+At final validation time only:
+- rerun best candidate with multiple seeds
+- rerun baseline if needed for matched comparison
+- compute mean and variance of validation C-alpha lDDT
+- render predicted vs. true C-alpha backbone overlay
+
+## Framing rule
+
+Use these phrases:
+- "AlphaFold3-lite"
+- "NanoFold-style AlphaFold3-lite"
+- "AlphaFold3-inspired minimal implementation"
+- "small protein-folding model"
+- "locked validation C-alpha lDDT"
+- "Fold Cartographer"
+- "Modal is the elastic GPU lab"
+
+Do not use these phrases:
+- "we improve AlphaFold3"
+- "we beat AlphaFold3"
+- "we reproduce AlphaFold3"
+- "we train full AlphaFold3"
+
+## Final artifact
+
+By T+8, produce:
+- best current validation C-alpha lDDT
+- baseline vs. best table
+- trajectory plot
+- Fold Cartographer failure-signature panel
+- top 3 hypotheses and outcomes
+- Modal job history
+- before/after protein backbone overlay if available
+- concise summary of what GPT-5.5 discovered
+</code></pre>
+</section>
+
+<section id="refs" class="refs">
+  <h2><span class="sec-num">§ R</span> <span class="sec-title">References &amp; sources</span></h2>
+  <hr class="sec-rule">
+
+  <h4>Implementation base</h4>
+  <ol>
+    <li><span class="title">ogchen — <code>nanofold</code>.</span> <span class="src">Small protein folding model based on AlphaFold2 and AlphaFold3 papers; implementation base for auto-AlphaFold3.</span> <a href="https://github.com/ogchen/nanofold">github.com/ogchen/nanofold</a></li>
+    <li><span class="title">NanoFold documentation.</span> <span class="src">Docs for understanding NanoFold, training, preprocessing, and differences from AlphaFold systems.</span> <a href="https://ogchen.github.io/nanofold/">ogchen.github.io/nanofold</a></li>
+    <li><span class="title">NanoFold — Differences to AlphaFold.</span> <span class="src">Monomer-only scope, backbone atoms, training compromises, and omissions relative to full AlphaFold systems.</span> <a href="https://ogchen.github.io/nanofold/Differences_to_Alphafold.html">ogchen.github.io/nanofold/Differences_to_Alphafold.html</a></li>
+  </ol>
+
+  <h4>AlphaFold context</h4>
+  <ol>
+    <li><span class="title">Jumper et al. — "Highly accurate protein structure prediction with AlphaFold."</span> <span class="src">Nature 2021. AlphaFold2 paper.</span> <a href="https://www.nature.com/articles/s41586-021-03819-2">nature.com/articles/s41586-021-03819-2</a></li>
+    <li><span class="title">Abramson et al. — "Accurate structure prediction of biomolecular interactions with AlphaFold 3."</span> <span class="src">Nature 2024. AlphaFold3 paper; scientific context, not implementation target.</span> <a href="https://www.nature.com/articles/s41586-024-07487-w">nature.com/articles/s41586-024-07487-w</a></li>
+    <li><span class="title">Google DeepMind — <code>alphafold3</code>.</span> <span class="src">Official AlphaFold3 inference repository; useful for framing why this project does not modify real AlphaFold3.</span> <a href="https://github.com/google-deepmind/alphafold3">github.com/google-deepmind/alphafold3</a></li>
+  </ol>
+
+  <h4>Autoresearch and folding architecture-search inspiration</h4>
+  <ol>
+    <li><span class="title">Modal — "Autoscaling Autoresearch: Give your agents elastic GPUs on Modal."</span> <span class="src">Parameter Golf / autoresearch compute story: smoke, parallel experiments, debug drop, validation scale-up, Volumes, logs, and scale-to-zero.</span> <a href="https://modal.com/blog/autoscaling-autoresearch">modal.com/blog/autoscaling-autoresearch</a></li>
+    <li><span class="title">modal-projects — <code>modal-auto-research-skills</code>.</span> <span class="src">Reference for Modal Skills and the deploy-once/call-many warning.</span> <a href="https://github.com/modal-projects/modal-auto-research-skills">github.com/modal-projects/modal-auto-research-skills</a></li>
+    <li><span class="title">ChrisHayduk — <code>SimplexFold</code>.</span> <span class="src">Reference for ambitious folding architecture search: higher-order face/tetrahedral states, benchmark discipline, and trajectory visualization. Inspiration only.</span> <a href="https://github.com/ChrisHayduk/SimplexFold">github.com/ChrisHayduk/SimplexFold</a></li>
+    <li><span class="title">ChrisHayduk — <code>nanoFold-Competition</code>.</span> <span class="src">Reference for fixed data-efficient folding benchmarks, public validation, hidden evaluation, sealed scoring, and API constraints.</span> <a href="https://github.com/ChrisHayduk/nanoFold-Competition">github.com/ChrisHayduk/nanoFold-Competition</a></li>
+  </ol>
+
+  <h4>Modal infrastructure</h4>
+  <ol>
+    <li><span class="title">Modal Volumes guide.</span> <span class="src">Persistent storage for reduced DBs, raw mmCIFs, preprocessed Arrow features, checkpoints, logs, and rendered outputs; includes commit/reload and concurrent-write caveats.</span> <a href="https://modal.com/docs/guide/volumes">modal.com/docs/guide/volumes</a></li>
+    <li><span class="title">Modal Large dataset ingestion guide.</span> <span class="src">Pattern for downloading and transforming large datasets inside Modal functions, storing outputs into a Volume, and avoiding repeated decompression.</span> <a href="https://modal.com/docs/guide/dataset-ingestion">modal.com/docs/guide/dataset-ingestion</a></li>
+    <li><span class="title">Modal Sandboxes guide.</span> <span class="src">Debug sandboxes and isolated execution environments for generated code or interactive inspection.</span> <a href="https://modal.com/docs/guide/sandboxes">modal.com/docs/guide/sandboxes</a></li>
+    <li><span class="title">Modal Job processing guide.</span> <span class="src">Deploy function, submit jobs with <code>.spawn()</code>, and poll with <code>FunctionCall.get()</code>.</span> <a href="https://modal.com/docs/guide/job-queue">modal.com/docs/guide/job-queue</a></li>
+    <li><span class="title">Modal Scaling guide.</span> <span class="src">Autoscaler settings including <code>max_containers</code>, <code>min_containers</code>, <code>buffer_containers</code>, and <code>scaledown_window</code>.</span> <a href="https://modal.com/docs/guide/scale">modal.com/docs/guide/scale</a></li>
+    <li><span class="title">Modal GPU guide.</span> <span class="src">GPU functions and GPU-count syntax for training trials and validation spikes.</span> <a href="https://modal.com/docs/guide/gpu">modal.com/docs/guide/gpu</a></li>
+    <li><span class="title">Modal Images guide.</span> <span class="src">Image caching and rebuilds; <code>add_local_dir</code> with <code>copy=False</code> (runtime mount) vs <code>copy=True</code> (baked layer); version pinning to avoid rebuild drift.</span> <a href="https://modal.com/docs/guide/images">modal.com/docs/guide/images</a></li>
+    <li><span class="title">Modal 1.0 migration guide.</span> <span class="src">Default <code>copy=False</code> mounts files at runtime for fast iteration; layer rebuild only when later build steps consume the files.</span> <a href="https://modal.com/docs/guide/modal-1-0-migration">modal.com/docs/guide/modal-1-0-migration</a></li>
+  </ol>
+
+  <h4>Metrics</h4>
+  <ol>
+    <li><span class="title">Mariani et al. — "lDDT: a local superposition-free score for comparing protein structures and models using distance difference tests."</span> <span class="src">Original lDDT metric reference.</span> <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC3799472/">pmc.ncbi.nlm.nih.gov/articles/PMC3799472</a></li>
+    <li><span class="title">SWISS-MODEL — LDDT documentation.</span> <span class="src">Plain-language description of lDDT and thresholded local-distance preservation.</span> <a href="https://swissmodel.expasy.org/lddt">swissmodel.expasy.org/lddt</a></li>
+    <li><span class="title">EBI AlphaFold training — pLDDT understanding local confidence.</span> <span class="src">Context for pLDDT and lDDT-Cα-based confidence. Basis for Fold Cartographer's local-geometry axis.</span> <a href="https://www.ebi.ac.uk/training/online/courses/alphafold/inputs-and-outputs/evaluating-alphafolds-predicted-structures-using-confidence-scores/plddt-understanding-local-confidence/">ebi.ac.uk/training/online/courses/alphafold/...plddt...</a></li>
+    <li><span class="title">EBI AlphaFold training — PAE, confidence in relative position.</span> <span class="src">Predicted aligned error measures confidence in the relative position of residue pairs (long-range / inter-domain topology), complementing pLDDT's local view. Basis for Fold Cartographer's long-range-topology axis and the local-vs-long-range split.</span> <a href="https://www.ebi.ac.uk/training/online/courses/alphafold/inputs-and-outputs/evaluating-alphafolds-predicted-structures-using-confidence-scores/pae-a-measure-of-global-confidence-in-alphafold-predictions/">ebi.ac.uk/training/online/courses/alphafold/...pae...</a></li>
+    <li><span class="title">CASP / Prediction Center.</span> <span class="src">Context for structure-prediction assessment and folding benchmark reporting.</span> <a href="https://predictioncenter.org/">predictioncenter.org</a></li>
+    <li><span class="title">Assessment of contact and distance predictions in CASP14.</span> <span class="src">Contacts binned by sequence separation — short (6–11), medium (12–23), long (≥24; Cβ &lt; 8 Å) — with long-range contacts emphasized as the hardest and most informative. Basis for Fold Cartographer's long-range-topology axis.</span> <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8616839/">pmc.ncbi.nlm.nih.gov/articles/PMC8616839</a></li>
+  </ol>
+</section>
+
+<footer class="doc-foot">
+  <span>autoalphafold3-spec · v3 canonical · NanoFold base · Fold Cartographer</span>
+  <span>preprocess before event</span>
+</footer>
+
+</div>
+</body>
+</html>

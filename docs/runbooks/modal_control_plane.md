@@ -58,7 +58,10 @@ Do not deploy until these are true:
 ## Contract
 
 - Deploy once, call many.
-- Local orchestrator writes `runs/ledger.jsonl`.
+- During event search, the Modal-hosted trusted orchestrator writes
+  `runs/ledger.jsonl` and the Discovery Ledger.
+- Local orchestrator ledger writes are smoke-only scaffold behavior before the
+  Modal-hosted trusted orchestrator is deployed.
 - Modal workers write only under `/runs/trials/<trial_id>/`.
 - Workers return small JSON pointers, not large artifacts.
 - GPU `min_containers` remains zero unless a human explicitly approves warm-pool cost.

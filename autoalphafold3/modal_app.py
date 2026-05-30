@@ -8,6 +8,7 @@ and is intentionally separate from local dry-run tests.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -22,6 +23,23 @@ FEATURES_MOUNT = "/mnt/autoalphafold3-features"
 RUNS_MOUNT = "/mnt/autoalphafold3-runs"
 LOCKED_MOUNT = "/mnt/autoalphafold3-locked"
 
+HARNESS_SECRET_NAMES = (
+    "openai-api-key",
+    "modal-token",
+    "github-token",
+    "autoalphafold3-dashboard",
+    "autoalphafold3-judge",
+)
+FORBIDDEN_EXECUTION_SECRET_ENV = (
+    "OPENAI_API_KEY",
+    "MODAL_TOKEN_ID",
+    "MODAL_TOKEN_SECRET",
+    "GITHUB_TOKEN",
+    "DASHBOARD_TOKEN",
+    "JUDGE_API_KEY",
+    "EVALUATOR_API_KEY",
+)
+
 TRIAL_WORKER_MOUNTS = {
     FEATURES_MOUNT: f"{DATA_VOLUME}:/features:ro",
     RUNS_MOUNT: f"{DATA_VOLUME}:/runs:rw",
@@ -32,6 +50,88 @@ SCORER_WORKER_MOUNTS = {
 }
 PREPROCESS_MOUNTS = {
     DATA_MOUNT: f"{DATA_VOLUME}:/:rw",
+}
+
+
+class WorkerRole(StrEnum):
+    """Execution-plane worker roles owned by the Modal deployment."""
+
+    TRIAL = "trial"
+    SAMPLER = "sampler"
+    SCORER = "scorer"
+    DEBUG = "debug"
+    FINAL_VALIDATION = "final_validation"
+
+
+WORKER_ROLE_CONTRACTS = {
+    WorkerRole.TRIAL.value: {
+        "plane": "execution",
+        "mounts": "trial_workers",
+        "may_read_locked_labels": False,
+        "may_write_canonical_ledger": False,
+        "may_write_discovery_ledger": False,
+        "allowed_secret_names": (),
+        "forbidden_secret_env": FORBIDDEN_EXECUTION_SECRET_ENV,
+        "artifact_scope": "/runs/trials/<trial_id>/",
+    },
+    WorkerRole.SAMPLER.value: {
+        "plane": "execution",
+        "mounts": "trial_workers",
+        "may_read_locked_labels": False,
+        "may_write_canonical_ledger": False,
+        "may_write_discovery_ledger": False,
+        "allowed_secret_names": (),
+        "forbidden_secret_env": FORBIDDEN_EXECUTION_SECRET_ENV,
+        "artifact_scope": "/runs/trials/<trial_id>/sampler/",
+    },
+    WorkerRole.SCORER.value: {
+        "plane": "execution",
+        "mounts": "scorer_workers",
+        "may_read_locked_labels": True,
+        "may_write_canonical_ledger": False,
+        "may_write_discovery_ledger": False,
+        "allowed_secret_names": (),
+        "forbidden_secret_env": FORBIDDEN_EXECUTION_SECRET_ENV,
+        "artifact_scope": "read-only trial artifacts plus returned metrics payload",
+    },
+    WorkerRole.DEBUG.value: {
+        "plane": "execution",
+        "mounts": "trial_workers",
+        "may_read_locked_labels": False,
+        "may_write_canonical_ledger": False,
+        "may_write_discovery_ledger": False,
+        "allowed_secret_names": (),
+        "forbidden_secret_env": FORBIDDEN_EXECUTION_SECRET_ENV,
+        "artifact_scope": "manual debug workspace only after explicit trigger",
+    },
+    WorkerRole.FINAL_VALIDATION.value: {
+        "plane": "execution",
+        "mounts": "trial_workers",
+        "may_read_locked_labels": False,
+        "may_write_canonical_ledger": False,
+        "may_write_discovery_ledger": False,
+        "allowed_secret_names": (),
+        "forbidden_secret_env": FORBIDDEN_EXECUTION_SECRET_ENV,
+        "artifact_scope": "/runs/trials/<trial_id>/final_validation/<seed>/",
+    },
+}
+
+TRUSTED_HARNESS_CONTRACT = {
+    "plane": "harness",
+    "event_search_authority": "modal_hosted_trusted_orchestrator",
+    "local_scaffold_mode": "smoke_only_not_event_search_ready",
+    "cpu_only": True,
+    "may_hold_secret_names": HARNESS_SECRET_NAMES,
+    "may_write_canonical_ledger": True,
+    "may_write_discovery_ledger": True,
+    "authors_falsification_controls": True,
+    "direct_agent_modal_run_allowed": False,
+    "arbitrary_agent_sandbox_allowed": False,
+    "deployed_lookup_pattern": {
+        "trial_submit": "modal.Cls.from_name(APP_NAME, 'TrialRunner')().run.spawn(trial_json)",
+        "poll": "modal.FunctionCall.from_id(object_id).get(timeout=0)",
+        "control_wave": "deployed function starmap over orchestrator-authored control tuples",
+    },
 }
 
 FUNCTION_CONTRACTS = {
@@ -171,6 +271,8 @@ def healthcheck() -> dict[str, Any]:
         "resource_tiers": {name: tier.__dict__ for name, tier in RESOURCE_TIERS.items()},
         "function_contracts": FUNCTION_CONTRACTS,
         "modal_object_contracts": MODAL_OBJECT_CONTRACTS,
+        "trusted_harness_contract": TRUSTED_HARNESS_CONTRACT,
+        "worker_role_contracts": WORKER_ROLE_CONTRACTS,
         "contract": (
             "trial/sampler/debug workers do not mount locked labels; scorer-only "
             "workers mount autoalphafold3-locked and return metrics"
@@ -203,6 +305,8 @@ def modal_deploy_plan() -> dict[str, Any]:
         "resource_tiers": {name: tier.__dict__ for name, tier in RESOURCE_TIERS.items()},
         "function_contracts": FUNCTION_CONTRACTS,
         "modal_object_contracts": MODAL_OBJECT_CONTRACTS,
+        "trusted_harness_contract": TRUSTED_HARNESS_CONTRACT,
+        "worker_role_contracts": WORKER_ROLE_CONTRACTS,
         "official_training_function": "run_trial",
         "official_training_gpu": RESOURCE_TIERS["trial"].gpu,
         "official_validation_split": "public_val_small",
@@ -212,6 +316,78 @@ def modal_deploy_plan() -> dict[str, Any]:
             "official_locked_volume": LOCKED_VOLUME,
             "search_ready_requires_locked_volume": True,
         },
+    }
+
+
+def validate_worker_role_contracts() -> dict[str, Any]:
+    """Validate execution-plane worker contracts without importing Modal."""
+
+    errors: list[str] = []
+    for role, contract in WORKER_ROLE_CONTRACTS.items():
+        mounts = contract["mounts"]
+        if contract["plane"] != "execution":
+            errors.append(f"{role}: worker role must stay on execution plane")
+        if contract["allowed_secret_names"]:
+            errors.append(f"{role}: execution worker may not receive harness secrets")
+        if contract["may_write_canonical_ledger"] or contract["may_write_discovery_ledger"]:
+            errors.append(f"{role}: execution worker may not write ledgers")
+        if role != WorkerRole.SCORER.value and contract["may_read_locked_labels"]:
+            errors.append(f"{role}: only scorer role may read locked labels")
+        if role != WorkerRole.SCORER.value and mounts != "trial_workers":
+            errors.append(f"{role}: non-scorer role must use trial worker mounts")
+        if role == WorkerRole.SCORER.value and mounts != "scorer_workers":
+            errors.append("scorer: scorer role must use scorer worker mounts")
+    return {"ok": not errors, "errors": errors}
+
+
+def validate_execution_payload(payload: dict[str, Any], *, role: str) -> dict[str, Any]:
+    """Reject worker payloads that try to serialize harness secrets."""
+
+    if role not in WORKER_ROLE_CONTRACTS:
+        raise ValueError(f"unknown worker role: {role}")
+    leaked_keys = sorted(_secret_leak_paths(payload))
+    if leaked_keys:
+        raise PermissionError(f"execution payload contains harness secret keys: {', '.join(leaked_keys)}")
+    return payload
+
+
+def _secret_leak_paths(value: Any, *, path: str = "$") -> set[str]:
+    forbidden = set(FORBIDDEN_EXECUTION_SECRET_ENV) | set(HARNESS_SECRET_NAMES)
+    leaked: set[str] = set()
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key_text = str(key)
+            child_path = f"{path}.{key_text}"
+            if (
+                key_text in forbidden
+                or "SECRET" in key_text
+                or "TOKEN" in key_text
+                or "API_KEY" in key_text
+                or key_text in HARNESS_SECRET_NAMES
+            ):
+                leaked.add(child_path)
+            leaked.update(_secret_leak_paths(child, path=child_path))
+    elif isinstance(value, list | tuple):
+        for index, child in enumerate(value):
+            leaked.update(_secret_leak_paths(child, path=f"{path}[{index}]"))
+    elif isinstance(value, str) and value in forbidden:
+        leaked.add(f"{path}={value}")
+    return leaked
+
+
+def event_search_readiness_contract() -> dict[str, Any]:
+    """Return the static event-readiness contract for the Modal harness."""
+
+    worker_validation = validate_worker_role_contracts()
+    return {
+        "event_search_ready_locally": False,
+        "local_scaffold_mode": TRUSTED_HARNESS_CONTRACT["local_scaffold_mode"],
+        "required_event_authority": TRUSTED_HARNESS_CONTRACT["event_search_authority"],
+        "direct_modal_run_allowed": TRUSTED_HARNESS_CONTRACT["direct_agent_modal_run_allowed"],
+        "arbitrary_agent_sandbox_allowed": TRUSTED_HARNESS_CONTRACT["arbitrary_agent_sandbox_allowed"],
+        "worker_contracts_valid": worker_validation["ok"],
+        "worker_contract_errors": worker_validation["errors"],
+        "pending_live_action": "deploy and authenticate the Modal-hosted trusted orchestrator before event search",
     }
 
 

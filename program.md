@@ -65,9 +65,15 @@ If the scorer, split, or locked data looks wrong during search, write a note and
 
 ## Modal Contract
 
-The Modal compute architecture is creator-designed infrastructure.
+The Modal compute architecture is creator-designed infrastructure. During the
+event, the Modal-hosted trusted orchestrator is the only search-loop authority;
+local orchestration remains a scaffold smoke-test fallback before deployment.
 
-The agent submits `AutoFoldTrial` JSON objects through the local orchestrator. It may not call `modal run` directly, spawn arbitrary Modal Sandboxes, modify Volumes, change GPU type, raise `max_containers`, change timeouts, or edit `autoalphafold3/modal_app.py` during search.
+The agent submits `AutoFoldTrial` JSON objects through the Modal-hosted
+trusted orchestrator. It may not call `modal run` directly, spawn arbitrary
+Modal Sandboxes, modify Volumes, change GPU type, raise `max_containers`,
+change timeouts, edit `autoalphafold3/modal_app.py`, or author falsification
+controls during search.
 
 Approved experiment command:
 
@@ -75,7 +81,9 @@ Approved experiment command:
 python -m autoalphafold3.agent submit trials/T###.json
 ```
 
-Workers write only to their own trial directories. The local orchestrator is the only writer for the canonical ledger.
+Workers write only to their own trial directories. During event search, the
+Modal-hosted trusted orchestrator is the only writer for the canonical ledger
+and Discovery Ledger; local ledger writes are scaffold smoke-test behavior only.
 
 ## Agent-Facing Skills And Evals
 
@@ -83,7 +91,7 @@ Use the project skills as narrow operating modes:
 
 - `autoalphafold3-researcher`: choose one diagnostic target, one move family, and one falsifiable folding hypothesis.
 - `fold-cartographer`: map scorer diagnostics to exactly one canonical target while keeping `best_val_calpha_lddt` as the only primary objective.
-- `autoalphafold3-trial-submit`: validate one `AutoFoldTrial` JSON and return only the approved local orchestrator command.
+- `autoalphafold3-trial-submit`: validate one `AutoFoldTrial` JSON and return only the configured Modal-hosted orchestrator endpoint for event search. The local command is smoke-only before deployment.
 - `autoalphafold3-subagent-worker`: generate bounded proposal artifacts for parallel hypothesis fanout; workers do not submit, integrate, call Modal, edit locked files, or write ledgers.
 
 Skill evals must pass before autonomous research starts. Evals are synthetic and local: no Modal calls, no GPUs, no hidden validation, no gate edits, and no real trial submission. Run static/offline checks first, fan out sampled live evals on small fast models, and reserve stronger adjudication for failed or ambiguous outputs.
@@ -103,7 +111,7 @@ For every trial:
 5. Predict the expected score and diagnostic effect.
 6. Patch only the allowed surface.
 7. Create one `AutoFoldTrial` JSON.
-8. Submit through the orchestrator.
+8. Submit through the Modal-hosted trusted orchestrator during event search, or the local smoke scaffold before deployment.
 9. Read canonical metrics and diagnostics.
 10. Decide `KEEP`, `DISCARD`, `FAIL`, or `INFRA_FAIL`.
 11. Commit only valid `KEEP` runs.

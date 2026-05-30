@@ -103,7 +103,9 @@ Official trials must emit a `metrics.json` with:
 - Training code may read public validation features for prediction.
 - Only the locked scorer stage may read public validation labels.
 - Workers write per-trial artifacts only.
-- The local orchestrator writes the canonical ledger.
+- During event search, the Modal-hosted trusted orchestrator writes the
+  canonical ledger and Discovery Ledger. Local ledger writes are scaffold
+  smoke-test behavior only before deployment.
 - Template tensors are empty placeholders; template DB provisioning/search is outside the official benchmark.
 
 ## Modal and Cost Rules

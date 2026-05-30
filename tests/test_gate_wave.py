@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 from autoalphafold3.gate_wave import (
-    DEFAULT_GATE_FUNCTION,
+    DEFAULT_GATE_CLASS,
+    DEFAULT_GATE_METHOD,
     GateControl,
     GateControlKind,
     GateWaveError,
@@ -66,6 +67,32 @@ def test_gate_wave_rejects_locked_label_payloads() -> None:
 
     with pytest.raises(ValueError, match="locked labels"):
         build_gate_wave_controls(plan=plan(), base_payload=payload)
+
+
+def test_gate_wave_rejects_locked_label_payload_keys() -> None:
+    payload = base_payload()
+    payload["public_val_labels"] = "indirect-reference"
+
+    with pytest.raises(ValueError, match="locked labels"):
+        build_gate_wave_controls(plan=plan(), base_payload=payload)
+
+
+def test_gate_wave_rejects_payload_metadata_mismatch() -> None:
+    payload = {
+        **base_payload(),
+        "candidate_trial_id": "T901",
+        "control_kind": "knockout",
+        "seed": 0,
+    }
+
+    with pytest.raises(ValueError, match="candidate_trial_id"):
+        GateControl(
+            gate_id="T900:knockout:0",
+            candidate_trial_id="T900",
+            control_kind="knockout",
+            seed=0,
+            payload=payload,
+        )
 
 
 def test_gate_wave_modal_adapter_uses_required_starmap_exception_contract() -> None:
@@ -138,14 +165,14 @@ def test_gate_wave_returned_exception_normalizes_to_control_infra_fail() -> None
 
 
 def test_gate_wave_lookup_failure_normalizes_to_infra_fail() -> None:
-    class FakeFunctionNamespace:
+    class FakeClsNamespace:
         @staticmethod
-        def from_name(app_name: str, function_name: str) -> object:
+        def from_name(app_name: str, class_name: str) -> object:
             assert app_name == "autoalphafold3-modal"
-            assert function_name == DEFAULT_GATE_FUNCTION
+            assert class_name == DEFAULT_GATE_CLASS
             raise RuntimeError("lookup unavailable")
 
-    fake_modal = types.SimpleNamespace(Function=FakeFunctionNamespace)
+    fake_modal = types.SimpleNamespace(Cls=FakeClsNamespace)
 
     report = run_modal_gate_wave(
         build_gate_wave_controls(plan=plan(n_seeds=1), base_payload=base_payload()),
@@ -154,6 +181,56 @@ def test_gate_wave_lookup_failure_normalizes_to_infra_fail() -> None:
 
     assert report.status == TrialStatus.INFRA_FAIL
     assert {row.failure_signature for row in report.controls} == {"modal_lookup_RuntimeError"}
+
+
+def test_gate_wave_modal_adapter_looks_up_trial_runner_method() -> None:
+    class FakeRunMethod:
+        def __init__(self) -> None:
+            self.calls: list[list[tuple[dict[str, object], int]]] = []
+
+        def starmap(
+            self,
+            inputs: list[tuple[dict[str, object], int]],
+            *,
+            order_outputs: bool,
+            return_exceptions: bool,
+            wrap_returned_exceptions: bool | None,
+        ) -> list[dict[str, object]]:
+            self.calls.append(inputs)
+            assert order_outputs is True
+            assert return_exceptions is True
+            assert wrap_returned_exceptions is False
+            return [
+                {
+                    "status": "SCORED",
+                    "metrics": {"best_val_calpha_lddt": 0.5},
+                    "fold_cartographer": {"signature": "gate_control_scored", "summary": {}, "buckets": {}},
+                }
+                for _payload, _seed in inputs
+            ]
+
+    fake_run = FakeRunMethod()
+
+    class FakeRunner:
+        run = fake_run
+
+    class FakeClsNamespace:
+        @staticmethod
+        def from_name(app_name: str, class_name: str) -> type[FakeRunner]:
+            assert app_name == "autoalphafold3-modal"
+            assert class_name == DEFAULT_GATE_CLASS
+            return FakeRunner
+
+    fake_modal = types.SimpleNamespace(Cls=FakeClsNamespace)
+
+    report = run_modal_gate_wave(
+        build_gate_wave_controls(plan=plan(n_seeds=1), base_payload=base_payload()),
+        modal_module=fake_modal,
+        method_name=DEFAULT_GATE_METHOD,
+    )
+
+    assert report.status == TrialStatus.SCORED
+    assert fake_run.calls[0][0][0]["control_kind"] == "knockout"
 
 
 def test_gate_wave_missing_sdk_normalizes_to_infra_fail(monkeypatch: pytest.MonkeyPatch) -> None:

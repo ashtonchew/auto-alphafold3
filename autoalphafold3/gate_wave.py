@@ -14,7 +14,8 @@ from autoalphafold3.schema import (
     TrialStatus,
 )
 
-DEFAULT_GATE_FUNCTION = "run_gate_control"
+DEFAULT_GATE_CLASS = "TrialRunner"
+DEFAULT_GATE_METHOD = "run"
 DEFAULT_GATE_TIMEOUT_SECONDS = 600
 DEFAULT_MAX_GATE_VARIANTS = 8
 MAX_GATE_SEEDS = 5
@@ -59,6 +60,12 @@ class GateControl(BaseModel):
         max_templates = self.payload.get("max_templates")
         if max_templates is not None and max_templates != 0:
             raise ValueError("gate controls must preserve max_templates=0")
+        if self.payload.get("candidate_trial_id") != self.candidate_trial_id:
+            raise ValueError("gate control payload candidate_trial_id must match control metadata")
+        if self.payload.get("control_kind") != self.control_kind.value:
+            raise ValueError("gate control payload control_kind must match control metadata")
+        if self.payload.get("seed") != self.seed:
+            raise ValueError("gate control payload seed must match control metadata")
         return self
 
 
@@ -187,9 +194,10 @@ def run_modal_gate_wave(
     controls: Sequence[GateControl],
     *,
     modal_module: object | None = None,
-    function_name: str = DEFAULT_GATE_FUNCTION,
+    class_name: str = DEFAULT_GATE_CLASS,
+    method_name: str = DEFAULT_GATE_METHOD,
 ) -> GateWaveReport:
-    """Look up the deployed Modal gate function and submit a bounded wave."""
+    """Look up the deployed Modal trial runner and submit a bounded wave."""
 
     bounded = _validate_controls(controls)
     if modal_module is None:
@@ -198,10 +206,12 @@ def run_modal_gate_wave(
         except ModuleNotFoundError:
             return _infra_report(bounded, "modal_sdk_missing")
     try:
-        function = modal_module.Function.from_name(APP_NAME, function_name)  # type: ignore[attr-defined]
+        runner_cls = modal_module.Cls.from_name(APP_NAME, class_name)  # type: ignore[attr-defined]
+        runner = runner_cls()
+        method = getattr(runner, method_name)
     except Exception as exc:  # noqa: BLE001 - deployed lookup failures are infrastructure failures.
         return _infra_report(bounded, "modal_lookup", exc)
-    return run_gate_wave(function, bounded)
+    return run_gate_wave(method, bounded)
 
 
 def _control_from_payload(
@@ -309,12 +319,13 @@ def _wave_status(evidence: Sequence[GateControlEvidence]) -> TrialStatus:
 
 def _reject_locked_payload(value: object) -> None:
     if isinstance(value, dict):
-        for nested in value.values():
+        for key, nested in value.items():
+            _reject_locked_payload(key)
             _reject_locked_payload(nested)
         return
     if isinstance(value, list | tuple):
         for nested in value:
             _reject_locked_payload(nested)
         return
-    if isinstance(value, str) and any(token in value for token in LOCKED_PATH_TOKENS):
+    if isinstance(value, str) and any(token in value.lower() for token in LOCKED_PATH_TOKENS):
         raise ValueError("gate controls must not reference locked labels or hidden validation")

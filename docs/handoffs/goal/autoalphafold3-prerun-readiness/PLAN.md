@@ -118,6 +118,6 @@ Best-practice approach:
 - Represent only orchestrator-authored controls: knock-out, placebo, predicted-axis check, and bounded seed reruns derived from a `FalsificationPlan`.
 - Reject unbounded control waves before Modal submission with fixed maximum variants, finite positive timeout, and bounded seed count.
 - Use dependency injection/fakes in tests; do not require a live Modal deployment and do not write benchmark, baseline, canonical ledger, or Discovery Ledger artifacts.
-- For Modal execution, call `modal.Function.from_name(APP_NAME, "run_gate_control").starmap(...)` with `order_outputs=True`, `return_exceptions=True`, and `wrap_returned_exceptions=False`.
+- For Modal execution, call the deployed `TrialRunner` method with `modal.Cls.from_name(APP_NAME, "TrialRunner")().run.starmap(...)` using `order_outputs=True`, `return_exceptions=True`, and `wrap_returned_exceptions=False`.
 - Normalize Modal SDK lookup, starmap setup, and per-control returned exceptions into structured `INFRA_FAIL` evidence. Do not convert partial evidence into a gate verdict or confirmed discovery.
 - Lock the implemented gate-wave module and gate-wave artifact paths in patch-policy coverage before autonomous search.

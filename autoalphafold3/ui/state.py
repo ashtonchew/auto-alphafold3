@@ -80,6 +80,31 @@ class Overlay:
 
 
 @dataclass
+class TrialRow:
+    """One row in the Trials table (every submitted trial)."""
+
+    trial_id: str
+    move_family: str
+    axis: str
+    score: str
+    delta: str
+    runtime: str
+    status: str  # display label
+    tone: str  # spill tone: ok | bad | warn | info | muted
+    cat: str  # filter category: confirmed | keep | discard | killed | fail
+
+
+@dataclass
+class LogEvent:
+    """One line in the Logs feed."""
+
+    time: str
+    level: str  # info | ok | warn | err
+    trial: str
+    message: str
+
+
+@dataclass
 class UiState:
     best: float | None
     baseline: float | None
@@ -98,6 +123,8 @@ class UiState:
     is_sample: bool
     source: str  # "sample" or the runs dir
     geometry_sample: bool = False  # live board whose geometry panels still use sample data
+    trials: list = field(default_factory=list)  # TrialRow, for the Trials view
+    logs: list = field(default_factory=list)  # LogEvent, for the Logs view
 
     def to_json(self) -> dict[str, object]:
         """Denormalised summary — the data contract a live frontend could poll."""
@@ -133,6 +160,23 @@ def _trial_status(status_value: str, discovery_value: str) -> str:
     if status_value in _FAIL:
         return "fail"
     return "provisional"
+
+
+def _status_display(status_value: str, discovery_value: str, kill_reason: str = "") -> tuple[str, str, str]:
+    """Return (label, spill tone, filter category) for the Trials table."""
+    if discovery_value == "CONFIRMED":
+        return "CONFIRMED", "ok", "confirmed"
+    if status_value == "KEEP":
+        return "KEEP", "ok", "keep"
+    if discovery_value in _KILLED:
+        return kill_reason or "KILLED", "bad", "killed"
+    if status_value == "DISCARD":
+        return "DISCARD", "muted", "discard"
+    if status_value == "FAIL":
+        return "FAIL", "warn", "fail"
+    if status_value == "INFRA_FAIL":
+        return "INFRA_FAIL", "info", "fail"
+    return status_value, "muted", "other"
 
 
 # --- real artifacts --------------------------------------------------------
@@ -220,6 +264,8 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         is_sample=False,
         geometry_sample=True,
         source=str(runs),
+        trials=_build_trials(rows, baseline),
+        logs=_build_logs(rows),
     )
 
 
@@ -287,6 +333,68 @@ def _fmt_delta(value: object) -> str:
     return f"{v:+.3f}"
 
 
+def _fmt_runtime(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 60}m {s % 60:02d}s" if s >= 60 else f"{s}s"
+
+
+def _enum_value(obj: object, *names: str) -> str:
+    for name in names:
+        val = getattr(obj, name, None)
+        if val:
+            return str(getattr(val, "value", val))
+    return ""
+
+
+def _build_trials(rows: list, baseline: float | None) -> list[TrialRow]:
+    out: list[TrialRow] = []
+    for row in rows:
+        status = getattr(row.status, "value", str(row.status))
+        discovery = _enum_value(row, "discovery")
+        fals = getattr(row, "falsification", None)
+        verdict = _enum_value(fals, "verdict") if fals is not None else ""
+        axis = _enum_value(fals, "named_axis", "axis") if fals is not None else ""
+        label, tone, cat = _status_display(status, discovery, verdict if discovery in _KILLED else "")
+        metrics = row.metrics if isinstance(row.metrics, dict) else {}
+        score = metrics.get("best_val_calpha_lddt")
+        score_s = f"{float(score):.3f}" if isinstance(score, (int, float)) else "—"
+        delta_s = f"{float(score) - baseline:+.3f}" if isinstance(score, (int, float)) and baseline is not None else "—"
+        rt = metrics.get("runtime_seconds")
+        out.append(
+            TrialRow(
+                trial_id=row.trial_id,
+                move_family=str(metrics.get("move_family", "")) or "—",
+                axis=axis or "—",
+                score=score_s,
+                delta=delta_s,
+                runtime=_fmt_runtime(rt) if isinstance(rt, (int, float)) else "—",
+                status=label,
+                tone=tone,
+                cat=cat,
+            )
+        )
+    return out
+
+
+def _build_logs(rows: list) -> list[LogEvent]:
+    out: list[LogEvent] = []
+    for row in rows:
+        status = getattr(row.status, "value", str(row.status))
+        discovery = _enum_value(row, "discovery")
+        metrics = row.metrics if isinstance(row.metrics, dict) else {}
+        score = metrics.get("best_val_calpha_lddt")
+        out.append(LogEvent("", "info", row.trial_id, "submitted"))
+        if isinstance(score, (int, float)):
+            out.append(LogEvent("", "ok", row.trial_id, f"scored · best_val_calpha_lddt {float(score):.3f}"))
+        if discovery == "CONFIRMED":
+            out.append(LogEvent("", "ok", row.trial_id, "CONFIRMED at the gate"))
+        elif discovery in _KILLED:
+            out.append(LogEvent("", "warn", row.trial_id, "killed at the gate"))
+        if status in _FAIL:
+            out.append(LogEvent("", "err", row.trial_id, status))
+    return out
+
+
 # --- illustrative sample (design mockup data) ------------------------------
 
 _SAMPLE_TRAJ = [
@@ -297,6 +405,48 @@ _SAMPLE_TRAJ = [
 ]
 
 _SAMPLE_ERR = [0, 0, 1, 0, 0, 1, 2, 1, 0, 0, 0, 1, 3, 4, 2, 1, 0, 0, 0, 1, 2, 1, 0, 0, 1, 2, 3, 1, 0, 0]
+
+
+def _sample_trials() -> list[TrialRow]:
+    raw = [
+        ("T042", "geometry_loss", "distogram_vs_3d", "0.412", "+0.041", "8m 05s", "CONFIRMED", "ok", "confirmed"),
+        ("T019", "auxiliary_loss", "long_range_topology", "0.351", "+0.026", "7m 48s", "CONFIRMED", "ok", "confirmed"),
+        ("T027", "diffusion_sampler", "distogram_vs_3d", "0.372", "+0.018", "5m 02s", "CONFIRMED", "ok", "confirmed"),
+        ("T031", "pairformer", "local_geometry", "0.381", "+0.012", "9m 20s", "KEEP", "ok", "keep"),
+        ("T040", "diffusion_sampler", "distogram_vs_3d", "0.405", "+0.006", "4m 58s", "KEEP", "ok", "keep"),
+        ("T009", "recycling", "local_geometry", "0.344", "+0.008", "6m 11s", "KEEP", "ok", "keep"),
+        ("T022", "pair_attention", "long_range_topology", "0.349", "+0.012", "8m 40s", "PLACEBO_KILL", "bad", "killed"),
+        ("T030", "recycling", "local_geometry", "0.366", "+0.015", "7m 55s", "KNOCKOUT_SURVIVES", "bad", "killed"),
+        ("T035", "normalization", "stability_compute", "0.358", "+0.009", "6m 30s", "SEED_FRAGILE", "bad", "killed"),
+        ("T006", "optimizer", "—", "0.331", "+0.006", "5m 45s", "DISCARD", "muted", "discard"),
+        ("T013", "curriculum", "—", "0.339", "+0.001", "6m 05s", "DISCARD", "muted", "discard"),
+        ("T018", "msa_module", "—", "0.357", "—", "6m 22s", "DISCARD", "muted", "discard"),
+        ("T003", "geometry_loss", "—", "—", "—", "2m 10s", "FAIL", "warn", "fail"),
+        ("T017", "msa_module", "—", "—", "—", "0m 31s", "INFRA_FAIL", "info", "fail"),
+    ]
+    return [TrialRow(*r) for r in raw]
+
+
+def _sample_logs() -> list[LogEvent]:
+    raw = [
+        ("09:18:02", "info", "T042", "submitted · geometry_loss · budget short-training"),
+        ("09:18:03", "info", "T042", "preflight passed · locked mounts verified"),
+        ("09:18:05", "info", "—", "Modal trial wave spawned · A100-80GB"),
+        ("09:26:08", "ok", "T042", "scored · best_val_calpha_lddt 0.412"),
+        ("09:26:09", "info", "—", "gate wave spawned · knock-out, placebo, seed×3"),
+        ("09:27:11", "ok", "T042", "CONFIRMED · attributable 0.78 · gap closed"),
+        ("09:27:12", "info", "—", "discovery ledger updated · 7 confirmed"),
+        ("09:30:44", "info", "T043", "submitted · pair_attention"),
+        ("09:38:01", "warn", "T043", "PLACEBO_KILL · matched placebo reproduced 0.7 of gain"),
+        ("09:39:20", "info", "T044", "submitted · recycling"),
+        ("09:46:55", "warn", "T044", "KNOCKOUT_SURVIVES · credit misattributed"),
+        ("09:48:10", "info", "T017", "submitted · msa_module"),
+        ("09:48:41", "err", "T017", "INFRA_FAIL · container OOM during polling"),
+        ("09:52:03", "info", "T045", "submitted · diffusion_sampler"),
+        ("09:57:39", "ok", "T045", "scored · best_val_calpha_lddt 0.405 · KEEP"),
+        ("09:58:00", "info", "—", "scaled to zero · idle"),
+    ]
+    return [LogEvent(*r) for r in raw]
 
 
 def sample_state() -> UiState:
@@ -348,4 +498,6 @@ def sample_state() -> UiState:
         scorer="calpha_lddt_v1",
         is_sample=True,
         source="sample",
+        trials=_sample_trials(),
+        logs=_sample_logs(),
     )

@@ -149,3 +149,86 @@ def overlay_section(s: UiState) -> str:
         f'· before/after lDDT <span class="mono num">{o.before:.2f} → {o.after:.2f}</span></div>'
         '</div></div>'
     )
+
+
+# --- Trials view -----------------------------------------------------------
+
+_FILTERS = [
+    ("all", "All"), ("confirmed", "Confirmed"), ("keep", "KEEP"),
+    ("discard", "DISCARD"), ("killed", "Killed"), ("fail", "Failed"),
+]
+
+
+def trials_table(s: UiState) -> str:
+    rows = ""
+    for t in s.trials:
+        if t.tone == "muted":
+            pill = f'<span class="spill muted">{esc(t.status)}</span>'
+        else:
+            icon = "✓" if t.cat in ("confirmed", "keep") else ("✕" if t.cat == "killed" else None)
+            pill = status_pill(t.status, t.tone, icon)
+        dcls = "c-d num" if t.cat in ("confirmed", "keep") else "c-d muted num"
+        rows += (
+            f'<tr data-status="{esc(t.cat)}">'
+            f'<td class="c-mono">{esc(t.trial_id)}</td>'
+            f"<td>{esc(t.move_family)}</td>"
+            f'<td class="c-axis">{esc(t.axis)}</td>'
+            f'<td class="r {dcls}">{esc(t.delta)}</td>'
+            f'<td class="r num">{esc(t.runtime)}</td>'
+            f'<td class="r">{pill}</td></tr>'
+        )
+
+    def count(cat: str) -> int:
+        return len(s.trials) if cat == "all" else sum(1 for t in s.trials if t.cat == cat)
+
+    chips = "".join(
+        f'<button class="fbtn{" is-active" if cat == "all" else ""}" data-filter="{cat}" type="button">'
+        f'{esc(label)}<span class="n">{count(cat)}</span></button>'
+        for cat, label in _FILTERS
+    )
+    total = s.counts.get("trials", len(s.trials))
+    shown = len(s.trials)
+    cap = f"Showing {shown} of {total} trials." if shown < total else f"{total} trials."
+    return (
+        '<h2 class="block-title">Trials</h2>'
+        '<div class="block-sub">Every submitted trial. Filter by status; failures and kills stay visible.</div>'
+        f'<div class="filter-bar">{chips}</div>'
+        '<table class="dtable" id="trialsTable"><thead><tr>'
+        '<th>Trial</th><th>Move family</th><th>Axis</th>'
+        '<th class="r">Δ lDDT</th><th class="r">Runtime</th><th class="r">Status</th>'
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+        f'<div class="led-cap">{esc(cap)}</div>'
+    )
+
+
+# --- Logs view -------------------------------------------------------------
+
+_SEARCH_ICON = (
+    '<svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/>'
+    '<path d="M11 11l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
+)
+
+
+def logs_feed(s: UiState) -> str:
+    rows = ""
+    for ev in s.logs:
+        msgcls = f" {ev.level}" if ev.level in ("warn", "err") else ""
+        text = f"{ev.time} {ev.trial} {ev.message}".lower()
+        rows += (
+            f'<div class="logrow" data-text="{esc(text)}">'
+            f'<span class="logdot {esc(ev.level)}"></span>'
+            f'<span class="logtime">{esc(ev.time) or "—"}</span>'
+            f'<span class="logtrial">{esc(ev.trial)}</span>'
+            f'<span class="logmsg{msgcls}">{esc(ev.message)}</span></div>'
+        )
+    toolbar = (
+        '<div class="log-toolbar"><div class="log-search">'
+        f"{_SEARCH_ICON}"
+        '<input type="text" id="logSearch" placeholder="Search logs" aria-label="Search logs"></div></div>'
+    )
+    return (
+        '<h2 class="block-title">Logs</h2>'
+        '<div class="block-sub">Orchestrator and trial events for the run.</div>'
+        f"{toolbar}"
+        f'<div class="logfeed" id="logFeed">{rows}</div>'
+    )

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from autoalphafold3.ui import load_state, sample_state
 from autoalphafold3.ui.build import build
-from autoalphafold3.ui.page import render_board
+from autoalphafold3.ui.page import render_board, render_logs, render_trials
 
 
 def _traj_points(html: str) -> list[dict]:
@@ -80,8 +80,38 @@ def test_no_ledger_falls_back_to_sample(tmp_path: Path) -> None:
 
 def test_build_writes_outputs(tmp_path: Path) -> None:
     out = build(tmp_path / "ui", sample=True)
-    assert (out / "index.html").exists()
     payload = json.loads((out / "ui_state.json").read_text(encoding="utf-8"))
     assert payload["best_val_calpha_lddt"] == 0.412
-    # design system is copied from the repo if present
-    assert (out / "assets" / "modal.css").exists()
+    # all pages + design system
+    for name in ("index.html", "trials.html", "logs.html", "assets/modal.css"):
+        assert (out / name).exists(), name
+
+
+def test_trials_view_renders() -> None:
+    html = render_trials(sample_state())
+    for needle in ("Trials", 'id="trialsTable"', "geometry_loss", "PLACEBO_KILL", 'data-filter="killed"', 'href="index.html"'):
+        assert needle in html, needle
+
+
+def test_logs_view_renders() -> None:
+    html = render_logs(sample_state())
+    for needle in ('id="logFeed"', "best_val_calpha_lddt 0.412", "INFRA_FAIL", 'id="logSearch"', 'href="logs.html"'):
+        assert needle in html, needle
+
+
+def test_real_ledger_populates_trials_and_logs(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    rows = [
+        {"trial_id": "T001", "status": "SCORED", "candidate_id": "c1",
+         "fold_cartographer": {"signature": "baseline"},
+         "metrics": {"best_val_calpha_lddt": 0.33}},
+        {"trial_id": "T002", "status": "KEEP", "candidate_id": "c2",
+         "fold_cartographer": {"signature": "good"},
+         "metrics": {"best_val_calpha_lddt": 0.39, "runtime_seconds": 492}},
+    ]
+    (runs / "ledger.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    state = load_state(runs)
+    assert [t.trial_id for t in state.trials] == ["T001", "T002"]
+    assert any(t.runtime == "8m 12s" for t in state.trials)  # 492s formatted
+    assert any(e.message.startswith("scored") for e in state.logs)

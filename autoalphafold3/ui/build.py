@@ -15,7 +15,7 @@ import json
 import shutil
 from pathlib import Path
 
-from autoalphafold3.ui.page import render_board
+from autoalphafold3.ui.page import render_board, render_logs, render_trials
 from autoalphafold3.ui.state import load_state, sample_state
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -23,16 +23,27 @@ ASSETS_SRC = REPO_ROOT / "docs" / "spec" / "ui" / "assets"
 ASSET_FILES = ("modal.css", "board.js")
 
 
-def build(out_dir: str | Path, runs_dir: str | Path = "runs", *, sample: bool = False) -> Path:
+def build(
+    out_dir: str | Path,
+    runs_dir: str | Path = "runs",
+    *,
+    sample: bool = False,
+    board_name: str = "index.html",
+    write_state: bool = True,
+) -> Path:
     state = sample_state() if sample else load_state(runs_dir)
     out = Path(out_dir)
     (out / "assets").mkdir(parents=True, exist_ok=True)
-    (out / "index.html").write_text(render_board(state), encoding="utf-8")
-    (out / "ui_state.json").write_text(json.dumps(state.to_json(), indent=2), encoding="utf-8")
+    (out / board_name).write_text(render_board(state, board_name), encoding="utf-8")
+    (out / "trials.html").write_text(render_trials(state, board_name), encoding="utf-8")
+    (out / "logs.html").write_text(render_logs(state, board_name), encoding="utf-8")
+    if write_state:
+        (out / "ui_state.json").write_text(json.dumps(state.to_json(), indent=2), encoding="utf-8")
     for name in ASSET_FILES:
         src = ASSETS_SRC / name
-        if src.exists():
-            shutil.copyfile(src, out / "assets" / name)
+        dst = out / "assets" / name
+        if src.exists() and src.resolve() != dst.resolve():  # skip self-copy when out is the source dir
+            shutil.copyfile(src, dst)
     return out
 
 

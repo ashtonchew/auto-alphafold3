@@ -67,7 +67,6 @@ def trajectory_chart(points: list, baseline: float | None) -> tuple[str, str]:
     if hi - lo < 0.12:
         hi = lo + 0.12
     span = hi - lo
-    step = span / 3
 
     def y(s: float) -> float:
         return 300 - (s - lo) / span * 260
@@ -78,12 +77,12 @@ def trajectory_chart(points: list, baseline: float | None) -> tuple[str, str]:
         return 60 + (i / (n - 1) * 640 if n > 1 else 0)
 
     parts: list[str] = []
-    for k in (3, 2, 1):
-        yy = 300 - k / 3 * 260
-        parts.append(f'<line class="grid-line" x1="60" y1="{yy:.0f}" x2="700" y2="{yy:.0f}"/>')
-    for k in range(4):
-        val = lo + k * step
-        yy = 300 - k / 3 * 260
+    n_ticks = max(3, round(span / 0.04))  # clean 0.04-step ticks
+    for k in range(n_ticks + 1):
+        val = lo + k * 0.04
+        yy = y(val)
+        if 0 < k < n_ticks:
+            parts.append(f'<line class="grid-line" x1="60" y1="{yy:.0f}" x2="700" y2="{yy:.0f}"/>')
         parts.append(f'<text class="ax-tick num" x="50" y="{yy + 4:.0f}" text-anchor="end">{val:.2f}</text>')
     parts.append('<line class="ax-line" x1="60" y1="40" x2="60" y2="300"/>')
     parts.append('<line class="ax-line" x1="60" y1="300" x2="700" y2="300"/>')

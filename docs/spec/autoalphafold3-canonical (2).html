@@ -1243,6 +1243,134 @@ def sample_once(cfg: dict) -&gt; dict:
     <p>Pin the image (CUDA base + exact library versions) so heavy layers cache and stay reproducible. Add the editable dirs with <code>copy=False</code> so they mount at container startup instead of baking an image layer — a code patch then re-uploads only the mount, not a layer. Redeploy when the editable-surface git SHA changes; otherwise just submit more jobs against the current deployment. Because the gate reuses <code>run_trial</code>, the knock-out and placebo run the exact code the wave was frozen at — the controls and the candidate can never run different source.</p>
   </div>
   <p>With <code>copy=False</code>, a container reads the editable dirs at startup. The working tree is mutated exactly once per wave — apply patch, commit, deploy-if-changed, launch trial, wait, then run the gate against the same frozen SHA — and the next patch waits until the verdict resolves. Every trial and every control records the exact code, app revision, scorer, and features it ran against, so the research trajectory is reproducible, not just fast.</p>
+
+  <h3>7.5 &nbsp;Performance optimizations &mdash; verified-safe addendum</h3>
+  <p>Each optimization below has been audited against the locked benchmark contract (&sect;4, &sect;6) and the seed-variance reproducibility requirement (&sect;13). Selection criterion: high confidence the change does not alter scoring, training dynamics, MSA features, or seed reproducibility, AND a measurable wall-clock or operational win. Trade-off optimizations &mdash; GPU memory snapshots, Volume v2, alternative MSA tools, larger batch sizes &mdash; remain hypothesis material for the agent's move-family search and are not adopted as defaults; the excluded list at the end of this subsection records why.</p>
+
+  <h4>1. Scorer as a class with CPU memory snapshot and concurrent inputs</h4>
+  <p>The scorer's state &mdash; locked manifest, label parquet, scorer version &mdash; is read-only after init. Convert <code>score_trial</code> from a bare Function to a class with CPU memory snapshot and input concurrency. Saves 3&ndash;5 s per trial across the agent's critical path and removes the p99 long-tail scorer cold start that occasionally stalls a wave.</p>
+  <p class="code-label">autoalphafold3/modal_app.py &mdash; scorer Cls</p>
+<pre><code>@app.cls(
+    image=scorer_image,
+    cpu=2.0,
+    enable_memory_snapshot=True,
+    min_containers=1,
+    scaledown_window=600,
+    timeout=10 * 60,
+    volumes={RUNS: runs_ro, LOCKED: locked_ro},
+)
+@modal.concurrent(max_inputs=4, target_inputs=2)
+class Scorer:
+    @modal.enter(snap=True)
+    def load_locked_state(self):
+        runs_ro.reload(); locked_ro.reload()
+        from autoalphafold3.locked_scorer import load_locked_state
+        self._locked = load_locked_state(LOCKED)
+
+    @modal.method()
+    def score(self, trial_id: str) -&gt; dict:
+        from autoalphafold3.locked_scorer import score_trial_artifacts
+        return score_trial_artifacts(
+            artifact_dir=trial_artifact_dir(trial_id),
+            locked=self._locked,
+        )
+</code></pre>
+  <p>Verification before going live: confirm <code>locked_scorer.py</code> does not memoize anything to <code>self.*</code> mid-call. If it stays pure, this is the cleanest win on the list.</p>
+
+  <h4>2. Training Cls with CPU-only memory snapshot, per-call reseed, per-call fresh model</h4>
+  <p>Convert <code>run_trial</code> to a class with CPU memory snapshot. Do <strong>not</strong> enable GPU snapshot (<code>experimental_options={"enable_gpu_snapshot": True}</code>) &mdash; GPU snapshots capture CUDA RNG state, which collapses seed diversity across every container restoring from the same snapshot. Two per-call mitigations are mandatory:</p>
+  <ul>
+    <li>Reseed Python <code>random</code>, NumPy, <code>torch</code>, and <code>torch.cuda</code> from <code>trial_json["seed"]</code> at the top of every method call &mdash; AFTER snapshot restore.</li>
+    <li>Rebuild the model from a frozen <code>fresh_init_state</code> at the top of every method call &mdash; Modal's <code>@app.cls</code> has no documented per-call reset hook, so trial-N state leaks into trial N+1 without this.</li>
+  </ul>
+  <p class="code-label">autoalphafold3/modal_app.py &mdash; TrialRunner Cls</p>
+<pre><code>@app.cls(
+    image=train_image, gpu="A100-80GB",
+    enable_memory_snapshot=True,   # CPU snapshot only.
+    min_containers=1, scaledown_window=300, timeout=45 * 60, max_containers=6,
+    volumes={FEATURES: features_ro, RUNS: runs_rw},
+)
+class TrialRunner:
+    @modal.enter(snap=True)
+    def cpu_init(self):
+        import torch
+        from nanofold.model import build_model_skeleton
+        self._build_model = build_model_skeleton
+        self._fresh_init_state = torch.load("/mnt/.../init_state.pt", map_location="cpu")
+        # NO seeding here -- would be captured in snapshot.
+
+    @modal.enter(snap=False)
+    def post_restore(self):
+        import torch
+        self.device = torch.device("cuda")
+
+    @modal.method()
+    def run(self, trial_json: dict) -&gt; dict:
+        import torch, numpy as np, random
+        seed = trial_json["seed"]
+        random.seed(seed); np.random.seed(seed)
+        torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
+        model = self._build_model(trial_json["config"]).to(self.device)
+        model.load_state_dict(self._fresh_init_state)
+        from autoalphafold3.runner import run_fixed_budget_trial
+        return run_fixed_budget_trial(trial_json, model,
+                                      output_dir=trial_artifact_dir(trial_json["trial_id"]))
+</code></pre>
+  <p>Saves 5&ndash;15 s per cold trial. Pre-event smoke tests 1 and 4 below catch the two failure modes if either mitigation is wrong.</p>
+
+  <h4>3. Image layer ordering rule</h4>
+  <p>The existing <code>copy=False</code> mount pattern (&sect;7.4) is correct, but the layer ordering it depends on must be explicit. A future contributor adding any build step after a mount would silently break the cache and turn a 3-second deploy into a 90&ndash;180-second rebuild.</p>
+  <ul>
+    <li>All heavy/stable layers first: <code>from_registry &rarr; apt_install &rarr; pip_install &rarr; run_commands</code>.</li>
+    <li>All editable mounts last: <code>add_local_dir(copy=False)</code>.</li>
+    <li>Never add a build step (<code>run_commands</code>, <code>pip_install</code>, etc.) after any <code>add_local_dir(copy=False)</code>.</li>
+    <li>Guard against <code>MODAL_FORCE_BUILD=1</code> leaking into the orchestrator's shell &mdash; that variable rebuilds all images regardless of cache.</li>
+  </ul>
+
+  <h4>4. Parallel local preflight checks</h4>
+  <p>Three of the seven preflight gates (&sect;5.5) are pure-Python file I/O on git &mdash; forbidden files, config schema, parameter count. They are thread-safe by construction and can run in parallel. The four GPU-requiring checks remain sequential because they touch the warm <code>TrialRunner</code> Cls and would otherwise risk the state-leak modes addressed in &sect;7.5.2.</p>
+<pre><code>from concurrent.futures import ThreadPoolExecutor
+
+def preflight(trial: dict) -&gt; None:
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [
+            pool.submit(check_forbidden_files_unchanged, FORBIDDEN),
+            pool.submit(check_config_schema, trial["config_path"]),
+            pool.submit(check_param_count_under_cap, trial),
+        ]
+        for f in futures:
+            f.result()
+    # Sequential GPU checks against the warm Cls -- state reset between calls.
+    run_tiny_forward_pass(trial)
+    run_one_batch_loss_check(trial)
+    run_scorer_dry_run_schema_check()
+</code></pre>
+  <p>Saves &asymp;10 s per wave.</p>
+
+  <div class="callout">
+    <div class="callout-label">Excluded from this addendum</div>
+    <p>The following were considered and rejected as not meeting the bar. Each remains a candidate hypothesis for the agent's move-family search, where the trade-off is reasoned about explicitly and observed in the diagnostics.</p>
+    <ul>
+      <li><strong>GPU memory snapshots</strong> (<code>enable_gpu_snapshot</code>): captures CUDA RNG, collapses seed diversity across restoring containers. Alpha-stage in Modal.</li>
+      <li><strong>Volume v2 migration</strong>: Modal docs explicitly do not recommend for mission-critical data while in beta.</li>
+      <li><strong>GPU fallback lists</strong> (<code>gpu=[...]</code>) on any scored run: silently mixes hardware tiers and conflates with seed variance.</li>
+      <li><strong>MMseqs2 in place of HHblits</strong>: produces different MSAs and invalidates the baseline's locked feature contract.</li>
+      <li><strong>Speculative trial pre-spawning with <code>FunctionCall.cancel()</code></strong>: <code>cancel()</code> has no documented atomicity guarantee; partial-write risk on the Volume.</li>
+      <li><strong>Larger batch sizes on A100 by default</strong>: changes training dynamics. The agent may propose this as an <code>optimizer_scheduler</code> move.</li>
+      <li><strong>Disable gradient checkpointing by default</strong>: bf16 recompute drift can shift scores. The agent may propose this as a <code>memory_runtime</code> move.</li>
+      <li><strong><code>buffer_containers</code></strong>: only applies while the Function is active; for bursty waves separated by agent thinking time, <code>min_containers</code> is the correct knob.</li>
+      <li><strong><code>@modal.concurrent</code> on the training Function</strong>: Modal docs flag thread-safety as the user's responsibility, and training code typically mutates <code>self.*</code>.</li>
+    </ul>
+  </div>
+
+  <h4>Required pre-event smoke tests</h4>
+  <p>These four tests must pass before any optimization in this addendum lands in the canonical scoring path. Each catches a specific silent-corruption mode that no exception would raise.</p>
+  <ul class="checklist">
+    <li><strong>CPU snapshot + seed divergence.</strong> Spawn 4 containers from one CPU snapshot. Each runs a no-op trial with <code>seed=container_index</code>; log <code>torch.rand(1).item()</code> from each. All four must differ. If identical, post-restore reseeding is broken.</li>
+    <li><strong>Within-hardware repeatability.</strong> Run the same trial config twice on the same A100-80GB. Final lDDT must be bit-identical (or differ by less than bf16 ULP). Sets the per-config noise floor.</li>
+    <li><strong>Compile-vs-eager equivalence.</strong> Run the same config + seed with <code>torch.compile</code> on vs off. Compare final-layer logits and final lDDT. If divergence exceeds the noise floor from the previous test, gate compile mode on a per-run flag.</li>
+    <li><strong>Container reuse contamination.</strong> Run trial config A, then trial config B, in the same container. Trial B's initial loss must match a fresh-container trial B's initial loss within noise. If not, the per-call model rebuild is not actually rebuilding.</li>
+  </ul>
 </section>
 
 <section id="s8">

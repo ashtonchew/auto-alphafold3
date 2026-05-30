@@ -1,4 +1,4 @@
-# AutoAlphaFold3 Goal-Mode Handoff
+# AutoAlphaFold3 Foundation Goal-Mode Prompt
 
 This handoff keeps the in-chat `/goal` prompt short and puts the long-running
 implementation contract in the repository where Codex can reread it after
@@ -31,7 +31,7 @@ current:
 
 ```text
 /goal
-Implement the NanoFold-style AlphaFold3-lite foundation described in docs/handoffs/goal/autoalphafold3-foundation.md. First pull latest main, verify PR #6 is merged, read the required repo docs, and create docs/handoffs/goal/autoalphafold3-foundation/{GOAL.md,PLAN.md,IMPLEMENTATION_CHECKLIST.md,EXPERIMENTS.md,EXPERIMENT_NOTES.md}. Use local Codex worktrees and ship feature-sized stacked PRs with semantic feat/... branch names and conventional commits. Before each feature PR, use parallel read-only subagents to ground the implementation in the docs/spec/tests, explain the best-practice implementation approach, then implement autonomously. Preserve locality of behavior, modularity by feature, simplicity, and exact spec compliance. Do not create fake benchmark/data artifacts or start autonomous research trials. Done only when the checklist is 100% complete, all PRs are open, and final tests pass: python3 -m pytest -p no:cacheprovider and python3 .claude/skill-evals/run_offline_evals.py.
+Implement the NanoFold-style AlphaFold3-lite foundation described in docs/handoffs/goal/autoalphafold3-foundation-goal-mode-prompt.md. First pull latest main, verify PR #6 is merged, read the required repo docs, and create docs/handoffs/goal/autoalphafold3-foundation/{GOAL.md,PLAN.md,IMPLEMENTATION_CHECKLIST.md,EXPERIMENTS.md,EXPERIMENT_NOTES.md}. Use local Codex worktrees and ship feature-sized stacked PRs with semantic feat/... branch names and conventional commits. Before each feature PR, use parallel read-only subagents to ground the implementation in the docs/spec/tests, explain the best-practice implementation approach, then implement autonomously. Preserve locality of behavior, modularity by feature, simplicity, and exact spec compliance. Do not create fake benchmark/data artifacts or start autonomous research trials. Done only when the checklist is 100% complete, all PRs are open, and final tests pass: python3 -m pytest -p no:cacheprovider and python3 .claude/skill-evals/run_offline_evals.py.
 ```
 
 ## Full Goal Contract

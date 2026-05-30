@@ -13,6 +13,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Literal
 
+from autoalphafold3._tracing import span
 from autoalphafold3.scorer import SCORER_VERSION
 
 DATA_VOLUME = "autoalphafold3-data"
@@ -139,6 +140,29 @@ def audit_modal_assets(
 ) -> ModalAssetAudit:
     """Audit Modal Volume assets for May 30, 2026 search-loop readiness."""
 
+    with span(
+        "modal_asset_audit",
+        data_volume=data_volume,
+        locked_volume=locked_volume,
+        env=str(env) if env else "None",
+    ):
+        return _audit_modal_assets_impl(
+            data_volume=data_volume,
+            locked_volume=locked_volume,
+            env=env,
+            lister=lister,
+            reader=reader,
+        )
+
+
+def _audit_modal_assets_impl(
+    *,
+    data_volume: str = DATA_VOLUME,
+    locked_volume: str = LOCKED_VOLUME,
+    env: str | None = None,
+    lister: VolumeLister | None = None,
+    reader: VolumeReader | None = None,
+) -> ModalAssetAudit:
     lister = lister or _modal_volume_ls(env=env)
     reader = reader or _modal_volume_get(env=env)
     problems: list[str] = []

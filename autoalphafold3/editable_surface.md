@@ -35,6 +35,7 @@ This file defines the intended search surface for future autoresearch trials. Na
 - `external/nanofold/scripts/download_pdb.sh`
 - `external/nanofold/docker/**` unless a human explicitly unlocks infrastructure mode
 - `external/nanofold/requirements/**` unless a human explicitly unlocks dependency mode
+- `autoalphafold3/_tracing.py`
 - `autoalphafold3/scorer/**`
 - `autoalphafold3/benchmark_contract.md`
 - `autoalphafold3/modal_app.py`

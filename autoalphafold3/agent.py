@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from autoalphafold3._tracing import span
 from autoalphafold3.orchestrator import poll_trial, submit_trial
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
 from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
@@ -106,56 +107,76 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.command == "submit":
-        manifest_paths = _parse_manifest_args(args.manifest)
-        call_id = submit_trial(
-            args.trial_path,
-            repo_root=args.repo_root,
-            ledger_path=args.ledger_path,
-            manifest_paths=manifest_paths,
+        with span(
+            "cli.submit",
+            trial_path=str(args.trial_path),
             mode=args.mode,
-            enforce_git_diff=args.enforce_git_diff or args.strict_preflight,
-            strict_nanofold_gates=args.strict_preflight,
-        )
-        print(json.dumps({"call_id": call_id}, sort_keys=True))
-        return 0
+            repo_root=str(args.repo_root),
+        ):
+            manifest_paths = _parse_manifest_args(args.manifest)
+            call_id = submit_trial(
+                args.trial_path,
+                repo_root=args.repo_root,
+                ledger_path=args.ledger_path,
+                manifest_paths=manifest_paths,
+                mode=args.mode,
+                enforce_git_diff=args.enforce_git_diff or args.strict_preflight,
+                strict_nanofold_gates=args.strict_preflight,
+            )
+            print(json.dumps({"call_id": call_id}, sort_keys=True))
+            return 0
     if args.command == "poll":
-        result = poll_trial(args.call_id, repo_root=args.repo_root, ledger_path=args.ledger_path)
-        print(result.model_dump_json())
-        return 0
+        with span("cli.poll", call_id=str(args.call_id), repo_root=str(args.repo_root)):
+            result = poll_trial(args.call_id, repo_root=args.repo_root, ledger_path=args.ledger_path)
+            print(result.model_dump_json())
+            return 0
     if args.command == "validate-manifest":
-        reports = validate_manifest_files(
-            args.manifest,
-            repo_root=args.repo_root,
-            verify_assets=not args.no_verify_assets,
-            allow_empty=args.allow_empty,
-        )
-        print(json.dumps([report.to_dict() for report in reports], sort_keys=True))
-        return 0
+        with span(
+            "cli.validate_manifest",
+            manifest_count=len(args.manifest),
+            repo_root=str(args.repo_root),
+        ):
+            reports = validate_manifest_files(
+                args.manifest,
+                repo_root=args.repo_root,
+                verify_assets=not args.no_verify_assets,
+                allow_empty=args.allow_empty,
+            )
+            print(json.dumps([report.to_dict() for report in reports], sort_keys=True))
+            return 0
     if args.command == "audit-modal-assets":
-        report = audit_modal_assets(
-            data_volume=args.data_volume,
-            locked_volume=args.locked_volume,
-            env=args.env,
-        )
-        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
-        if args.search_ready:
-            try:
-                require_search_ready_assets(report)
-            except ModalAssetAuditError:
-                return 1
-        return 1 if report.status == "FAIL" else 0
+        with span(
+            "cli.audit_modal_assets",
+            env=str(args.env),
+            data_volume=str(args.data_volume),
+            locked_volume=str(args.locked_volume),
+            search_ready=bool(args.search_ready),
+        ):
+            report = audit_modal_assets(
+                data_volume=args.data_volume,
+                locked_volume=args.locked_volume,
+                env=args.env,
+            )
+            print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+            if args.search_ready:
+                try:
+                    require_search_ready_assets(report)
+                except ModalAssetAuditError:
+                    return 1
+            return 1 if report.status == "FAIL" else 0
     if args.command == "readiness-report":
-        report = build_readiness_report(
-            repo_root=args.repo_root,
-            baseline_dir=args.baseline_dir,
-            config_path=args.config_path,
-            calibration_path=args.calibration_path,
-            pending_human_calibration_action=args.pending_human_calibration_action,
-            include_live_smoke=args.include_live_smoke,
-            approved_live_smoke_action=args.human_approved_live_smoke_action,
-        )
-        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
-        return readiness_exit_code(report)
+        with span("cli.readiness"):
+            report = build_readiness_report(
+                repo_root=args.repo_root,
+                baseline_dir=args.baseline_dir,
+                config_path=args.config_path,
+                calibration_path=args.calibration_path,
+                pending_human_calibration_action=args.pending_human_calibration_action,
+                include_live_smoke=args.include_live_smoke,
+                approved_live_smoke_action=args.human_approved_live_smoke_action,
+            )
+            print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+            return readiness_exit_code(report)
     if args.command == "lock-baseline":
         try:
             result = lock_baseline_from_scored_artifacts(

@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from autoalphafold3._tracing import span
+
 TRIAL_ID_RE = re.compile(r"^T[0-9]{3,}$")
 ARTIFACT_MANIFEST_SCHEMA = "autoaf3.artifact_manifest.v1"
 PREDICTIONS_SCHEMA = "autoaf3.predictions.v1"
@@ -124,18 +126,19 @@ def write_artifact_manifest_stub(
     """Write a local stub artifact manifest without claiming training happened."""
 
     trial_id = validate_trial_id(str(trial_json.get("trial_id", "")))
-    output = Path(output_dir)
-    _require_trial_output_dir(output, trial_id)
-    output.mkdir(parents=True, exist_ok=True)
-    manifest = artifact_manifest_shape(
-        trial_id=trial_id,
-        output_dir=output,
-        features_dir=features_dir,
-        split=split,
-    )
-    manifest_path = output / "artifact_manifest.json"
-    _atomic_write_json(manifest_path, manifest)
-    return manifest
+    with span("write_artifact_manifest_stub", trial_id=trial_id, path=str(Path(output_dir))):
+        output = Path(output_dir)
+        _require_trial_output_dir(output, trial_id)
+        output.mkdir(parents=True, exist_ok=True)
+        manifest = artifact_manifest_shape(
+            trial_id=trial_id,
+            output_dir=output,
+            features_dir=features_dir,
+            split=split,
+        )
+        manifest_path = output / "artifact_manifest.json"
+        _atomic_write_json(manifest_path, manifest)
+        return manifest
 
 
 def prediction_artifact_shape(
@@ -175,17 +178,23 @@ def write_prediction_artifact(
     """Write a canonical local prediction artifact for scorer-compatible tests."""
 
     checked_trial_id = validate_trial_id(trial_id)
-    output = Path(output_dir)
-    _require_trial_output_dir(output, checked_trial_id)
-    output.mkdir(parents=True, exist_ok=True)
-    payload = prediction_artifact_shape(
+    with span(
+        "write_prediction_artifact",
         trial_id=checked_trial_id,
-        split=split,
-        predictions=predictions,
-        source=source,
-    )
-    _atomic_write_json(output / PREDICTIONS_FILENAME, payload)
-    return payload
+        prediction_count=len(predictions),
+        split=str(split),
+    ):
+        output = Path(output_dir)
+        _require_trial_output_dir(output, checked_trial_id)
+        output.mkdir(parents=True, exist_ok=True)
+        payload = prediction_artifact_shape(
+            trial_id=checked_trial_id,
+            split=split,
+            predictions=predictions,
+            source=source,
+        )
+        _atomic_write_json(output / PREDICTIONS_FILENAME, payload)
+        return payload
 
 
 def initialize_trial_directory(
@@ -205,40 +214,41 @@ def initialize_trial_directory(
     """
 
     trial_id = validate_trial_id(str(trial_json.get("trial_id", "")))
-    output = Path(output_dir)
-    _require_trial_output_dir(output, trial_id)
-    done_marker = output / DONE_FILENAME
-    if done_marker.exists() and not allow_existing_done:
-        raise RunnerError(f"trial directory already completed: {output}")
+    with span("initialize_trial_directory", trial_id=trial_id, output_dir=str(Path(output_dir))):
+        output = Path(output_dir)
+        _require_trial_output_dir(output, trial_id)
+        done_marker = output / DONE_FILENAME
+        if done_marker.exists() and not allow_existing_done:
+            raise RunnerError(f"trial directory already completed: {output}")
 
-    output.mkdir(parents=True, exist_ok=True)
-    manifest = write_artifact_manifest_stub(
-        {**trial_json, "trial_id": trial_id},
-        features_dir=features_dir,
-        output_dir=output,
-        split=split,
-    )
-    _atomic_write_json(
-        output / "training_log.json",
-        {
-            "schema_version": "autoaf3.training_log.v1",
-            "trial_id": trial_id,
-            "status": "STUB_ONLY",
-            "real_training_performed": False,
-            "events": [
-                {
-                    "event": "initialized_local_stub",
-                    "timestamp_unix": 0,
-                    "message": "Artifact envelope initialized; no NanoFold training was run.",
-                }
-            ],
-        },
-    )
-    (output / "stdout.log").write_text("", encoding="utf-8")
-    (output / "stderr.log").write_text("", encoding="utf-8")
-    (output / "patch.diff").write_text(patch_text, encoding="utf-8")
-    done_marker.write_text(f"local_stub_completed_at={int(time.time())}\n", encoding="utf-8")
-    return manifest
+        output.mkdir(parents=True, exist_ok=True)
+        manifest = write_artifact_manifest_stub(
+            {**trial_json, "trial_id": trial_id},
+            features_dir=features_dir,
+            output_dir=output,
+            split=split,
+        )
+        _atomic_write_json(
+            output / "training_log.json",
+            {
+                "schema_version": "autoaf3.training_log.v1",
+                "trial_id": trial_id,
+                "status": "STUB_ONLY",
+                "real_training_performed": False,
+                "events": [
+                    {
+                        "event": "initialized_local_stub",
+                        "timestamp_unix": 0,
+                        "message": "Artifact envelope initialized; no NanoFold training was run.",
+                    }
+                ],
+            },
+        )
+        (output / "stdout.log").write_text("", encoding="utf-8")
+        (output / "stderr.log").write_text("", encoding="utf-8")
+        (output / "patch.diff").write_text(patch_text, encoding="utf-8")
+        done_marker.write_text(f"local_stub_completed_at={int(time.time())}\n", encoding="utf-8")
+        return manifest
 
 
 def validate_artifact_manifest(manifest: dict[str, object]) -> dict[str, object]:
@@ -302,18 +312,22 @@ def run_fixed_budget_trial(
     real NanoFold training job, GPU run, Arrow load, or benchmark metric exists.
     """
 
-    if not allow_local_stub:
-        raise RunnerError(
-            "run_fixed_budget_trial is not implemented without NanoFold features, "
-            "dependencies, and Modal/GPU execution; pass allow_local_stub=True only "
-            "for local artifact-manifest tests"
+    with span(
+        "run_fixed_budget_trial",
+        trial_id=str(trial_json.get("trial_id", "")),
+    ):
+        if not allow_local_stub:
+            raise RunnerError(
+                "run_fixed_budget_trial is not implemented without NanoFold features, "
+                "dependencies, and Modal/GPU execution; pass allow_local_stub=True only "
+                "for local artifact-manifest tests"
+            )
+        return initialize_trial_directory(
+            trial_json,
+            features_dir=features_dir,
+            output_dir=output_dir,
+            split=split,
         )
-    return initialize_trial_directory(
-        trial_json,
-        features_dir=features_dir,
-        output_dir=output_dir,
-        split=split,
-    )
 
 
 def run_final_validation(
@@ -326,16 +340,21 @@ def run_final_validation(
 ) -> dict[str, object]:
     """Future final-validation interface with the same no-fake-run guard."""
 
-    if seed < 0:
-        raise RunnerError(f"invalid seed: {seed}")
-    payload = dict(trial_json)
-    payload["seed"] = seed
-    return run_fixed_budget_trial(
-        payload,
-        features_dir=features_dir,
-        output_dir=output_dir,
-        allow_local_stub=allow_local_stub,
-    )
+    with span(
+        "run_final_validation",
+        trial_id=str(trial_json.get("trial_id", "")),
+        seed=int(seed),
+    ):
+        if seed < 0:
+            raise RunnerError(f"invalid seed: {seed}")
+        payload = dict(trial_json)
+        payload["seed"] = seed
+        return run_fixed_budget_trial(
+            payload,
+            features_dir=features_dir,
+            output_dir=output_dir,
+            allow_local_stub=allow_local_stub,
+        )
 
 
 def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:

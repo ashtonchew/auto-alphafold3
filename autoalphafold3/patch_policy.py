@@ -54,6 +54,27 @@ DENIED_EXACT = {
     "autoalphafold3/preflight.py",
     "autoalphafold3/patch_policy.py",
 }
+# Files that must not be modified by agent patches. _tracing.py is build-time
+# developer tooling; if the agent could rewrite it, it could disable trace
+# capture and mask its own behavior from human review.
+TRACING_LOCKED_FILES = frozenset({
+    "autoalphafold3/_tracing.py",
+})
+
+# Modules that may import the raindrop or opentelemetry SDK. Only _tracing.py
+# is allowed; any other import path bypasses the locked tracing module and
+# is rejected.
+TRACING_SDK_IMPORTERS = frozenset({
+    "autoalphafold3/_tracing.py",
+})
+
+TRACING_FORBIDDEN_IMPORTS = (
+    "import raindrop",
+    "from raindrop",
+    "import opentelemetry",
+    "from opentelemetry",
+)
+
 BINARY_SUFFIXES = {
     ".arrow",
     ".bin",
@@ -85,6 +106,7 @@ def validate_patch_scope(
 
     root = Path(repo_root)
     normalized = [_normalize_repo_path(path) for path in changed_paths]
+    validate_tracing_lockout(normalized, "")
     for path in normalized:
         _reject_forbidden_path(path)
         _reject_binary_path(path)
@@ -122,6 +144,39 @@ def _reject_symlink(root: Path, path: str) -> None:
     candidate = root / path
     if candidate.exists() and candidate.is_symlink():
         raise PatchPolicyError(f"symlinks are not allowed in patches: {path}")
+
+
+def validate_tracing_lockout(patch_paths: list[str], patch_diff_text: str) -> None:
+    """Reject patches that touch _tracing.py or introduce raindrop/opentelemetry
+    imports outside _tracing.py.
+
+    Raises PatchPolicyError on violation.
+    """
+    # Block direct edits to the tracing module.
+    for path in patch_paths:
+        if path in TRACING_LOCKED_FILES:
+            raise PatchPolicyError(
+                f"patch touches locked tracing module: {path}. "
+                f"_tracing.py is locked during search per editable_surface.md."
+            )
+
+    # Block raindrop/opentelemetry imports added outside _tracing.py.
+    # We do this by scanning the patch text for added lines that introduce
+    # the forbidden imports. A perfect implementation would parse the diff;
+    # for the hackathon we accept the heuristic that any added line
+    # starting with "+" and matching the forbidden imports is a violation.
+    added_lines = [
+        line[1:].lstrip()
+        for line in patch_diff_text.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    ]
+    for added in added_lines:
+        for forbidden in TRACING_FORBIDDEN_IMPORTS:
+            if added.startswith(forbidden):
+                raise PatchPolicyError(
+                    f"patch adds forbidden import outside _tracing.py: '{added}'. "
+                    f"Only autoalphafold3/_tracing.py may import raindrop or opentelemetry."
+                )
 
 
 def _reject_locked_label_reads(root: Path, path: str) -> None:

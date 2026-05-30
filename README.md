@@ -4,6 +4,24 @@ auto-AlphaFold3 is a hackathon foundation for a NanoFold-style AlphaFold3-lite a
 
 The short version: an agent proposes one protein-folding change, registers what it expects to happen, runs a fixed-budget trial through a locked control plane, and keeps the result only when the score and the diagnostic story survive follow-up controls.
 
+## One-Command Setup (with optional tracing)
+
+```bash
+bash scripts/up.sh
+```
+
+That single command installs the Raindrop Workshop daemon if missing, creates a Python venv at `.venv/`, installs project deps and the optional OpenTelemetry tracing packages, starts the Workshop daemon at `localhost:5899`, sets `RAINDROP_LOCAL_DEBUGGER` so traces flow into the Workshop UI, then drops you into a shell ready to run agent commands. Idempotent — safe to re-run.
+
+To run one command end-to-end with traces flowing:
+
+```bash
+bash scripts/up.sh python -m autoalphafold3.agent readiness-report
+```
+
+Open `http://localhost:5899` to see live trace activity for every CLI invocation, orchestrator call, runner step, gate-wave verdict, and falsification computation.
+
+Tracing is optional and silent-failure: if Workshop is unavailable or the env var is unset, the project runs normally with zero observability overhead. See [`docs/spec/raindrop-workshop.md`](docs/spec/raindrop-workshop.md) for the contract.
+
 This project is intentionally smaller and stricter than its name sounds. Its target is a small monomer folding sandbox built around [`ogchen/nanofold`](https://github.com/ogchen/nanofold), with a locked C-alpha lDDT benchmark and Modal-backed trial infrastructure. Claims about training, reproducing, improving, or competing with Google DeepMind AlphaFold3 are outside scope.
 
 ## Highlights

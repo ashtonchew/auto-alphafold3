@@ -1,0 +1,11 @@
+{
+  "fixture_kind": "local_smoke_label",
+  "target_id": "smoke_A",
+  "target_ca": [
+    [0.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0],
+    [2.0, 0.0, 0.0],
+    [3.0, 0.0, 0.0]
+  ],
+  "target_mask": [true, true, true, true]
+}

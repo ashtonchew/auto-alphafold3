@@ -1,0 +1,6 @@
+{
+  "manifest_kind": "official_template",
+  "schema_version": "autoaf3.manifest.v1",
+  "description": "Empty manifest template for the future train_tiny split. Contains no official benchmark entries yet.",
+  "entries": []
+}

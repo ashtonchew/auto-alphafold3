@@ -1,0 +1,6 @@
+biopython
+pytest
+torchinfo
+mlflow
+pyarrow
+numpy

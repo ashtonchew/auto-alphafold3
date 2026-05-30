@@ -1,0 +1,16 @@
+data
+.git
+.gitignore
+.venv
+.vscode
+.pytest_cache
+**/__pycache__
+**/*.pyc
+.dockerignore
+docker/**
+README.md
+.github/**
+notebook
+*.egg-info
+build
+docs

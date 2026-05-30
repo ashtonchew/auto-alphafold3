@@ -1,0 +1,6 @@
+biopython
+numpy
+pyarrow
+pytest
+pymongo
+scipy

@@ -42,6 +42,8 @@
   pending-human-live, and blocked evidence.
 - [x] Known-null and known-positive gate calibration complete or exact
   `PENDING_HUMAN_LIVE_ACTION` recorded.
+- [x] Stacked follow-up PR records baseline/asset readiness gap hardening on top
+  of the readiness report PR.
 - [ ] Four feature PRs merged.
 - [x] `python3 -m pytest -p no:cacheprovider` passes.
 - [x] `python3 .claude/skill-evals/run_offline_evals.py` passes.

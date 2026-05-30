@@ -57,3 +57,17 @@ Results:
 - Full local suite: 191 passed, 3 skipped.
 - Offline skill evals: all 148 checks passed.
 - `git diff --check`: passed.
+
+## Stacked follow-up: `feat/fix-pr25-readiness-gaps`
+
+Commands run:
+
+- `python3 -m pytest tests/test_baseline_readiness.py tests/test_modal_assets.py tests/test_readiness_report.py tests/test_two_stage_orchestrator.py -p no:cacheprovider`
+- `python3 -m autoalphafold3.agent readiness-report`
+
+Results:
+
+- Targeted baseline/asset/readiness/orchestrator suite: 74 passed, 2 skipped.
+- Readiness report exits non-zero by design because autonomous search is not
+  ready without three exact human actions: real baseline lock, NanoFold runtime
+  dependency installation, and read-only/smoke gate calibration approval.

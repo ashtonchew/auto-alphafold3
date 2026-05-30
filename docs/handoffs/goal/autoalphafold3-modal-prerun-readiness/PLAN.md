@@ -105,8 +105,13 @@ Implementation approach:
   `certification_status` to every section.
 - Add a mocked Modal contract section sourced from the offline harness/worker
   role validators.
+- Add a Modal event-authority section so event-search readiness requires a
+  human-approved Modal-hosted trusted orchestrator action rather than passing
+  from local/mocked evidence alone.
 - Report certification counts for `PASS_LOCAL`, `PASS_MOCKED_MODAL`,
   `PASS_LIVE`, `PENDING_HUMAN_LIVE_ACTION`, `BLOCKED`, and `NOT_REQUESTED`.
 - Treat missing gate calibration as an exact pending human live action, not as
   implementation-complete search readiness.
+- Classify local gate skips by exact reason, using dependency-specific actions
+  only for dependency misses and leaving unknown causes blocked.
 - Keep live Modal asset audit opt-in and read-only.

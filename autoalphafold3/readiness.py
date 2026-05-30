@@ -7,7 +7,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 from autoalphafold3.baseline_readiness import BaselineReadinessReport, audit_baseline_readiness
 from autoalphafold3.modal_assets import ModalAssetAudit, audit_modal_assets
@@ -21,6 +21,8 @@ HUMAN_ACTION_MARKER = "Human-approved live calibration:"
 LIVE_SMOKE_MARKER = "Human-approved read-only live smoke:"
 BASELINE_LOCK_MARKER = "Human-approved baseline lock:"
 LOCAL_DEPENDENCY_MARKER = "Human-approved local dependency action:"
+LOCAL_GATE_MARKER = "Human-approved local gate action:"
+EVENT_AUTHORITY_MARKER = "Human-approved Modal event authority:"
 
 
 class ReadinessStatus(StrEnum):
@@ -71,6 +73,7 @@ class ReadinessReport:
     autonomous_search_ready: bool
     baseline_lock: ReadinessSection
     mocked_modal_contract: ReadinessSection
+    modal_event_authority: ReadinessSection
     local_gates: ReadinessSection
     gate_calibration: ReadinessSection
     live_smoke: ReadinessSection
@@ -84,6 +87,7 @@ class ReadinessReport:
             "autonomous_search_ready": self.autonomous_search_ready,
             "baseline_lock": self.baseline_lock.to_dict(),
             "mocked_modal_contract": self.mocked_modal_contract.to_dict(),
+            "modal_event_authority": self.modal_event_authority.to_dict(),
             "local_gates": self.local_gates.to_dict(),
             "gate_calibration": self.gate_calibration.to_dict(),
             "live_smoke": self.live_smoke.to_dict(),
@@ -114,6 +118,7 @@ def build_readiness_report(
     root = Path(repo_root)
     baseline = _baseline_section(root / baseline_dir)
     mocked_modal_contract = _mocked_modal_contract_section()
+    modal_event_authority = _modal_event_authority_section(mocked_modal_contract)
     local_gates = _local_gates_section(
         repo_root=root,
         config_path=config_path,
@@ -129,7 +134,7 @@ def build_readiness_report(
         modal_audit_runner=modal_audit_runner,
     )
 
-    sections = [baseline, mocked_modal_contract, local_gates, calibration]
+    sections = [baseline, mocked_modal_contract, modal_event_authority, local_gates, calibration]
     if include_live_smoke:
         sections.append(live_smoke)
     problems = [problem for section in sections for problem in section.problems]
@@ -141,6 +146,7 @@ def build_readiness_report(
         autonomous_search_ready=autonomous_search_ready,
         baseline_lock=baseline,
         mocked_modal_contract=mocked_modal_contract,
+        modal_event_authority=modal_event_authority,
         local_gates=local_gates,
         gate_calibration=calibration,
         live_smoke=live_smoke,
@@ -209,6 +215,31 @@ def _mocked_modal_contract_section() -> ReadinessSection:
     )
 
 
+def _modal_event_authority_section(mocked_modal_contract: ReadinessSection) -> ReadinessSection:
+    contract = mocked_modal_contract.details
+    if mocked_modal_contract.status != ReadinessStatus.PASS:
+        return ReadinessSection(
+            status=ReadinessStatus.FAIL,
+            certification_status=CertificationStatus.BLOCKED,
+            problems=["Modal event authority cannot be certified until mocked Modal contracts pass"],
+            details={"mocked_modal_contract_status": mocked_modal_contract.status.value},
+        )
+    pending_live_action = contract.get(
+        "pending_live_action",
+        "deploy and authenticate the Modal-hosted trusted orchestrator before event search",
+    )
+    return ReadinessSection(
+        status=ReadinessStatus.PENDING,
+        certification_status=CertificationStatus.PENDING_HUMAN_LIVE_ACTION,
+        pending_human_action=f"{EVENT_AUTHORITY_MARKER} {pending_live_action}.",
+        details={
+            "required_event_authority": contract.get("required_event_authority"),
+            "event_search_ready_locally": contract.get("event_search_ready_locally"),
+            "local_scaffold_mode": contract.get("local_scaffold_mode"),
+        },
+    )
+
+
 def _local_gates_section(
     *,
     repo_root: Path,
@@ -227,31 +258,67 @@ def _local_gates_section(
                 details={"config_path": str(config_path)},
             )
     problems: list[str] = []
-    pending_dependency = False
+    blocking_skips: list[NanoFoldGateResult] = []
+    failed_gate = False
     for gate in gates:
         if gate.status == "failed":
             problems.append(f"{gate.name} failed: {gate.reason}")
+            failed_gate = True
         if gate.name in {"tiny_forward", "finite_loss"} and gate.status != "passed":
             problems.append(f"{gate.name} blocks live readiness: {gate.status} ({gate.reason})")
-            if gate.status == "skipped" and gate.reason == "dependency_missing":
-                pending_dependency = True
-    if problems and pending_dependency and all("failed:" not in problem for problem in problems):
-        return ReadinessSection(
-            status=ReadinessStatus.PENDING,
-            certification_status=CertificationStatus.PENDING_HUMAN_LIVE_ACTION,
-            problems=problems,
-            pending_human_action=(
-                f"{LOCAL_DEPENDENCY_MARKER} install the NanoFold runtime dependencies needed for tiny_forward "
-                f"and finite_loss, then rerun `python3 -m autoalphafold3.agent readiness-report --config-path {config_path}`."
-            ),
-            details={"nanofold_gates": [gate.to_dict() for gate in gates]},
-        )
+            if gate.status == "skipped":
+                blocking_skips.append(gate)
+    if problems and not failed_gate:
+        pending_action = _local_gate_pending_action(blocking_skips, config_path=config_path)
+        if pending_action is not None:
+            return ReadinessSection(
+                status=ReadinessStatus.PENDING,
+                certification_status=CertificationStatus.PENDING_HUMAN_LIVE_ACTION,
+                problems=problems,
+                pending_human_action=pending_action,
+                details={"nanofold_gates": [gate.to_dict() for gate in gates]},
+            )
     return ReadinessSection(
         status=ReadinessStatus.FAIL if problems else ReadinessStatus.PASS,
         certification_status=CertificationStatus.BLOCKED if problems else CertificationStatus.PASS_LOCAL,
         problems=problems,
         details={"nanofold_gates": [gate.to_dict() for gate in gates]},
     )
+
+
+def _local_gate_pending_action(
+    blocking_skips: list[NanoFoldGateResult],
+    *,
+    config_path: str | Path,
+) -> str | None:
+    if not blocking_skips:
+        return None
+    reasons = {gate.reason for gate in blocking_skips}
+    supported_reasons = {"dependency_missing", "feature_fixture_not_available_without_cached_arrow"}
+    if not reasons.issubset(supported_reasons):
+        return None
+    gate_names = _format_gate_names(gate.name for gate in blocking_skips)
+    actions: list[str] = []
+    if "dependency_missing" in reasons:
+        actions.append("install the NanoFold runtime dependencies")
+    if "feature_fixture_not_available_without_cached_arrow" in reasons:
+        actions.append("provide the approved cached Arrow feature fixture needed by the local finite-loss gate")
+    if reasons == {"dependency_missing"}:
+        return (
+            f"{LOCAL_DEPENDENCY_MARKER} install the NanoFold runtime dependencies needed for {gate_names}, "
+            f"then rerun `python3 -m autoalphafold3.agent readiness-report --config-path {config_path}`."
+        )
+    return (
+        f"{LOCAL_GATE_MARKER} {' and '.join(actions)} for {gate_names}, then rerun "
+        f"`python3 -m autoalphafold3.agent readiness-report --config-path {config_path}`."
+    )
+
+
+def _format_gate_names(names: Iterable[str]) -> str:
+    values = list(names)
+    if len(values) <= 1:
+        return str(values[0]) if values else "the blocking gates"
+    return f"{', '.join(str(value) for value in values[:-1])} and {values[-1]}"
 
 
 def _calibration_section(

@@ -53,7 +53,7 @@ Commands run:
 
 Results:
 
-- Targeted readiness report suite: 12 passed.
-- Full local suite: 189 passed, 3 skipped.
+- Targeted readiness report suite: 14 passed.
+- Full local suite: 191 passed, 3 skipped.
 - Offline skill evals: all 148 checks passed.
 - `git diff --check`: passed.

@@ -21,6 +21,7 @@ PUBLIC_VAL_SPLIT = "public_val_small"
 REQUIRED_MANIFEST_HASHES = ("train_tiny", "public_val_small")
 REQUIRED_FEATURE_FINGERPRINTS = ("features/train_tiny.arrow", "features/public_val_small.arrow")
 REQUIRED_LABEL_HASHES = ("public_val_small",)
+REQUIRED_BASELINE_ARTIFACTS = ("metrics_json",)
 
 
 class BaselineReadinessError(RuntimeError):
@@ -45,6 +46,7 @@ class BaselineReadinessReport:
     feature_fingerprints_valid: bool = False
     max_templates_zero: bool = False
     current_best_trial_id: str | None = None
+    current_best_candidate_id: str | None = None
     current_best_score: float | None = None
     problems: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -66,6 +68,7 @@ class BaselineReadinessReport:
             "feature_fingerprints_valid": self.feature_fingerprints_valid,
             "max_templates_zero": self.max_templates_zero,
             "current_best_trial_id": self.current_best_trial_id,
+            "current_best_candidate_id": self.current_best_candidate_id,
             "current_best_score": self.current_best_score,
             "problems": self.problems,
             "notes": self.notes,
@@ -182,7 +185,8 @@ def audit_baseline_readiness(
         manifest_hashes_valid=manifest_hashes_valid and label_hashes_valid,
         feature_fingerprints_valid=feature_fingerprints_valid,
         max_templates_zero=max_templates_zero,
-        current_best_trial_id=str(metrics.get("trial_id")) if score is not None else None,
+        current_best_trial_id=_non_empty_string(metrics.get("trial_id")) if score is not None else None,
+        current_best_candidate_id=_non_empty_string(metrics.get("candidate_id")) if score is not None else None,
         current_best_score=score,
         problems=problems,
         notes=notes,
@@ -206,11 +210,15 @@ def current_best_from_baseline_and_ledger(
     """Return the current best score, refusing to proceed without a ready baseline."""
 
     report = require_baseline_ready(audit_baseline_readiness(baseline_dir=baseline_dir))
-    if report.baseline_score is None or report.current_best_trial_id is None:
+    if (
+        report.baseline_score is None
+        or report.current_best_trial_id is None
+        or report.current_best_candidate_id is None
+    ):
         raise BaselineReadinessError("baseline report is missing current-best score")
     best = CurrentBest(
         trial_id=report.current_best_trial_id,
-        candidate_id="baseline_lock",
+        candidate_id=report.current_best_candidate_id,
         score=report.baseline_score,
         source="baseline",
     )
@@ -310,8 +318,7 @@ def _validate_feature_fingerprints(fingerprints: dict[str, object], problems: li
 
 def _validate_baseline_identity(metrics: dict[str, object], problems: list[str]) -> None:
     for key in ("trial_id", "candidate_id"):
-        value = metrics.get(key)
-        if not isinstance(value, str) or not value.strip():
+        if _non_empty_string(metrics.get(key)) is None:
             problems.append(f"baseline metrics must include non-empty {key}")
 
 
@@ -323,13 +330,27 @@ def _validate_baseline_artifacts(
     for owner, payload in (("metrics", metrics), ("error_report", error_report)):
         artifacts = payload.get("artifacts")
         if artifacts is None:
+            if owner == "metrics":
+                problems.append("baseline metrics.artifacts must include artifact pointers")
             continue
         if not isinstance(artifacts, dict):
             problems.append(f"baseline {owner}.artifacts must be an object")
             continue
+        if owner == "metrics":
+            missing = [key for key in REQUIRED_BASELINE_ARTIFACTS if key not in artifacts]
+            if missing:
+                problems.append(f"baseline metrics.artifacts missing required pointers: {', '.join(missing)}")
         for key, value in artifacts.items():
-            if isinstance(value, str) and not _is_baseline_artifact_path(value):
+            if not isinstance(value, str):
+                problems.append(f"baseline {owner}.artifacts.{key} must be a string path")
+            elif not _is_baseline_artifact_path(value):
                 problems.append(f"baseline artifact path must stay under runs/baseline: {key}")
+
+
+def _non_empty_string(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value
 
 
 def _is_baseline_artifact_path(value: str) -> bool:

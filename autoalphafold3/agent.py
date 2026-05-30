@@ -9,6 +9,7 @@ from pathlib import Path
 from autoalphafold3.orchestrator import poll_trial, submit_trial
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
 from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
+from autoalphafold3.checkpoint_runner import CheckpointRunError, run_one_batch_checkpoint
 from autoalphafold3.gate_calibration import GateCalibrationError, calibrate_gate
 from autoalphafold3.gate_calibration_runner import GateCalibrationRunError, run_gate_calibration
 from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
@@ -77,6 +78,16 @@ def main(argv: list[str] | None = None) -> int:
     baseline_run_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
     baseline_run_parser.add_argument("--modal-env", default=None)
     baseline_run_parser.add_argument("--approve", default=None)
+
+    checkpoint_run_parser = subparsers.add_parser("run-one-batch-checkpoint")
+    checkpoint_run_parser.add_argument("--repo-root", default=".")
+    checkpoint_run_parser.add_argument("--trial-id", default="T010")
+    checkpoint_run_parser.add_argument("--source-dir", default=None)
+    checkpoint_run_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
+    checkpoint_run_parser.add_argument("--features-path", default="train_tiny.arrow")
+    checkpoint_run_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
+    checkpoint_run_parser.add_argument("--modal-env", default=None)
+    checkpoint_run_parser.add_argument("--approve", default=None)
 
     calibrate_parser = subparsers.add_parser("calibrate-gate")
     calibrate_parser.add_argument("--repo-root", default=".")
@@ -201,6 +212,23 @@ def main(argv: list[str] | None = None) -> int:
                 modal_env=args.modal_env,
             )
         except BaselineRunError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "run-one-batch-checkpoint":
+        try:
+            result = run_one_batch_checkpoint(
+                repo_root=args.repo_root,
+                trial_id=args.trial_id,
+                source_dir=args.source_dir,
+                config_path=args.config_path,
+                features_path=args.features_path,
+                approval=args.approve,
+                mode=args.mode,
+                modal_env=args.modal_env,
+            )
+        except CheckpointRunError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))

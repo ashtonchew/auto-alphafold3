@@ -58,11 +58,15 @@ Do not deploy until these are true:
 ## Contract
 
 - Deploy once, call many.
+- Trial workers mount `autoalphafold3-data` once at `/mnt/autoalphafold3`
+  because Modal rejects mounting the same Volume twice for one function. The
+  worker reads features from `/mnt/autoalphafold3/features` and writes
+  trial-scoped artifacts under `/mnt/autoalphafold3/runs/trials/<trial_id>/`.
 - During event search, the Modal-hosted trusted orchestrator writes
   `runs/ledger.jsonl` and the Discovery Ledger.
 - Local orchestrator ledger writes are smoke-only scaffold behavior before the
   Modal-hosted trusted orchestrator is deployed.
-- Modal workers write only under `/runs/trials/<trial_id>/`.
+- Modal trial workers write only under `/runs/trials/<trial_id>/`.
 - Workers return small JSON pointers, not large artifacts.
 - GPU `min_containers` remains zero unless a human explicitly approves warm-pool cost.
 - Trial, sampler, and debug workers do not mount locked labels.

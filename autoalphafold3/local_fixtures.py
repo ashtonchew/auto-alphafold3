@@ -163,8 +163,10 @@ def _fixture_columns() -> dict[str, object]:
         [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
         for _ in range(length)
     ]
-    profile = [[1.0 / 32.0 for _ in range(32)] for _ in range(length)]
+    msa_feature_size = 22
+    profile = [[1.0 / float(msa_feature_size) for _ in range(msa_feature_size)] for _ in range(length)]
     deletion_mean = [0.0 for _ in range(length)]
+    residue_indices = list(range(length))
     rows = []
     for offset in (0, 1):
         rows.append(
@@ -179,13 +181,13 @@ def _fixture_columns() -> dict[str, object]:
                 "template_rotations": [],
                 "profile": profile,
                 "deletion_mean": deletion_mean,
-                "msa_coords": [[i, 0, 0] for i in range(length)],
+                "msa_coords": [residue_indices, [0 for _ in residue_indices], [0 for _ in residue_indices]],
                 "msa_data": [True for _ in range(length)],
-                "msa_shape": [length, 1, 32],
-                "has_deletion_coords": [[i, 0, 0] for i in range(length)],
+                "msa_shape": [length, 1, msa_feature_size],
+                "has_deletion_coords": [residue_indices, [0 for _ in residue_indices], [0 for _ in residue_indices]],
                 "has_deletion_data": [False for _ in range(length)],
                 "has_deletion_shape": [length, 1, 1],
-                "deletion_value_coords": [[i, 0, 0] for i in range(length)],
+                "deletion_value_coords": [residue_indices, [0 for _ in residue_indices], [0 for _ in residue_indices]],
                 "deletion_value_data": [0.0 for _ in range(length)],
                 "deletion_value_shape": [length, 1, 1],
             }

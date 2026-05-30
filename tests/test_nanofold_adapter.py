@@ -217,9 +217,9 @@ def test_modal_control_plane_static_contract() -> None:
     assert MODAL_OBJECT_CONTRACTS["Scorer"]["concurrent"] == {"max_inputs": 4, "target_inputs": 2}
     assert MODAL_OBJECT_CONTRACTS["TrialRunner"]["reads_locked_labels"] is False
     assert MODAL_OBJECT_CONTRACTS["Scorer"]["reads_locked_labels"] is True
-    assert str(trial_dir("T123")) == "/mnt/autoalphafold3-trials/T123"
+    assert str(trial_dir("T123")) == "/mnt/autoalphafold3/runs/trials/T123"
     assert worker_artifact_paths("T123")["artifact_manifest_json"] == (
-        "/mnt/autoalphafold3-trials/T123/artifact_manifest.json"
+        "/mnt/autoalphafold3/runs/trials/T123/artifact_manifest.json"
     )
     with pytest.raises(ValueError):
         trial_dir("../bad")

@@ -83,7 +83,7 @@ def test_worker_boundaries_reject_serialized_harness_secret_keys() -> None:
 
 
 def test_trial_worker_mounts_are_limited_to_trial_artifacts() -> None:
-    assert TRIAL_WORKER_MOUNTS[TRIALS_MOUNT] == "autoalphafold3-data:/runs/trials:rw"
+    assert TRIAL_WORKER_MOUNTS == {"/mnt/autoalphafold3": "autoalphafold3-data:/:rw"}
     assert all("autoalphafold3-locked" not in spec for spec in TRIAL_WORKER_MOUNTS.values())
     assert all(":/runs:rw" not in spec for spec in TRIAL_WORKER_MOUNTS.values())
     assert trial_artifact_dir("T123") == f"{TRIALS_MOUNT}/T123"

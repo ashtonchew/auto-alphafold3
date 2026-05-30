@@ -104,3 +104,20 @@ Best-practice approach:
 - Emit `FAIL` for invalid/non-finite scoring payloads and preserve `INFRA_FAIL` rows for infrastructure failures.
 - Append only canonical ledger rows in this slice; Discovery Ledger writes remain exclusively through `autoalphafold3/discovery_ledger.py` after confirmed gate evidence.
 - Keep tests synthetic and local; do not write real `runs/**`, baseline metrics, benchmark artifacts, Modal runs, gate verdict artifacts, or Discovery Ledger records.
+
+## PR 5: `feat/gate-wave-modal-adapter`
+
+Grounding was performed with two read-only subagents:
+
+- Modal/spec grounding: implement a narrow, fakeable Modal boundary that uses deployed function lookup plus `Function.starmap` for orchestrator-authored gate controls, without `modal run`, resource overrides, Volume changes, or ledger writes.
+- Test/patch-policy grounding: prove bounded control construction, exact `starmap` exception-handling options, deterministic infra-failure evidence, and patch-policy denial for the implemented gate-control module and gate artifact paths.
+
+Best-practice approach:
+
+- Add a dedicated gate-wave adapter module separate from pure verdict math and from `autoalphafold3/modal_app.py`.
+- Represent only orchestrator-authored controls: knock-out, placebo, predicted-axis check, and bounded seed reruns derived from a `FalsificationPlan`.
+- Reject unbounded control waves before Modal submission with fixed maximum variants, finite positive timeout, and bounded seed count.
+- Use dependency injection/fakes in tests; do not require a live Modal deployment and do not write benchmark, baseline, canonical ledger, or Discovery Ledger artifacts.
+- For Modal execution, call the deployed `TrialRunner` method with `modal.Cls.from_name(APP_NAME, "TrialRunner")().run.starmap(...)` using `order_outputs=True`, `return_exceptions=True`, and `wrap_returned_exceptions=False`.
+- Normalize Modal SDK lookup, starmap setup, and per-control returned exceptions into structured `INFRA_FAIL` evidence. Do not convert partial evidence into a gate verdict or confirmed discovery.
+- Lock the implemented gate-wave module and gate-wave artifact paths in patch-policy coverage before autonomous search.

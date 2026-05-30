@@ -46,7 +46,7 @@ TRIAL_WORKER_MOUNTS = {
     DATA_MOUNT: f"{DATA_VOLUME}:/:rw",
 }
 SCORER_WORKER_MOUNTS = {
-    TRIALS_MOUNT: f"{DATA_VOLUME}:/runs/trials:ro",
+    DATA_MOUNT: f"{DATA_VOLUME}:/:ro",
     LOCKED_MOUNT: f"{LOCKED_VOLUME}:/:ro",
 }
 HARNESS_MOUNTS = {
@@ -552,14 +552,14 @@ if modal is not None:
     data_volume = modal.Volume.from_name(DATA_VOLUME, create_if_missing=False)
     locked_volume = modal.Volume.from_name(LOCKED_VOLUME, create_if_missing=False)
     data_rw = data_volume.with_mount_options()
+    data_ro = data_volume.with_mount_options(read_only=True)
     runs_rw = data_volume.with_mount_options(sub_path="/runs")
-    trials_ro = data_volume.with_mount_options(read_only=True, sub_path="/runs/trials")
     locked_ro = locked_volume.with_mount_options(read_only=True)
-    scorer_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow").add_local_python_source(
+    scorer_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow", "pydantic").add_local_python_source(
         "autoalphafold3",
         copy=False,
     )
-    train_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow").add_local_python_source(
+    train_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow", "pydantic").add_local_python_source(
         "autoalphafold3",
         copy=False,
     ).add_local_dir(
@@ -577,7 +577,7 @@ if modal is not None:
         scaledown_window=600,
         timeout=RESOURCE_TIERS["score_trial"].timeout_s,
         max_containers=RESOURCE_TIERS["score_trial"].max_containers,
-        volumes={TRIALS_MOUNT: trials_ro, LOCKED_MOUNT: locked_ro},
+        volumes={DATA_MOUNT: data_ro, LOCKED_MOUNT: locked_ro},
     )
     @modal.concurrent(max_inputs=4, target_inputs=2)
     class Scorer:
@@ -585,7 +585,7 @@ if modal is not None:
 
         @modal.enter(snap=True)
         def load_locked_state(self) -> None:
-            trials_ro.reload()
+            data_ro.reload()
             locked_ro.reload()
             from autoalphafold3.locked_scorer import load_locked_state
 

@@ -14,6 +14,9 @@ from autoalphafold3.preflight import PreflightError, changed_paths_from_parent, 
 from autoalphafold3.schema import (
     AutoFoldResult,
     AutoFoldTrial,
+    DiscoveryStatus,
+    FalsificationResult,
+    RegisteredPrediction,
     FoldCartographerReport,
     TrialStatus,
 )
@@ -47,7 +50,12 @@ def valid_trial_dict(**overrides: object) -> dict[str, object]:
         "hypothesis": "Dry-run contract smoke test.",
         "move_family": "geometry_loss",
         "diagnostic_target": "local_geometry_weak",
-        "prediction": "Preflight should pass without Modal.",
+        "prediction": {
+            "causal_component": "geometry loss dry-run fixture",
+            "predicted_axis": "local_geometry",
+            "predicted_direction": "up",
+            "expected_lddt_delta_band": [0.01, 0.05],
+        },
         "patch_path": None,
         "config_path": "configs/auto_tiny.json",
         "budget": "dry_run",
@@ -78,6 +86,77 @@ def test_schema_rejects_sampler_without_checkpoint() -> None:
 
     with pytest.raises(ValidationError, match="checkpoint_path"):
         AutoFoldTrial.model_validate(data)
+
+
+def test_registered_prediction_requires_structured_fields() -> None:
+    prediction = RegisteredPrediction.model_validate(
+        {
+            "causal_component": "geometry loss ramp",
+            "predicted_axis": "local_geometry",
+            "predicted_direction": "up",
+            "expected_lddt_delta_band": [0.01, 0.05],
+        }
+    )
+
+    assert prediction.causal_component == "geometry loss ramp"
+    assert prediction.expected_lddt_delta_band == (0.01, 0.05)
+
+    with pytest.raises(ValidationError, match="causal_component"):
+        RegisteredPrediction.model_validate(
+            {
+                "causal_component": " ",
+                "predicted_axis": "local_geometry",
+                "predicted_direction": "up",
+                "expected_lddt_delta_band": [0.01, 0.05],
+            }
+        )
+    with pytest.raises(ValidationError, match="predicted_axis"):
+        RegisteredPrediction.model_validate(
+            {
+                "causal_component": "geometry loss ramp",
+                "predicted_axis": "length_bucket",
+                "predicted_direction": "up",
+                "expected_lddt_delta_band": [0.01, 0.05],
+            }
+        )
+    with pytest.raises(ValidationError, match="predicted_direction"):
+        RegisteredPrediction.model_validate(
+            {
+                "causal_component": "geometry loss ramp",
+                "predicted_axis": "local_geometry",
+                "predicted_direction": "sideways",
+                "expected_lddt_delta_band": [0.01, 0.05],
+            }
+        )
+    with pytest.raises(ValidationError, match="expected_lddt_delta_band"):
+        RegisteredPrediction.model_validate(
+            {
+                "causal_component": "geometry loss ramp",
+                "predicted_axis": "local_geometry",
+                "predicted_direction": "up",
+                "expected_lddt_delta_band": [0.05, 0.01],
+            }
+        )
+
+
+def test_autofold_trial_requires_structured_prediction() -> None:
+    with pytest.raises(ValidationError, match="prediction"):
+        AutoFoldTrial.model_validate(valid_trial_dict(prediction="free text is not enough"))
+
+
+def test_autofold_trial_requires_prediction_axis_to_match_diagnostic_target() -> None:
+    with pytest.raises(ValidationError, match="predicted_axis must match diagnostic_target"):
+        AutoFoldTrial.model_validate(
+            valid_trial_dict(
+                diagnostic_target="local_geometry_weak",
+                prediction={
+                    "causal_component": "geometry loss ramp",
+                    "predicted_axis": "stability_compute",
+                    "predicted_direction": "down",
+                    "expected_lddt_delta_band": [0.01, 0.05],
+                },
+            )
+        )
 
 
 def test_locked_manifest_loads_and_blocks_validation_label_training_access() -> None:
@@ -152,6 +231,8 @@ def test_patch_policy_accepts_allowed_paths_and_rejects_locked_paths() -> None:
 
     with pytest.raises(PatchPolicyError, match="locked"):
         validate_patch_scope(["autoalphafold3/scorer/calpha_lddt.py"], repo_root=REPO_ROOT)
+    with pytest.raises(PatchPolicyError, match="locked"):
+        validate_patch_scope(["autoalphafold3/falsification.py"], repo_root=REPO_ROOT)
     with pytest.raises(PatchPolicyError, match="path traversal"):
         validate_patch_scope(["configs/experiments/../escape.json"], repo_root=REPO_ROOT)
     with pytest.raises(PatchPolicyError, match="binary"):
@@ -260,6 +341,82 @@ def test_ledger_rejects_invalid_lifecycle_transition(tmp_path: Path) -> None:
     append_ledger(first, ledger_path=ledger_path, validate_lifecycle=True)
     with pytest.raises(ValueError, match="invalid lifecycle transition"):
         append_ledger(second, ledger_path=ledger_path, validate_lifecycle=True)
+
+
+def test_autofold_result_discovery_status_requires_gate_evidence() -> None:
+    falsification = FalsificationResult(
+        gain_full=0.03,
+        gain_knockout=0.0,
+        gain_placebo=0.0,
+        attributable_fraction=1.0,
+        axis_delta_observed=0.02,
+        axis_prediction_held=True,
+        seed_mean=0.03,
+        seed_std=0.001,
+        verdict="CONFIRMED",
+    )
+
+    result = AutoFoldResult(
+        trial_id="T040",
+        status=TrialStatus.KEEP,
+        candidate_id="candidate",
+        metrics={"best_val_calpha_lddt": 0.7},
+        fold_cartographer=FoldCartographerReport(signature="gate_checked"),
+        discovery=DiscoveryStatus.CONFIRMED,
+        falsification=falsification,
+    )
+
+    assert result.discovery == DiscoveryStatus.CONFIRMED
+    with pytest.raises(ValidationError, match="falsification evidence"):
+        AutoFoldResult(
+            trial_id="T041",
+            status=TrialStatus.KEEP,
+            candidate_id="candidate",
+            metrics={},
+            fold_cartographer=FoldCartographerReport(signature="missing_gate"),
+            discovery=DiscoveryStatus.CONFIRMED,
+        )
+    with pytest.raises(ValidationError, match="CONFIRMED falsification verdict"):
+        AutoFoldResult(
+            trial_id="T042",
+            status=TrialStatus.KEEP,
+            candidate_id="candidate",
+            metrics={},
+            fold_cartographer=FoldCartographerReport(signature="killed"),
+            discovery=DiscoveryStatus.CONFIRMED,
+            falsification=falsification.model_copy(update={"verdict": "AXIS_MISS"}),
+        )
+    with pytest.raises(ValidationError, match="CONFIRMED falsification verdict requires CONFIRMED discovery"):
+        AutoFoldResult(
+            trial_id="T043",
+            status=TrialStatus.KEEP,
+            candidate_id="candidate",
+            metrics={},
+            fold_cartographer=FoldCartographerReport(signature="suppressed_confirmed"),
+            discovery=DiscoveryStatus.UNCONFIRMED,
+            falsification=falsification,
+        )
+    killed = falsification.model_copy(update={"verdict": "AXIS_MISS"})
+    killed_result = AutoFoldResult(
+        trial_id="T044",
+        status=TrialStatus.DISCARD,
+        candidate_id="candidate",
+        metrics={},
+        fold_cartographer=FoldCartographerReport(signature="killed"),
+        discovery=DiscoveryStatus.KILLED,
+        falsification=killed,
+    )
+    assert killed_result.discovery == DiscoveryStatus.KILLED
+    with pytest.raises(ValidationError, match="non-CONFIRMED falsification verdicts require KILLED"):
+        AutoFoldResult(
+            trial_id="T045",
+            status=TrialStatus.DISCARD,
+            candidate_id="candidate",
+            metrics={},
+            fold_cartographer=FoldCartographerReport(signature="suppressed_kill"),
+            discovery=DiscoveryStatus.UNCONFIRMED,
+            falsification=killed,
+        )
 
 
 def test_orchestrator_records_lifecycle_transition_once(tmp_path: Path) -> None:

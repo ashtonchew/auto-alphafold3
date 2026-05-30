@@ -32,7 +32,12 @@ def _trial_payload(trial_id: str = "T010") -> dict[str, object]:
         "hypothesis": "Modal mode should use explicit mocked submission.",
         "move_family": "geometry_loss",
         "diagnostic_target": "local_geometry_weak",
-        "prediction": "Mocked modal call should return a validated result.",
+        "prediction": {
+            "causal_component": "mocked Modal submission fixture",
+            "predicted_axis": "local_geometry",
+            "predicted_direction": "up",
+            "expected_lddt_delta_band": [0.01, 0.05],
+        },
         "patch_path": None,
         "config_path": "configs/auto_tiny.json",
         "budget": "dry_run",

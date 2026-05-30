@@ -36,6 +36,7 @@ DENIED_EXACT = {
     "NANOFOLD_COMMIT",
     "external/nanofold/scripts/download_pdb.sh",
     "autoalphafold3/benchmark_contract.md",
+    "autoalphafold3/falsification.py",
     "autoalphafold3/modal_app.py",
     "autoalphafold3/orchestrator.py",
     "autoalphafold3/preflight.py",

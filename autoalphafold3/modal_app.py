@@ -651,6 +651,20 @@ if modal is not None:
             return result
 
         @modal.method()
+        def run_sampler(self, trial_json: dict[str, Any]) -> dict[str, Any]:
+            from autoalphafold3.sampler import run_sampler_trial
+
+            data_volume.reload()
+            validate_execution_payload(trial_json, role=WorkerRole.SAMPLER.value)
+            result = run_sampler_trial(
+                trial_json,
+                features_dir=FEATURES_MOUNT,
+                output_dir=trial_artifact_dir(str(trial_json["trial_id"])),
+            )
+            data_volume.commit()
+            return result
+
+        @modal.method()
         def run_gate_control(self, control_payload: dict[str, Any], seed: int) -> dict[str, Any]:
             validate_execution_payload(control_payload, role=WorkerRole.TRIAL.value)
             if control_payload.get("calibration_control") is True:
@@ -671,9 +685,13 @@ if modal is not None:
 
         @modal.method()
         def submit_trial(self, trial_json: dict[str, Any]) -> dict[str, Any]:
-            validate_execution_payload(trial_json, role=WorkerRole.TRIAL.value)
+            role = WorkerRole.SAMPLER.value if trial_json.get("trial_kind") == "sampler" else WorkerRole.TRIAL.value
+            validate_execution_payload(trial_json, role=role)
             runner = TrialRunner()
-            call = runner.run.spawn(trial_json)
+            if trial_json.get("trial_kind") == "sampler":
+                call = runner.run_sampler.spawn(trial_json)
+            else:
+                call = runner.run.spawn(trial_json)
             return {
                 "trial_id": str(trial_json["trial_id"]),
                 "status": "SUBMITTED",

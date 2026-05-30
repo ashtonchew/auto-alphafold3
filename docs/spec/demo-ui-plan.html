@@ -191,7 +191,7 @@
 
   <div class="callout">
     <div class="callout-label">One story</div>
-    <p>We did not improve Google DeepMind AlphaFold3. We gave GPT-5.5 a locked NanoFold-style AlphaFold3-lite research sandbox, a fixed C-alpha lDDT benchmark, Fold Cartographer diagnostics, a falsification gate, and an elastic Modal lab. The system proposed mechanisms, tested them, killed weak explanations, and retained confirmed design improvements.</p>
+    <p>We did not improve Google DeepMind AlphaFold3. We gave GPT-5.5 a locked NanoFold-style AlphaFold3-lite research sandbox, a fixed C-alpha lDDT benchmark, Fold Cartographer diagnostics, a falsification gate, and an elastic Modal lab. In the one-hour practical run, the system proposes frozen-checkpoint sampler mechanisms, tests them, kills weak explanations, and retains only confirmed sampler improvements.</p>
   </div>
 
   <p>The demo should not feel like a leaderboard screenshot or a static notebook. It should feel like watching an autoresearch loop make and test scientific claims.</p>
@@ -216,7 +216,7 @@
     <li><strong>Baseline.</strong> Start with the NanoFold default/tiny baseline on the fixed no-template public validation split.</li>
     <li><strong>Diagnosis.</strong> Show the current Fold Cartographer failure signature, such as weak long-range topology or a distogram/coordinate gap.</li>
     <li><strong>Hypothesis.</strong> Show the agent's pre-registered mechanism: what it changed, which diagnostic axis should move, and what score effect it predicts.</li>
-    <li><strong>Experiment.</strong> Show the Modal trial wave running under fixed budget and locked mounts.</li>
+    <li><strong>Experiment.</strong> Show the 20-candidate Modal sampler burst running under fixed budget and locked mounts.</li>
     <li><strong>Verdict.</strong> Show the result, the falsification gate verdict, and whether the candidate was confirmed, discarded, killed by placebo/seed fragility, failed, or infra-failed.</li>
     <li><strong>Accumulation.</strong> Show the Discovery Ledger as the durable set of confirmed mechanisms and instructive kills.</li>
     <li><strong>Final comparison.</strong> Show baseline vs. best confirmed candidate on metrics and structure overlay.</li>
@@ -224,7 +224,7 @@
 
   <div class="callout">
     <div class="callout-label">Strong version</div>
-    <p>The strongest version of the demo is not "trial 12 got a higher score." It is "trial 12 claimed geometry-loss ramping would close the distogram/coordinate gap; the gap closed, lDDT improved, removing the ramp removed the gain, placebo did not reproduce it, and the result survived seed checks."</p>
+    <p>The strongest one-hour version of the demo is not "trial 12 got a higher score." It is "trial 12 claimed fewer diffusion steps with a lower step scale would reduce sampler noise and close the distogram/coordinate gap; the gap closed, lDDT improved, removing the sampler change removed the gain, a matched sampler placebo did not reproduce it, and the result survived seed checks."</p>
   </div>
 </section>
 
@@ -356,7 +356,7 @@
         <div>
           <div class="mini-head">Content</div>
           <ul>
-            <li>X-axis: trial number or time</li>
+            <li>X-axis: trial number or time; in the one-hour plan this is the 20-candidate sampler burst plus one gated candidate</li>
             <li>Y-axis: <code>best_val_calpha_lddt</code></li>
             <li>Baseline line</li>
             <li>Point color: move family</li>
@@ -406,15 +406,15 @@
       <circle cx="458" cy="154" r="7" class="wf-green"/>
       <circle cx="520" cy="142" r="7" class="wf-green"/>
       <text x="92" y="286" class="wf-text-muted">T001</text>
-      <text x="500" y="286" class="wf-text-muted">T042</text>
+      <text x="500" y="286" class="wf-text-muted">T020</text>
 
       <rect x="622" y="48" width="256" height="252" class="wf-panel-strong"/>
       <text x="642" y="74" class="wf-small">SELECTED TRIAL T012</text>
-      <text x="642" y="104" class="wf-text">geometry_loss</text>
+      <text x="642" y="104" class="wf-text">sampler_step_scale</text>
       <text x="642" y="126" class="wf-text-muted">target: distogram_good_lddt_flat</text>
       <line x1="642" y1="142" x2="858" y2="142" class="wf-rule"/>
-      <text x="642" y="168" class="wf-serif">Hypothesis: ramp coordinate geometry loss to convert pair signal into C-alpha geometry.</text>
-      <text x="642" y="218" class="wf-text">+0.000 lDDT</text>
+      <text x="642" y="168" class="wf-serif">Hypothesis: fewer diffusion steps with lower step scale reduce sampler noise while preserving contacts.</text>
+      <text x="642" y="218" class="wf-text">+0.018 lDDT</text>
       <text x="642" y="240" class="wf-text-muted">gap closed · runtime within cap</text>
       <text x="642" y="272" class="wf-text">VERDICT: CONFIRMED</text>
     </svg>
@@ -435,7 +435,7 @@
             <li>Move family</li>
             <li>Hypothesis, intervention, and prediction</li>
             <li>Expected metric movement: primary <code>best_val_calpha_lddt</code>, targeted diagnostic axis, expected runtime/memory risk</li>
-            <li>Patch summary and linked diff</li>
+            <li>Sampler config summary and linked diff or config delta</li>
             <li>Config summary and budget tier</li>
           </ul>
         </div>
@@ -514,16 +514,16 @@
       <rect x="20" y="20" width="880" height="320" class="wf-bg"/>
       <rect x="42" y="50" width="254" height="246" class="wf-panel-strong"/>
       <text x="62" y="78" class="wf-small">CANDIDATE CLAIM</text>
-      <text x="62" y="112" class="wf-text">T012 · geometry_loss</text>
+      <text x="62" y="112" class="wf-text">T012 · sampler_step_scale</text>
       <text x="62" y="136" class="wf-text-muted">Expected: close 3D gap</text>
-      <text x="62" y="172" class="wf-text">+0.000 lDDT</text>
+      <text x="62" y="172" class="wf-text">+0.018 lDDT</text>
       <text x="62" y="196" class="wf-text-muted">axis moved as predicted</text>
-      <text x="62" y="244" class="wf-serif">Mechanism: coordinate path uses pair signal after ramp.</text>
+      <text x="62" y="244" class="wf-serif">Mechanism: lower step scale reduces sampler noise while preserving contacts.</text>
 
       <path d="M306 172 L360 172" class="wf-line"/>
       <rect x="370" y="50" width="154" height="76" class="wf-panel"/>
       <text x="386" y="78" class="wf-small">KNOCKOUT</text>
-      <text x="386" y="104" class="wf-text-muted">remove ramp</text>
+      <text x="386" y="104" class="wf-text-muted">remove sampler change</text>
       <rect x="370" y="144" width="154" height="76" class="wf-panel"/>
       <text x="386" y="172" class="wf-small">PLACEBO</text>
       <text x="386" y="198" class="wf-text-muted">unrelated change</text>
@@ -580,7 +580,7 @@
         <div>
           <div class="mini-head">Content</div>
           <ul>
-            <li>Current or latest execution mode: smoke, trial, sampler burst, debug sandbox, final validation, gate control wave</li>
+            <li>Current or latest execution mode: readiness smoke, 20-candidate sampler burst, selected-candidate gate control wave, or final artifact capture</li>
             <li>Job count and status</li>
             <li>GPU type and fixed resource tier</li>
             <li>Container count over time if available</li>
@@ -637,15 +637,15 @@
     <div class="surface-title">09 · Sampler</div>
     <div class="surface-body">
       <h3>Sampler Burst / Ensemble Moment</h3>
-      <p><strong>Purpose.</strong> Show the live Modal moment that is unique to folding.</p>
+      <p><strong>Purpose.</strong> Show the live Modal moment that makes the one-hour run practical: bounded sampler fanout first, then one gate wave on the best provisional KEEP.</p>
       <div class="cols">
         <div>
           <div class="mini-head">Content</div>
           <ul>
             <li>Frozen checkpoint</li>
-            <li>Grid of sampler settings</li>
-            <li>Number of samples</li>
-            <li>Runtime and container burst</li>
+            <li>Grid of 20 sampler settings</li>
+            <li>Number of samples and early-stop rule if the first wave is slow</li>
+            <li>Runtime and container burst; current practical generation cap is six <code>TrialRunner</code> workers</li>
             <li>Label-free sample selection rule</li>
             <li>Returned ensemble visualization or summary</li>
             <li>Locked scorer result after selection</li>
@@ -656,7 +656,7 @@
           <ul>
             <li>Inference-only sampler harness</li>
             <li>Label-free selection rules</li>
-            <li><code>sample_once.map(...)</code> or equivalent Modal burst</li>
+            <li><code>TrialRunner</code> sampler invocation or equivalent Modal burst; do not assume the unused sampler policy cap of 50 workers</li>
             <li>Ensemble artifact format</li>
             <li>Scoring path that happens only after samples are produced</li>
           </ul>
@@ -770,7 +770,7 @@
         <li>metrics JSON</li>
         <li>error report JSON</li>
         <li>artifact manifest</li>
-        <li>training log</li>
+        <li>sampler or training log</li>
         <li>stdout/stderr</li>
         <li>patch diff</li>
         <li>checkpoint pointer</li>
@@ -790,7 +790,7 @@
   <p>The minimum frontend worth showing needs:</p>
   <ol>
     <li>Baseline metrics and diagnostics.</li>
-    <li>At least three valid trial rows in the trajectory.</li>
+    <li>A bounded sampler trajectory, preferably 12-20 valid candidate rows.</li>
     <li>At least one failed or discarded trial shown honestly.</li>
     <li>At least one candidate with a pre-registered hypothesis and postmortem.</li>
     <li>Fold Cartographer report with real, non-toy diagnostic axes.</li>
@@ -807,10 +807,10 @@
   <h3>Strong demo</h3>
   <p>A strong demo adds:</p>
   <ol>
-    <li>One confirmed mechanism that survives the Falsification Gate.</li>
+    <li>One confirmed sampler mechanism that survives the Falsification Gate.</li>
     <li>One killed candidate that looked good by scalar score but failed a control.</li>
-    <li>A sampler burst with visible Modal fanout.</li>
-    <li>Multi-seed final validation for the best confirmed candidate.</li>
+    <li>A 20-candidate sampler burst with visible Modal fanout.</li>
+    <li>Seed rerun evidence from the gate for the selected best provisional KEEP.</li>
     <li>Before/after overlay where the named diagnostic axis visibly matches the metric story.</li>
     <li>Discovery Ledger panel with confirmed mechanisms and instructive kills.</li>
   </ol>
@@ -836,7 +836,7 @@
     <li>Discovery Ledger exists or is derivable from canonical ledger rows.</li>
     <li>Overlay renderer consumes real artifacts.</li>
     <li>Sampler burst harness exists for frozen-checkpoint inference.</li>
-    <li>Final validation path can run multi-seed candidates.</li>
+    <li>Final validation path can run multi-seed candidates when time permits; the one-hour demo may rely on the gate's seed rerun instead.</li>
   </ul>
 </section>
 
@@ -878,12 +878,12 @@
     <li><span class="when">Line 2</span><span class="what">"The score is locked validation C-alpha lDDT. The agent cannot edit scorer, labels, manifests, or Modal caps."</span></li>
     <li><span class="when">Line 3</span><span class="what">"Here is the baseline."</span></li>
     <li><span class="when">Line 4</span><span class="what">"Fold Cartographer says the current weakness is this axis."</span></li>
-    <li><span class="when">Line 5</span><span class="what">"The agent pre-registered this mechanism and predicted these metric movements."</span></li>
-    <li><span class="when">Line 6</span><span class="what">"Modal ran the fixed-budget trial under the locked mounts."</span></li>
+    <li><span class="when">Line 5</span><span class="what">"The agent pre-registered this sampler mechanism and predicted these metric movements."</span></li>
+    <li><span class="when">Line 6</span><span class="what">"Modal ran 20 frozen-checkpoint sampler candidates under the locked mounts and current worker caps."</span></li>
     <li><span class="when">Line 7</span><span class="what">"The scorer-only worker returned these metrics and diagnostics."</span></li>
     <li><span class="when">Line 8</span><span class="what">"The gate tested whether the mechanism was real."</span></li>
     <li><span class="when">Line 9</span><span class="what">"This one was killed; this one was confirmed."</span></li>
-    <li><span class="when">Line 10</span><span class="what">"Here is the Discovery Ledger and the final baseline-vs-best overlay."</span></li>
+    <li><span class="when">Line 10</span><span class="what">"Here is the Discovery Ledger, or the honest kill if no candidate confirmed, and the baseline-vs-best overlay."</span></li>
   </ol>
 </section>
 

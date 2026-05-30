@@ -428,10 +428,10 @@
   <p>Parameter Golf has scalar compression loss. Folding gives geometry. The same C-alpha lDDT miss can be local loop instability, bad long-range packing, low-MSA failure, pair-contact failure, coordinate-head failure, or diffusion-sampler failure. Fold Cartographer gives the agent a domain-specific map of what went wrong.</p>
 
   <h4>4. Training trials are feasible with tiny configs and Modal</h4>
-  <p>A full folding model is expensive. A NanoFold-style monomer model on a small fixed train subset is manageable. The event plan uses tiny crop sizes, reduced MSA depth, reduced trunk depth for smoke, short training windows, single-seed exploration, inference-only sampler trials, and final multi-seed validation only for confirmed candidates.</p>
+  <p>A full folding model is expensive. A NanoFold-style monomer model on a small fixed train subset is manageable. The full event plan uses tiny crop sizes, reduced MSA depth, reduced trunk depth for smoke, short training windows, single-seed exploration, inference-only sampler trials, and final multi-seed validation only for confirmed candidates. In the one-hour practical mode, broad architecture, loss, curriculum, and training edits are deferred; the search surface narrows to frozen-checkpoint sampler hypotheses so the system can still run the locked scorer and Falsification Gate honestly.</p>
 
   <h4>5. Diffusion sampler golf is a cheap inner loop</h4>
-  <p>Because NanoFold has a diffusion module with inference-time schedule knobs, the agent can run inference-only sampler experiments on a fixed checkpoint. Sampler trials search diffusion steps, noise schedule, step scale, sample count, and label-free sample selection. They are far cheaper than retraining and directly tied to AlphaFold3-lite design — and, crucially, the same cheap inference path runs the gate's knock-outs and placebos for sampler-family mechanisms.</p>
+  <p>Because NanoFold has a diffusion module with inference-time schedule knobs, the agent can run inference-only sampler experiments on a fixed checkpoint. Sampler trials search diffusion steps, noise schedule, step scale, sample count, and label-free sample selection. They are far cheaper than retraining and directly tied to AlphaFold3-lite design — and, crucially, the same cheap inference path runs the gate's knock-outs and placebos for sampler-family mechanisms. The accepted one-hour operating plan runs 20 sampler candidates, then gates only the best provisional KEEP.</p>
 
   <h4>6. Structure prediction creates visual artifacts</h4>
   <p>Protein folding produces shapes. The demo can show a baseline predicted backbone, the true backbone, the agent-improved prediction, the geometry error report, and the Discovery Ledger that separates confirmed mechanisms from killed candidates. Even a modest numerical improvement is easier to sell when paired with a visible overlay and a mechanism that has been falsification-tested.</p>
@@ -1032,7 +1032,7 @@ scripts/prepare_nanofold_data.py            # select/download/labels/fingerprint
 
   <div class="callout">
     <div class="callout-label">The five-mode + control-wave thesis</div>
-    <p>Folding autoresearch demands five distinct execution modes in one session: a massive parallel CPU fan-out for data, cheap single-GPU training trials, a few-hundred-job inference-only sampler burst, a one-Sandbox debug drop, and a final validation/render spike — then scale to zero while GPT-5.5 thinks. The Falsification Gate adds a sixth pattern composed from the others: every provisional KEEP fans out a knock-out, a placebo, and N seed reruns as one parallel wave that collapses to zero when the verdict is in. We parallelize to run controls, not just to go fast. The original autoresearch run hit roughly 113 experiments across 238 GPU-hours on a near-uniform language-model task; folding's work is not uniform, and the controls make the non-uniformity the point.</p>
+    <p>The full folding autoresearch system supports five distinct execution modes in one session: a massive parallel CPU fan-out for data, cheap single-GPU training trials, inference-only sampler bursts, a one-Sandbox debug drop, and a final validation/render spike — then scale to zero while GPT-5.5 thinks. The one-hour practical run uses the subset that can complete honestly: readiness, a bounded 20-candidate sampler burst, scorer-only evaluation, and one gate control wave. We parallelize to run controls, not just to go fast. The original autoresearch run hit roughly 113 experiments across 238 GPU-hours on a near-uniform language-model task; folding's work is not uniform, and the controls make the non-uniformity the point.</p>
   </div>
 
   <figure class="diagram">
@@ -1075,9 +1075,9 @@ scripts/prepare_nanofold_data.py            # select/download/labels/fingerprint
 
       <rect class="n7-bg" x="296" y="138" width="128" height="64" rx="2"/>
       <text x="304" y="156" class="lbl7-tag">C</text>
-      <text x="360" y="156" class="lbl7" text-anchor="middle">sample_once</text>
-      <text x="360" y="172" class="lbl7-sub" text-anchor="middle">~50&times; burst · map</text>
-      <text x="360" y="185" class="lbl7-sub" text-anchor="middle">scale&rarr;0</text>
+      <text x="360" y="156" class="lbl7" text-anchor="middle">sampler burst</text>
+      <text x="360" y="172" class="lbl7-sub" text-anchor="middle">20 configs · bounded</text>
+      <text x="360" y="185" class="lbl7-sub" text-anchor="middle">one-hour mode</text>
 
       <rect class="n7-bg" x="436" y="138" width="128" height="64" rx="2"/>
       <text x="444" y="156" class="lbl7-tag">D</text>
@@ -1115,7 +1115,7 @@ scripts/prepare_nanofold_data.py            # select/download/labels/fingerprint
       <text x="510" y="318" class="lbl7" text-anchor="middle">runs</text>
       <text x="510" y="332" class="lbl7-sub" text-anchor="middle">read-write · 1 writer/dir</text>
     </svg>
-    <figcaption><span class="fig-num">Fig. 7</span>Five execution modes under one orchestrator and one Modal app. GPUs scale to zero between waves; the Falsification Gate is not a sixth mode but a control wave composed from B (training knock-outs) and C (inference-only knock-outs and placebos).</figcaption>
+    <figcaption><span class="fig-num">Fig. 7</span>Five execution modes under one orchestrator and one Modal app. The one-hour practical run uses the sampler and gate subset; the Falsification Gate is not a sixth mode but a control wave composed from the same locked worker paths.</figcaption>
   </figure>
 
   <h3>7.1 &nbsp;Execution modes</h3>
@@ -1142,8 +1142,8 @@ scripts/prepare_nanofold_data.py            # select/download/labels/fingerprint
       <div class="stage-num">MODE C</div>
       <div class="stage-body">
         <h5>Inference-only sampler burst — the signature</h5>
-        <div class="stage-shape">Function.map · gpu="A100"/"L40S" · max_containers ~50 · scaledown_window 20s</div>
-        <p>Because the diffusion sampler runs on a frozen checkpoint, hundreds of sampling configs fire in one <code>sample_once.map(grid)</code> wave, each a few seconds long. Modal spikes the container pool toward fifty and collapses to zero in about a minute. The same cheap path runs the gate's knock-outs and placebos for sampler-family mechanisms, and returns label-free sample artifacts rather than committing to the Volume, which avoids concurrent-commit contention.</p>
+        <div class="stage-shape">bounded Modal sampler burst · frozen checkpoint · 20 candidates in one-hour mode</div>
+        <p>Because the diffusion sampler runs on a frozen checkpoint, sampler configs can be fanned out without retraining. In the one-hour practical mode, the burst is capped at 20 candidates and uses the current deployed <code>TrialRunner</code> path rather than assuming a separate 50-worker sampler service. The same cheap path runs the gate's knock-outs and placebos for sampler-family mechanisms, and returns label-free sample artifacts rather than committing to the Volume, which avoids concurrent-commit contention.</p>
         <p class="stage-cost">Tier: sampler. The cheapest, most parallel, most visible Modal moment on stage; it has no analog in Parameter Golf.</p>
       </div>
     </div>
@@ -1243,11 +1243,11 @@ def sample_once(cfg: dict) -&gt; dict:
 </code></pre>
 
   <h3>7.3 &nbsp;The demo moment that only folding can show</h3>
-  <p>Most teams present a finished trajectory. The sampler-golf burst (Mode C) is a live <code>Function.map</code> over a few hundred frozen-checkpoint sampling configs: the Modal dashboard's container count visibly spikes toward fifty and falls back to zero in about a minute, and the returned samples render directly as a conformational ensemble — rigid core tight, flexible loops smeared. The gate adds a second visible Modal moment: when a discovery is put on trial, a small control wave spikes and collapses, and the verdict resolves live. The full demo artifact (trajectory, best lDDT, error map, overlays, job history, Discovery Ledger) is assembled in §11.</p>
+  <p>Most teams present a finished trajectory. The one-hour sampler-golf burst (Mode C) is a live bounded fanout over 20 frozen-checkpoint sampling configs: the Modal dashboard shows a controlled worker burst under the current <code>TrialRunner</code> cap, and the returned samples render directly as a conformational ensemble — rigid core tight, flexible loops smeared. The gate adds a second visible Modal moment: when the best provisional KEEP is put on trial, a small control wave spikes and collapses, and the verdict resolves live. The full demo artifact (trajectory, best lDDT, error map, overlays, job history, Discovery Ledger) is assembled in §11.</p>
 
   <div class="callout">
     <div class="callout-label">Stage line</div>
-    <p>"Parameter Golf showed Modal can elastically scale how much compute an agent uses. Protein folding needs five execution modes in one session — a parallel MSA fan-out, single-GPU training trials, a few-hundred-job inference-only sampler burst, a one-Sandbox debug drop, and a final validation spike. And every discovery we keep is itself a parallel control wave: knock-out, placebo, seeds. We parallelize to run controls, not just to go fast. This is the workload Modal was built for."</p>
+    <p>"Parameter Golf showed Modal can elastically scale how much compute an agent uses. Protein folding needs a disciplined mix of execution modes — cached-feature readiness, bounded sampler fanout, scorer-only evaluation, and a gate control wave. In the one-hour run, we deliberately choose 20 sampler candidates instead of broad training search, then spend the remaining time testing the best provisional KEEP. We parallelize to run controls, not just to go fast. This is the workload Modal was built for."</p>
   </div>
 
   <h3>7.4 &nbsp;How the agent's code edits reach Modal</h3>
@@ -1518,7 +1518,7 @@ def preflight(trial: dict) -&gt; None:
   <h2><span class="sec-num">§ 11</span> <span class="sec-title">The demo</span></h2>
   <hr class="sec-rule">
 
-  <p>The demo is not a leaderboard screenshot. It is a research story the audience can watch resolve. The score matters, but the thing that makes auto-AlphaFold3 land is visible on stage: the agent proposes a mechanism, the orchestrator puts it on trial, and the verdict — confirmed or killed — is shown live. The artifact has five parts.</p>
+  <p>The demo is not a leaderboard screenshot. It is a research story the audience can watch resolve. The score matters, but the thing that makes auto-AlphaFold3 land is visible on stage: the agent proposes a mechanism, the orchestrator puts it on trial, and the verdict — confirmed or killed — is shown live. In the one-hour practical plan, the active mechanism family is sampler-only: a frozen-checkpoint diffusion/sampling change is tested under the same locked scorer and Falsification Gate. The artifact has five parts.</p>
 
   <h4>1. The trajectory</h4>
   <p>A single plot of best validation C-alpha lDDT over trials, with each point colored by move family and shaped by outcome: a hollow marker for a provisional KEEP, a filled green marker for a CONFIRMED discovery, and a red cross for a candidate killed at the gate. The line that matters is not the score curve alone — it is the gap between "looked good" and "survived." A run where every provisional KEEP became a discovery would be suspicious; a run with visible kills is a run with a working control loop.</p>
@@ -1530,18 +1530,18 @@ def preflight(trial: dict) -&gt; None:
     <div class="disc-col confirmed">
       <h6>Confirmed mechanisms</h6>
       <ul>
-        <li>Geometry-loss ramp closes the distogram-to-coordinate gap; +0.041 lDDT, attributable 0.78, axis held, seed-stable.<span class="axis">axis: distogram_vs_3d &middot; geometry_loss</span></li>
-        <li>Long-range contact weighting lifts topology on sep&ge;24; +0.026 lDDT, attributable 0.63, placebo null.<span class="axis">axis: long_range_topology &middot; auxiliary_loss</span></li>
-        <li>Sampler step-scale + fewer steps holds lDDT at lower cost; +0.018 lDDT, attributable 0.71.<span class="axis">axis: distogram_vs_3d &middot; diffusion_sampler_golf</span></li>
+        <li>Sampler step-scale + fewer steps holds or improves lDDT at lower cost; +0.018 lDDT, attributable 0.71, axis held.<span class="axis">axis: distogram_vs_3d &middot; diffusion_sampler_golf</span></li>
+        <li>Label-free sample selection reduces unstable loop outliers while preserving locked-score gains.<span class="axis">axis: local_geometry &middot; sampler_selection</span></li>
+        <li>Noise schedule narrowing improves realized C-alpha geometry without changing model weights.<span class="axis">axis: stability_compute &middot; sampler_schedule</span></li>
       </ul>
     </div>
     <div class="disc-col killed">
       <h6>Killed candidates</h6>
       <ul>
-        <li>Wider pair attention "improved" lDDT — placebo of equal size reproduced 0.7 of the gain.<span class="axis">PLACEBO_KILL</span></li>
-        <li>Extra recycling step raised the score, but knock-out kept it — credit was misattributed.<span class="axis">KNOCKOUT_SURVIVES</span></li>
-        <li>Dropout tweak lifted lDDT but local-geometry axis never moved.<span class="axis">AXIS_MISS &middot; logged unexplained</span></li>
-        <li>Norm reorder gain vanished on a seed rerun.<span class="axis">SEED_FRAGILE</span></li>
+        <li>A more aggressive sample-count increase looked better, but a matched sampler placebo reproduced most of the gain.<span class="axis">PLACEBO_KILL</span></li>
+        <li>A claimed step-scale improvement survived after the credited scale change was removed.<span class="axis">KNOCKOUT_SURVIVES</span></li>
+        <li>A sampler tweak lifted lDDT but the predicted distogram/coordinate axis never moved.<span class="axis">AXIS_MISS &middot; logged unexplained</span></li>
+        <li>A noisy schedule gain vanished on a seed rerun.<span class="axis">SEED_FRAGILE</span></li>
       </ul>
     </div>
   </div>
@@ -1563,8 +1563,8 @@ def preflight(trial: dict) -&gt; None:
         </style>
       </defs>
       <text x="14" y="18" class="lblC-panel">FALSIFICATION CARD · HEADLINE DISCOVERY</text>
-      <text x="14" y="40" class="lblC">claim: ramping the geometry loss makes the coordinate path use the contacts the pair head already learned</text>
-      <text x="14" y="57" class="lblC-sub">pre-registered axis: distogram_vs_3d &middot; predicted direction: gap down &middot; expected band: +0.02 to +0.05 lDDT</text>
+      <text x="14" y="40" class="lblC">claim: fewer diffusion steps with lower step scale preserve contacts while reducing sampler noise</text>
+      <text x="14" y="57" class="lblC-sub">pre-registered axis: distogram_vs_3d &middot; predicted direction: gap down &middot; expected band: +0.01 to +0.03 lDDT</text>
 
       <!-- baseline at y=210, bars grow up -->
       <line x1="60" y1="210" x2="700" y2="210" stroke="#b8b0a0" stroke-width="1"/>
@@ -1572,12 +1572,12 @@ def preflight(trial: dict) -&gt; None:
       <!-- full gain -->
       <rect class="barfull" x="92" y="96" width="78" height="114"/>
       <text x="131" y="226" class="lblC" text-anchor="middle">full</text>
-      <text x="131" y="90" class="lblC-val" text-anchor="middle">+0.041</text>
+      <text x="131" y="90" class="lblC-val" text-anchor="middle">+0.018</text>
 
       <!-- knock-out -->
       <rect class="barmute" x="246" y="186" width="78" height="24"/>
       <text x="285" y="226" class="lblC" text-anchor="middle">knock-out</text>
-      <text x="285" y="180" class="lblC-val" text-anchor="middle">+0.009</text>
+      <text x="285" y="180" class="lblC-val" text-anchor="middle">+0.002</text>
       <text x="285" y="242" class="lblC-sub" text-anchor="middle">gain collapses</text>
 
       <!-- placebo -->
@@ -1592,16 +1592,16 @@ def preflight(trial: dict) -&gt; None:
       <line x1="585" y1="88" x2="601" y2="88" stroke="#1a1a1a" stroke-width="1.2"/>
       <line x1="585" y1="120" x2="601" y2="120" stroke="#1a1a1a" stroke-width="1.2"/>
       <text x="593" y="226" class="lblC" text-anchor="middle">seed mean</text>
-      <text x="593" y="78" class="lblC-val" text-anchor="middle">+0.038</text>
-      <text x="593" y="242" class="lblC-sub" text-anchor="middle">&plusmn;0.006, n=3</text>
+      <text x="593" y="78" class="lblC-val" text-anchor="middle">+0.016</text>
+      <text x="593" y="242" class="lblC-sub" text-anchor="middle">&plusmn;0.005, n=3</text>
 
       <text x="690" y="57" class="lblC-grn" text-anchor="end">VERDICT: CONFIRMED &middot; attributable 0.78</text>
     </svg>
-    <figcaption><span class="fig-num">Fig. 11</span>The headline discovery on trial. Removing the credited component erases most of the gain (high attribution), an unrelated change of matched size does nothing (placebo null), and the gain survives a seed rerun. The claim was registered before any of these bars existed.</figcaption>
+    <figcaption><span class="fig-num">Fig. 11</span>The headline sampler discovery on trial. Removing the credited sampler setting erases most of the gain (high attribution), an unrelated sampler change of matched magnitude does not reproduce it (placebo null), and the gain survives a seed rerun. The claim was registered before any of these bars existed.</figcaption>
   </figure>
 
   <h4>4. The live Modal moment</h4>
-  <p>Two visible spikes. First, the sampler-golf burst (Mode C): a live <code>Function.map</code> over a few hundred frozen-checkpoint sampling configs; the Modal dashboard's container count climbs toward fifty and falls back to zero in about a minute, and the samples render as a conformational ensemble — rigid core tight, flexible loops smeared. Second, the gate: when the headline discovery is put on trial, a small control wave spikes and collapses, and the verdict resolves on screen.</p>
+  <p>Two visible spikes. First, the one-hour sampler burst: 20 frozen-checkpoint sampling configs run under the current practical <code>TrialRunner</code> cap, producing roughly four waves at six generation workers rather than a few-hundred-candidate fanout. The samples render as a conformational ensemble — rigid core tight, flexible loops smeared. Second, the gate: only the best provisional KEEP is put on trial, a small control wave spikes and collapses, and the verdict resolves on screen.</p>
 
   <h4>5. The structure overlay</h4>
   <p>Predicted-versus-true C-alpha backbone overlays for the baseline and the best confirmed candidate, with the geometry error map beside them. The audience sees the shape get closer to truth and the named axis improve in the same frame.</p>
@@ -1615,16 +1615,13 @@ def preflight(trial: dict) -&gt; None:
 <section id="s12">
   <h2><span class="sec-num">§ 12</span> <span class="sec-title">Timeline</span></h2>
   <hr class="sec-rule">
-  <p>A ten-hour window, anchored on a calibrated gate by hour one so that every later KEEP can be tried fairly.</p>
+  <p>The full canonical campaign remains a ten-hour search, but the accepted practical event mode is a one-hour sampler-only run. It cuts breadth, not integrity: readiness, baseline lock, scorer checks, Fold Cartographer diagnostics, and the Falsification Gate remain mandatory.</p>
   <ul class="timeline">
-    <li><span class="when">T+0</span><span class="what">Kickoff. Confirm deployed Modal app, mounted Volumes, working baseline, locked scorer, and the gate harness. No data generation.</span></li>
-    <li><span class="when">T+1</span><span class="what">Lock the baseline ledger. Calibrate the Falsification Gate on a known-null and a known-positive; freeze <code>tau</code>, <code>rho</code>, <code>k_seed</code>. Confirm the <code>starmap</code> wave runs end to end.</span></li>
-    <li><span class="when">T+1&ndash;2</span><span class="what">First real hypotheses. Agent reads diagnostics, pre-registers predictions, and submits cheap sampler-golf and short training trials. First provisional KEEPs appear.</span></li>
-    <li><span class="when">T+2&ndash;6</span><span class="what">Main search. Every provisional KEEP fires the gate; confirmed mechanisms enter the Discovery Ledger and feed the next round; kills are logged with reasons. Breadth across move families.</span></li>
-    <li><span class="when">T+6&ndash;7</span><span class="what">Consolidate. Stack confirmed mechanisms; chase the one or two highest-leverage axes; run a focused sampler burst on the best checkpoint.</span></li>
-    <li><span class="when">T+7</span><span class="what">Freeze search. Rerun confirmed discoveries multi-seed on the locked public split; use hidden validation only here; render baseline-vs-best overlays.</span></li>
-    <li><span class="when">T+8&ndash;9</span><span class="what">Build the demo: trajectory with outcomes, Discovery Ledger panel, falsification card for the headline mechanism, live Modal moments, overlays.</span></li>
-    <li><span class="when">T+9&ndash;10</span><span class="what">Rehearse the story. Lead with one confirmed mechanism and one instructive kill. Verify every framing line says AlphaFold3-lite, not full AlphaFold3.</span></li>
+    <li><span class="when">0&ndash;8m</span><span class="what">Run readiness report, confirm baseline/current best, and sanity-check the Modal-hosted trusted orchestrator path.</span></li>
+    <li><span class="when">8&ndash;30m</span><span class="what">Run 20 sampler candidates on the frozen checkpoint. If the first wave is slow or unstable, stop early after 12&ndash;18 candidates.</span></li>
+    <li><span class="when">30&ndash;36m</span><span class="what">Score and rank candidates by locked <code>best_val_calpha_lddt</code>; choose the best provisional KEEP that also satisfies quality and stability constraints.</span></li>
+    <li><span class="when">36&ndash;54m</span><span class="what">Run the full Falsification Gate only on the selected candidate: knock-out, matched sampler placebo, predicted-axis check, and seed rerun.</span></li>
+    <li><span class="when">54&ndash;60m</span><span class="what">Freeze search, summarize ledger state, and capture demo inputs: trajectory, falsification card, Fold Cartographer diagnostics, and overlay artifacts.</span></li>
   </ul>
 </section>
 
@@ -1633,12 +1630,12 @@ def preflight(trial: dict) -&gt; None:
   <hr class="sec-rule">
   <p>Success is tiered around confirmed mechanisms, not raw score. A discovery is a gain that survived falsification; the project is judged on how convincingly it can show that distinction.</p>
   <div class="numbers-grid">
-    <div class="cell"><div class="label">Minimum</div><div class="value">the loop runs the gate</div><div class="note">Baseline locked; at least one provisional KEEP runs the full falsification wave end to end with a verdict</div></div>
-    <div class="cell"><div class="label">Strong</div><div class="value">&ge;1 confirmed discovery</div><div class="note">At least one mechanism survives knock-out, placebo, axis-check, and seed; Discovery Ledger has provenance</div></div>
-    <div class="cell"><div class="label">Winning</div><div class="value">mechanism + instructive kill</div><div class="note">A confirmed mechanism that improves lDDT, at least one clean kill shown on stage, and a ledger that reads like a lab notebook</div></div>
-    <div class="cell"><div class="label">Standout</div><div class="value">control loop, not hill-climb</div><div class="note">Stacked confirmed mechanisms across axes, live Modal waves, and a trajectory where kills are visibly part of the science</div></div>
+    <div class="cell"><div class="label">Minimum</div><div class="value">the loop runs the gate</div><div class="note">Baseline locked; one sampler provisional KEEP runs the full falsification wave end to end with an honest verdict</div></div>
+    <div class="cell"><div class="label">Strong</div><div class="value">&ge;1 confirmed sampler mechanism</div><div class="note">The selected sampler change survives knock-out, placebo, axis-check, and seed; Discovery Ledger has provenance</div></div>
+    <div class="cell"><div class="label">Winning</div><div class="value">sampler mechanism + instructive kill</div><div class="note">A confirmed sampler mechanism that improves lDDT, at least one clean kill shown on stage, and a ledger that reads like a lab notebook</div></div>
+    <div class="cell"><div class="label">Standout</div><div class="value">control loop under constraint</div><div class="note">A one-hour run that shows disciplined search, live Modal waves, and the difference between a provisional bump and a confirmed mechanism</div></div>
   </div>
-  <p>The strongest version targets the "Agent Architectures &amp; Control Loops" framing directly: the differentiator is not that GPT-5.5 searched a folding model, but that it ran a real control loop — pre-registering predictions, surviving controls it did not author, and keeping only what held. A modest confirmed mechanism shown beside an honest kill beats a larger unverified score bump.</p>
+  <p>The strongest one-hour version targets the "Agent Architectures &amp; Control Loops" framing through disciplined constraint: the differentiator is not that GPT-5.5 broadly searched a folding model, but that it ran a real control loop — pre-registering sampler predictions, surviving controls it did not author, and keeping only what held. A modest confirmed sampler mechanism shown beside an honest kill beats a larger unverified score bump.</p>
 </section>
 
 <section id="s14">

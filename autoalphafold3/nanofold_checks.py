@@ -37,14 +37,20 @@ def run_nanofold_preflight_gates(
 ) -> list[NanoFoldGateResult]:
     """Run NanoFold-aware checks without downloading data or running training."""
 
+    import_summary = import_smoke_summary(repo_root=repo_root)
     return [
-        parameter_count_gate(config_path=config_path, repo_root=repo_root),
-        tiny_forward_gate(repo_root=repo_root),
-        finite_loss_gate(repo_root=repo_root),
+        parameter_count_gate(config_path=config_path, repo_root=repo_root, import_summary=import_summary),
+        tiny_forward_gate(repo_root=repo_root, import_summary=import_summary),
+        finite_loss_gate(repo_root=repo_root, import_summary=import_summary),
     ]
 
 
-def parameter_count_gate(*, config_path: str | Path, repo_root: str | Path = ".") -> NanoFoldGateResult:
+def parameter_count_gate(
+    *,
+    config_path: str | Path,
+    repo_root: str | Path = ".",
+    import_summary: dict[str, object] | None = None,
+) -> NanoFoldGateResult:
     """Count parameters if PyTorch and NanoFold training modules are importable."""
 
     config_result = validate_config_file(config_path, repo_root=repo_root)
@@ -63,7 +69,8 @@ def parameter_count_gate(*, config_path: str | Path, repo_root: str | Path = "."
             details={"config_kind": config_result.config_kind},
         )
 
-    import_summary = import_smoke_summary(repo_root=repo_root)
+    if import_summary is None:
+        import_summary = import_smoke_summary(repo_root=repo_root)
     model_import = _module_status(import_summary, "nanofold.train.model.nanofold")
     if not model_import.get("ok"):
         return NanoFoldGateResult(
@@ -101,10 +108,15 @@ def parameter_count_gate(*, config_path: str | Path, repo_root: str | Path = "."
     )
 
 
-def tiny_forward_gate(*, repo_root: str | Path = ".") -> NanoFoldGateResult:
+def tiny_forward_gate(
+    *,
+    repo_root: str | Path = ".",
+    import_summary: dict[str, object] | None = None,
+) -> NanoFoldGateResult:
     """Report readiness for a future tiny forward pass gate."""
 
-    import_summary = import_smoke_summary(repo_root=repo_root)
+    if import_summary is None:
+        import_summary = import_smoke_summary(repo_root=repo_root)
     model_import = _module_status(import_summary, "nanofold.train.model.nanofold")
     if not model_import.get("ok"):
         return NanoFoldGateResult(
@@ -121,10 +133,15 @@ def tiny_forward_gate(*, repo_root: str | Path = ".") -> NanoFoldGateResult:
     )
 
 
-def finite_loss_gate(*, repo_root: str | Path = ".") -> NanoFoldGateResult:
+def finite_loss_gate(
+    *,
+    repo_root: str | Path = ".",
+    import_summary: dict[str, object] | None = None,
+) -> NanoFoldGateResult:
     """Report readiness for a future one-batch finite-loss gate."""
 
-    import_summary = import_smoke_summary(repo_root=repo_root)
+    if import_summary is None:
+        import_summary = import_smoke_summary(repo_root=repo_root)
     trainer_import = _module_status(import_summary, "nanofold.train.trainer")
     if not trainer_import.get("ok"):
         return NanoFoldGateResult(

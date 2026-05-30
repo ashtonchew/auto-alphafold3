@@ -44,13 +44,15 @@ loop or submit research trials.
 
 ### Successor Goal
 
-After this foundation goal is complete, use
-`docs/handoffs/goal/autoalphafold3-prerun-readiness-goal-mode-prompt.md` for
-the next implementation wave. That successor goal covers canonical spec
-Sections 2-7 up to, but not including, autonomous research search: structured
-pre-registration, Falsification Gate contracts, baseline readiness, two-stage
-orchestration, confirmed-only Discovery Ledger, fakeable Modal gate fanout, and
-pre-run readiness reporting.
+After this foundation goal and PR #21 are accepted, use
+`docs/handoffs/goal/autoalphafold3-modal-prerun-readiness-goal-mode-prompt.md`
+for the next implementation wave. That successor goal covers the post-PR-21
+pre-run readiness work required to make the Modal-hosted trusted orchestrator,
+Falsification Gate, baseline/scorer boundary, ledgers, and readiness report
+complete enough that the only remaining step is an explicitly approved live run.
+It supersedes
+`docs/handoffs/goal/autoalphafold3-prerun-readiness-goal-mode-prompt.md` once
+the Modal-hosted orchestrator direction from PR #21 is present on `main`.
 
 ### Required First Steps
 
@@ -134,7 +136,9 @@ unless a human explicitly approves it and tests cover the change.
 - Trial, sampler, and debug workers must not mount or read locked validation
   labels.
 - Scorer-only workers may read locked manifests and labels.
-- The local orchestrator is the only canonical ledger writer.
+- This foundation goal treats the local orchestrator as scaffold-era ledger
+  authority only. After PR #21, event search must use the Modal-hosted trusted
+  orchestrator described in the successor goal.
 
 ### Worktree And PR Plan
 

@@ -1,0 +1,31 @@
+# AutoAlphaFold3 Pre-Run Readiness Checklist
+
+- [x] Latest `main` fetched and foundation stack rebased before this successor goal.
+- [x] Existing foundation PR state recorded.
+- [x] Prompt-addition PR opened separately as PR #14.
+- [x] Required docs and `modal-docs` skill read.
+- [x] Structured pre-registration schema implemented.
+- [x] Prediction preflight rejects missing causal component, axis, direction, or invalid expected delta band.
+- [x] Falsification plan/result schemas implemented.
+- [x] All five gate verdicts covered by pure local tests.
+- [x] Gate verdict math rejects missing scored controls.
+- [ ] Baseline lock reader implemented.
+- [ ] Missing or incomplete baseline lock fails readiness honestly.
+- [ ] No fake baseline metrics created.
+- [ ] Discovery Ledger helper implemented.
+- [ ] Discovery Ledger rejects non-CONFIRMED records.
+- [ ] Discovery provenance includes git SHA, scorer version, feature/manifest hashes, axis, verdict numbers, and design rule.
+- [ ] Stage-one threshold decision implemented.
+- [ ] Provisional KEEP cannot enter Discovery Ledger.
+- [ ] Gate controls are orchestrator-authored.
+- [ ] Modal gate-wave adapter is fakeable in tests.
+- [ ] Gate `starmap` uses `return_exceptions=True` and `wrap_returned_exceptions=False`.
+- [ ] Modal lookup/spawn/poll failures normalize to `INFRA_FAIL`.
+- [ ] Trial workers still cannot mount locked labels.
+- [ ] Scorer-only path remains the locked-label boundary.
+- [ ] Readiness CLI/report implemented.
+- [ ] Readiness report distinguishes local offline checks from human-approved live Modal/baseline actions.
+- [ ] `python3 -m pytest -p no:cacheprovider` passes.
+- [ ] `python3 .claude/skill-evals/run_offline_evals.py` passes.
+- [x] No fake benchmark/data/gate/discovery artifacts were created.
+- [x] Autonomous research search was not started.

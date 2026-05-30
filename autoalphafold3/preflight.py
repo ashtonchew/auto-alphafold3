@@ -10,7 +10,7 @@ from pathlib import Path
 from autoalphafold3.config_contract import validate_config_file
 from autoalphafold3.nanofold_checks import NanoFoldGateResult, run_nanofold_preflight_gates
 from autoalphafold3.patch_policy import validate_patch_scope
-from autoalphafold3.schema import AutoFoldTrial, BudgetTier, TrialStatus
+from autoalphafold3.schema import AutoFoldTrial, BudgetTier, RegisteredPrediction, TrialStatus
 from autoalphafold3.scorer import SCORER_VERSION, run_scorer_dry_run
 from autoalphafold3.scorer.locked_dataset import manifest_hashes
 
@@ -65,6 +65,7 @@ def run_preflight(
         paths_to_check = changed_paths_from_parent(trial_model.parent_commit, repo_root=root)
     validate_patch_scope(paths_to_check or [], repo_root=root, allow_empty=True)
     _require_config_json(trial_model.config_path, repo_root=root)
+    _require_registered_prediction(trial_model.prediction)
     _require_manifest_hashes(trial_model, manifest_paths or {}, repo_root=root)
     _require_scorer_version(trial_model.scorer_version)
     _require_empty_artifact_dir(trial_model.artifact_dir, repo_root=root)
@@ -126,6 +127,11 @@ def _require_config_json(config_path: str, *, repo_root: Path) -> None:
         raise PreflightError(
             f"config is missing required {result.config_kind} keys: {', '.join(result.missing_keys)}"
         )
+
+
+def _require_registered_prediction(prediction: RegisteredPrediction) -> None:
+    if not prediction.causal_component.strip():
+        raise PreflightError("prediction causal_component is required")
 
 
 def _require_manifest_hashes(

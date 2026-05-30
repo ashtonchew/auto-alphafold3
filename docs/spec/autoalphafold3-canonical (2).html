@@ -399,7 +399,7 @@
     <li>The verdict is computed — confirmed, or killed with a named reason.</li>
     <li>A confirmed mechanism is committed and written to the Discovery Ledger with full provenance; a kill is logged honestly with its reason.</li>
     <li>The agent updates its picture from the verdict, not just the score.</li>
-    <li>The local orchestrator writes the canonical ledger entry.</li>
+    <li>The trusted orchestrator writes the canonical ledger entry.</li>
   </ol>
 
   <p>For auto-AlphaFold3, the scalar is validation C-alpha lDDT. The editable surface is NanoFold-style architecture and training code. The fixed budget is a small training or inference-only sampler run on preprocessed Arrow features. The compute substrate is Modal. The locked contract is the validation split, scorer, raw labels, result parser, baseline ledger — and the falsification controls, which the orchestrator owns.</p>
@@ -754,20 +754,21 @@ class AutoFoldResult:
 
   <div class="callout">
     <div class="callout-label">Corrected Modal contract</div>
-    <p>The Modal compute architecture is creator-designed. The agent submits <code>AutoFoldTrial</code> JSON objects through the local orchestrator. It may not call <code>modal run</code> directly, spawn arbitrary sandboxes, modify Volumes, change GPU types, raise <code>max_containers</code>, edit <code>autoalphafold3/modal_app.py</code>, or author the falsification controls during search.</p>
+    <p>The Modal compute architecture is creator-designed. During the event, the trusted orchestrator is a Modal-hosted CPU service; local orchestration is only a scaffold/development fallback before deployment. The agent submits <code>AutoFoldTrial</code> JSON objects through that orchestrator. It may not call <code>modal run</code> directly, spawn arbitrary sandboxes, modify Volumes, change GPU types, raise <code>max_containers</code>, edit <code>autoalphafold3/modal_app.py</code>, or author the falsification controls during search.</p>
   </div>
 
   <h3>5.1 &nbsp;Control-plane / worker split</h3>
   <p>The platform has three layers:</p>
   <ul>
     <li><strong>GPT-5.5 agent.</strong> Reads repo, configs, logs, diagnostics, and the Discovery Ledger. Writes one hypothesis, one pre-registered prediction, one patch, one <code>AutoFoldTrial</code>.</li>
-    <li><strong>Local orchestrator.</strong> Validates patch scope, checks forbidden files, enforces budget/resource tier, runs preflight, submits to the deployed Modal function, polls results, runs the falsification gate, computes the verdict, and writes the canonical ledger and Discovery Ledger.</li>
+    <li><strong>Modal-hosted trusted orchestrator.</strong> A CPU-only Modal web endpoint or queue worker validates patch scope, checks forbidden files, enforces budget/resource tier, runs preflight, submits to the deployed Modal function, polls results, runs the falsification gate, computes the verdict, and writes the canonical ledger and Discovery Ledger. The local command remains only for foundation smoke tests and must not be the event search loop.</li>
     <li><strong>Modal workers.</strong> Trial/sampler workers load preprocessed Arrow features, apply the patch in an isolated workspace, and write predictions/checkpoints under trial-scoped <code>/runs</code> paths. A separate scorer-only worker mounts locked labels/manifests, computes metrics, and returns canonical diagnostics.</li>
   </ul>
   <p>This separation keeps the scientific search broad while narrowing the operational surface. The agent makes real architecture/training/sampler changes and authors falsifiable predictions, but it cannot mutate the infrastructure that enforces cost, locking, scoring, or the controls that decide what counts as a discovery.</p>
 
   <h3>5.2 &nbsp;Deploy once, call many</h3>
   <p>The Modal app is deployed once before the search loop. Trials are launched through <code>modal.Function.from_name(...).spawn(...)</code> or <code>.remote(...)</code>; the gate's control wave is launched through <code>.starmap(...)</code> over <code>(variant, seed)</code> tuples. Do not issue many concurrent <code>modal run</code> processes. This avoids app teardown conflicts, keeps images and Volume mounts consistent, and makes job polling deterministic.</p>
+  <p>The orchestrator is deployed on Modal without changing the worker contract. A CPU-only Modal web endpoint or queue function owns OpenAI/agent credentials, runs the OpenAI Agents SDK harness, and submits typed trials to the already-deployed trial/scorer/sampler functions. This follows Modal's deployed-app pattern: deploy persistent named Functions once, then call them by name from another Modal service or authenticated client. The trial, sampler, scorer, and debug execution workers still do not receive <code>OPENAI_API_KEY</code> or other LLM-provider secrets.</p>
 
   <p class="code-label">autoalphafold3/orchestrator.py — structural sketch</p>
 <pre><code>import json
@@ -817,10 +818,23 @@ def append_ledger(row: dict) -&gt; None:
         f.write(json.dumps(row, sort_keys=True) + "\n")
 </code></pre>
 
-  <h3>5.3 &nbsp;Agent-accessible tools</h3>
+  <h3>5.3 &nbsp;Modal-hosted agent harness</h3>
+  <p>The canonical event architecture is "all on Modal" but still split by trust boundary. It is <em>not</em> a single privileged GPU container that contains the agent loop, OpenAI key, source tree, shell, scorer, and training job. Use a two-plane design:</p>
+  <ul>
+    <li><strong>Harness plane.</strong> A CPU-only Modal function runs the agent/orchestrator code. It attaches <code>modal.Secret.from_name("openai-api-key")</code> or equivalent agent-service secrets, uses OpenAI Agents SDK <code>SandboxAgent</code> / <code>Runner</code>, keeps session state in a Modal Dict/Volume or external DB, and exposes an authenticated submission endpoint.</li>
+    <li><strong>Execution plane.</strong> Modal Functions and Modal Sandboxes perform code execution, trial training, sampler bursts, scoring, and debug drops. These containers mount only the data/run/locked Volumes allowed for their role and receive only non-secret manifest environment needed for execution.</li>
+  </ul>
+  <p>This matches the OpenAI Agents SDK / Modal Sandbox pattern: the harness keeps credentials and policy outside model-generated code execution, while sandboxes provide isolated filesystems, GPU selection, snapshots, and resumable workspaces. If subagents are used, they must be spawned through an orchestrator-owned quota system that preserves the existing GPU caps and forbidden-file checks.</p>
+
+  <div class="callout">
+    <div class="callout-label">Secret boundary</div>
+    <p>OpenAI keys, Modal tokens, GitHub tokens, dashboard credentials, and judge/evaluator secrets belong only to the trusted harness/orchestrator plane. They must not be serialized into <code>AutoFoldTrial</code>, written under <code>/runs</code>, mounted through <code>autoalphafold3-data</code>, baked into images, or attached to trial/sampler/scorer workers. If a future tool worker genuinely needs a third-party credential, it must use a narrowly named Modal Secret on that one function, with the key documented in this section and excluded from agent-editable code.</p>
+  </div>
+
+  <h3>5.4 &nbsp;Agent-accessible tools</h3>
   <ul>
     <li><strong>GPT-5.5 / Codex / goal mode.</strong> Researcher and code editor. It proposes hypotheses, authors falsifiable predictions, and writes patches.</li>
-    <li><strong>Local orchestrator.</strong> The only approved way to submit experiments and the only thing that runs the gate.</li>
+    <li><strong>Modal-hosted trusted orchestrator.</strong> The only approved event path for submitting experiments and the only thing that runs the gate. The local command exists only for scaffold smoke tests before the Modal harness is deployed.</li>
     <li><strong>Git.</strong> Every confirmed discovery is a commit. The commit message starts with move family and the axis it moves.</li>
     <li><strong>Fold Cartographer reports.</strong> Aggregated diagnostics used to register the next prediction.</li>
     <li><strong>Discovery Ledger.</strong> Read-only to the agent; written by the orchestrator on a CONFIRMED verdict.</li>
@@ -828,18 +842,18 @@ def append_ledger(row: dict) -&gt; None:
     <li><strong>Cost caps and failure statuses.</strong> NaNs, OOMs, shape errors, timeouts, infra failures, and gate kills are first-class outcomes.</li>
   </ul>
 
-  <h3>5.4 &nbsp;Agent-facing skills</h3>
+  <h3>5.5 &nbsp;Agent-facing skills</h3>
   <p>The autoresearch agent receives four narrow project skills, not the broad upstream Modal autoresearch skills. The skills expose folding-research behavior while preserving the locked benchmark and creator-designed Modal control plane.</p>
   <ul>
     <li><code>autoalphafold3-researcher</code>: main hypothesis loop, one diagnostic target, one move family, KEEP/DISCARD/FAIL discipline.</li>
-    <li><code>autoalphafold3-trial-submit</code>: validates exactly one <code>AutoFoldTrial</code> JSON and returns only <code>python -m autoalphafold3.agent submit trials/T###.json</code>.</li>
+    <li><code>autoalphafold3-trial-submit</code>: validates exactly one <code>AutoFoldTrial</code> JSON and returns only the configured Modal-hosted orchestrator endpoint for the event harness. The local command <code>python -m autoalphafold3.agent submit trials/T###.json</code> is allowed only for pre-deployment scaffold smoke tests.</li>
     <li><code>fold-cartographer</code>: maps scorer diagnostics to exactly one canonical failure target while keeping <code>best_val_calpha_lddt</code> primary.</li>
     <li><code>autoalphafold3-subagent-worker</code>: supports fast parallel proposal fanout; workers return bounded proposal artifacts and do not submit, integrate, call Modal, or write ledgers.</li>
   </ul>
 
   <p>The skills intentionally do not expose direct <code>modal run</code>, <code>modal.Function.from_name</code>, <code>modal.Sandbox.create</code>, GPU choice, Volume mutation, scorer edits, split edits, falsification-control edits, Discovery Ledger edits, or hidden-validation search. Those powers remain outside the autonomous folding researcher.</p>
 
-  <h3>5.5 &nbsp;Fast skill evals</h3>
+  <h3>5.6 &nbsp;Fast skill evals</h3>
   <p>Before autoresearch starts, the project runs skill evals to verify that the skills do what they claim. The default eval path is optimized for wall-clock time: fan out independent cases, run static and offline fixture assertions first, use small mini/spark-class models for sampled live checks, and escalate to a stronger model only for ambiguous or failed results.</p>
   <ul>
     <li><strong>Offline layer.</strong> Validate skill frontmatter, linked references, UI metadata, required guardrails, forbidden-action scans, eval case coverage, and synthetic expected-output assertions.</li>
@@ -847,15 +861,15 @@ def append_ledger(row: dict) -&gt; None:
     <li><strong>Artifacts.</strong> Store transcripts, assertion results, and recommended revisions under <code>.claude/skill-eval-workspace/iteration-N/</code>, outside the skill instructions themselves.</li>
   </ul>
 
-  <h3>5.6 &nbsp;Implementation status — skills and evals</h3>
+  <h3>5.7 &nbsp;Implementation status — skills and evals</h3>
   <p>The first agent-facing skill set is implemented under <code>.claude/skills/</code>. Each skill has a lean <code>SKILL.md</code>, directly linked references, UI metadata in <code>agents/openai.yaml</code>, and at least three eval cases covering positive, negative, and edge behavior. The eval cases are synthetic and local by design.</p>
   <p>The offline eval runner, <code>.claude/skill-evals/run_offline_evals.py</code>, now checks both skill quality and fanout readiness: frontmatter, linked references, required guardrails, forbidden-action scans, eval case coverage, fixture assertions, fast-model policy, parallel policy, live-eval plan presence, prompt-builder import, per-skill prompt rendering, reference inlining, and no expected-output leakage. The latest run passed <code>148</code> checks.</p>
   <p>Sampled live fanout was tested with <code>gpt-5.3-codex-spark</code> on synthetic prompts. The pass found and fixed two reliability gaps: unsafe researcher requests now produce an explicit <code>REFUSE</code> / <code>Human infrastructure repair mode</code> response, and forbidden subagent-worker assignments now produce an explicit <code>REFUSE</code> instead of a proposal-shaped artifact. The live prompt builder inlines <code>SKILL.md</code> plus direct references so live evals do not rely on implicit skill attachment behavior.</p>
 
-  <h3>5.7 &nbsp;Storage discipline</h3>
-  <p>Workers never append to one shared ledger. Each trial worker writes into its own directory: <code>/runs/trials/T123/artifact_manifest.json</code>, <code>training_log.json</code>, <code>stdout.log</code>, <code>stderr.log</code>, <code>patch.diff</code>, checkpoint, and optional overlay-ready coordinates. Gate controls write under <code>/runs/trials/T123/falsification/</code>. The scorer-only worker reads those directories and returns metrics plus an <code>error_report</code> payload; the local orchestrator merges returned diagnostics and the computed verdict into <code>runs/ledger.jsonl</code> and, on CONFIRMED, into the Discovery Ledger. This avoids Volume write contention and keeps postmortems clean.</p>
+  <h3>5.8 &nbsp;Storage discipline</h3>
+  <p>Workers never append to one shared ledger. Each trial worker writes into its own directory: <code>/runs/trials/T123/artifact_manifest.json</code>, <code>training_log.json</code>, <code>stdout.log</code>, <code>stderr.log</code>, <code>patch.diff</code>, checkpoint, and optional overlay-ready coordinates. Gate controls write under <code>/runs/trials/T123/falsification/</code>. The scorer-only worker reads those directories and returns metrics plus an <code>error_report</code> payload; the Modal-hosted trusted orchestrator merges returned diagnostics and the computed verdict into <code>runs/ledger.jsonl</code> and, on CONFIRMED, into the Discovery Ledger. This avoids Volume write contention and keeps postmortems clean by making one CPU service the sole ledger writer.</p>
 
-  <h3>5.8 &nbsp;Preflight gates</h3>
+  <h3>5.9 &nbsp;Preflight gates</h3>
   <ul>
     <li>Patch-scope check: forbidden files unchanged.</li>
     <li>Config schema check: all required NanoFold keys present.</li>
@@ -867,7 +881,7 @@ def append_ledger(row: dict) -&gt; None:
     <li>Only then launch fixed-budget training or sampler evaluation.</li>
   </ul>
 
-  <h3>5.9 &nbsp;Falsification gate execution</h3>
+  <h3>5.10 &nbsp;Falsification gate execution</h3>
   <p>When a trial returns a provisional KEEP, the orchestrator builds the controls and fires them as a parallel wave. The knock-out is constructed mechanically by reverting the declared <code>causal_component</code> from the candidate patch; the placebo is drawn from an unrelated move family at matched magnitude; the seed rerun repeats the candidate across <code>n_seeds</code>. For sampler-family mechanisms the controls are inference-only on the frozen checkpoint, so they are seconds long and ride the cheap path. Exceptions are treated as first-class results so a FAILed control becomes a clean kill rather than a crashed wave.</p>
 
   <p class="code-label">autoalphafold3/falsification.py — wave + verdict (locked)</p>
@@ -974,7 +988,7 @@ scripts/prepare_nanofold_data.py            # select/download/labels/fingerprint
       checkpoint.pt
       falsification/                             # knock-out / placebo / seed control artifacts
     final_validation/T001/
-  local-ledger/                                  # orchestrator-owned, not worker-owned
+  orchestrator-ledger/                           # orchestrator-owned, not worker-owned
     ledger.jsonl
     discovery_ledger.jsonl
     leaderboard.md
@@ -1224,7 +1238,7 @@ def sample_once(cfg: dict) -&gt; dict:
     features_ro.reload(); runs_ro.reload()
     return sample_label_free(load_frozen_ckpt(cfg["ckpt"]), cfg["schedule"], cfg["seed"])
 
-# The gate (autoalphafold3/falsification.py, §5.6) calls run_trial.starmap(...) over
+# The gate (autoalphafold3/falsification.py, §5.10) calls run_trial.starmap(...) over
 # (variant, seed) tuples; it adds NO new Modal function and NO new GPU tier.
 </code></pre>
 
@@ -1333,7 +1347,7 @@ class TrialRunner:
   </ul>
 
   <h4>4. Parallel local preflight checks</h4>
-  <p>Three of the seven preflight gates (&sect;5.5) are pure-Python file I/O on git &mdash; forbidden files, config schema, parameter count. They are thread-safe by construction and can run in parallel. The four GPU-requiring checks remain sequential because they touch the warm <code>TrialRunner</code> Cls and would otherwise risk the state-leak modes addressed in &sect;7.5.2.</p>
+  <p>Three of the seven preflight gates (&sect;5.9) are pure-Python file I/O on git &mdash; forbidden files, config schema, parameter count. They are thread-safe by construction and can run in parallel. The four GPU-requiring checks remain sequential because they touch the warm <code>TrialRunner</code> Cls and would otherwise risk the state-leak modes addressed in &sect;7.5.2.</p>
 <pre><code>from concurrent.futures import ThreadPoolExecutor
 
 def preflight(trial: dict) -&gt; None:
@@ -1447,6 +1461,7 @@ def preflight(trial: dict) -&gt; None:
   <ul class="checklist">
     <li>Build the Modal image with NanoFold dependencies, torch, Arrow, and rendering deps.</li>
     <li>Deploy <code>autoalphafold3</code> once before search; test the spawn/poll path and a one-Sandbox debug drop.</li>
+    <li>Deploy the CPU-only Modal orchestrator endpoint/queue with its own OpenAI secret and verify that trial/sampler/scorer workers do not receive that secret.</li>
     <li>Test the gate's <code>starmap</code> wave end to end on the known-positive.</li>
     <li>Create budget cap and visible dashboard; create initial <code>program.md</code> from §14.</li>
     <li>Create trajectory visualization, Discovery Ledger UI, and overlay renderer skeletons.</li>
@@ -1459,7 +1474,7 @@ def preflight(trial: dict) -&gt; None:
   <p>The base model exists; the work is making it safe, fast, measurable, diagnostic, falsifiable, and agent-editable.</p>
   <div class="numbers-grid">
     <div class="cell"><div class="label">Modal app</div><div class="value">~180 LOC</div><div class="note">One pinned runner, Volumes, status, caps</div></div>
-    <div class="cell"><div class="label">Local orchestrator</div><div class="value">~240 LOC</div><div class="note">Preflight, spawn, poll, ledger</div></div>
+    <div class="cell"><div class="label">Modal orchestrator</div><div class="value">~300 LOC</div><div class="note">Endpoint/queue, preflight, spawn, poll, ledger</div></div>
     <div class="cell"><div class="label">NanoFold adapter</div><div class="value">~240 LOC</div><div class="note">Config injection, checkpoint path, fixed manifests</div></div>
     <div class="cell"><div class="label">Autoresearch harness</div><div class="value">~220 LOC</div><div class="note">Hypothesis loop, pre-registration, patch apply/revert</div></div>
     <div class="cell"><div class="label">C-alpha lDDT scorer</div><div class="value">~180 LOC</div><div class="note">Locked metric, diagnostics, JSON schema</div></div>
@@ -1472,7 +1487,7 @@ def preflight(trial: dict) -&gt; None:
     <div class="cell"><div class="label">Trajectory viz</div><div class="value">~240 LOC</div><div class="note">Trial plot, move families, verdicts</div></div>
     <div class="cell"><div class="label">Overlay renderer</div><div class="value">~180 LOC</div><div class="note">Predicted vs. true C-alpha backbone</div></div>
     <div class="cell"><div class="label">program.md</div><div class="value">~110 lines</div><div class="note">Agent instructions, locks, gate rules</div></div>
-    <div class="cell"><div class="label">Total</div><div class="value">~2,310 LOC</div><div class="note">Mostly glue, locks, diagnostics, controls, and demo</div></div>
+    <div class="cell"><div class="label">Total</div><div class="value">~2,370 LOC</div><div class="note">Mostly glue, locks, diagnostics, controls, and demo</div></div>
   </div>
 </section>
 
@@ -1492,7 +1507,7 @@ def preflight(trial: dict) -&gt; None:
     <li><span class="risk"><strong>NaNs and OOMs dominate the ledger.</strong> Diffusion losses and mixed precision can destabilize.</span><span class="mit">Treat NaN/OOM as FAIL. Log honestly, downgrade budget only within rules, and use one debug sandbox under trigger rules.</span></li>
     <li><span class="risk"><strong>Validation C-alpha lDDT is noisy.</strong> Small validation subsets produce false positives.</span><span class="mit">This is exactly what the seed and placebo controls catch. Use a keep threshold above baseline noise; the gate's <code>SEED_FRAGILE</code> and <code>PLACEBO_KILL</code> verdicts reject noise before it reaches the Discovery Ledger.</span></li>
     <li><span class="risk"><strong>Diagnostics leak labels or become objective hacking.</strong> Rich diagnostics can tempt overfitting to public validation.</span><span class="mit">Diagnostics are aggregated, locked, and public-val only. The gate uses the same locked split, no new labels. Hidden validation remains final-only. Primary metric stays best validation C-alpha lDDT.</span></li>
-    <li><span class="risk"><strong>Shared ledger writes collide.</strong> Multiple workers appending one file can lose data.</span><span class="mit">Workers write only per-trial directories. The local orchestrator is the single ledger and Discovery Ledger writer.</span></li>
+    <li><span class="risk"><strong>Shared ledger writes collide.</strong> Multiple workers appending one file can lose data.</span><span class="mit">Workers write only per-trial directories. The Modal-hosted trusted orchestrator is the single ledger and Discovery Ledger writer and must serialize writes through one queue, Dict transaction pattern, or external DB lock.</span></li>
     <li><span class="risk"><strong>Modal GPU image issues.</strong> Torch, CUDA, pyarrow, and NanoFold deps can fail in the container.</span><span class="mit">Build and test the image before event. Pin dependencies. Keep a minimal fallback image that runs tiny baseline and scorer.</span></li>
     <li><span class="risk"><strong>Unfair "AlphaFold3" overclaim.</strong> Judges may infer we modified real AlphaFold3.</span><span class="mit">Repeat the framing everywhere: NanoFold-style AlphaFold3-lite sandbox, not full AlphaFold3.</span></li>
     <li><span class="risk"><strong>Demo does not improve score.</strong> The final candidate may only match baseline or improve modestly.</span><span class="mit">Build the demo around the trajectory, the gate, confirmed mechanisms, instructive kills, Modal jobs, and overlays. A modest confirmed mechanism with a clean kill beside it still lands.</span></li>
@@ -1686,7 +1701,7 @@ Use the project skills as narrow operating modes:
 - fold-cartographer: map scorer diagnostics to exactly one canonical target while
   keeping best_val_calpha_lddt as the only primary objective.
 - autoalphafold3-trial-submit: validate one AutoFoldTrial JSON and return only
-  the approved local orchestrator command.
+  the approved Modal-hosted orchestrator endpoint submission.
 - autoalphafold3-subagent-worker: generate bounded proposal artifacts for
   parallel hypothesis fanout; workers do not submit, integrate, call Modal, edit
   locked files, or write ledgers.
@@ -1758,6 +1773,8 @@ Touching any lock is evaluator hacking and invalidates the run.
     <h4>Autoresearch and folding architecture-search inspiration</h4>
     <ol>
       <li><span class="title">Modal — "Autoscaling Autoresearch: Give your agents elastic GPUs on Modal."</span> <span class="src">Parameter Golf / autoresearch compute story: smoke, parallel experiments, debug drop, validation scale-up, Volumes, logs, and scale-to-zero.</span> <a href="https://modal.com/blog/autoscaling-autoresearch">modal.com/blog/autoscaling-autoresearch</a></li>
+      <li><span class="title">Modal — "Building with Modal and the OpenAI Agents SDK."</span> <span class="src">Reference for a Modal Sandbox-backed OpenAI Agents SDK harness: orchestrator, subagents, GPU quotas, filesystem snapshots, and sandboxed execution.</span> <a href="https://modal.com/blog/building-with-modal-and-the-openai-agent-sdk">modal.com/blog/building-with-modal-and-the-openai-agent-sdk</a></li>
+      <li><span class="title">OpenAI — "The next evolution of the Agents SDK."</span> <span class="src">Reference for separating harness from compute, keeping credentials out of model-generated execution environments, sandbox manifests, and resumable sandbox state.</span> <a href="https://openai.com/index/the-next-evolution-of-the-agents-sdk/">openai.com/index/the-next-evolution-of-the-agents-sdk</a></li>
       <li><span class="title">modal-projects — modal-auto-research-skills.</span> <span class="src">Reference for Modal Skills and the deploy-once/call-many warning.</span> <a href="https://github.com/modal-projects/modal-auto-research-skills">github.com/modal-projects/modal-auto-research-skills</a></li>
       <li><span class="title">ChrisHayduk — SimplexFold.</span> <span class="src">Reference for ambitious folding architecture search: higher-order face/tetrahedral states, benchmark discipline, and trajectory visualization. Inspiration only.</span> <a href="https://github.com/ChrisHayduk/SimplexFold">github.com/ChrisHayduk/SimplexFold</a></li>
       <li><span class="title">ChrisHayduk — nanoFold-Competition.</span> <span class="src">Reference for fixed data-efficient folding benchmarks, public validation, hidden evaluation, sealed scoring, and API constraints.</span> <a href="https://github.com/ChrisHayduk/nanoFold-Competition">github.com/ChrisHayduk/nanoFold-Competition</a></li>

@@ -1,0 +1,43 @@
+{
+  "dataset_name": "autoalphafold3_event_small_v1",
+  "nanofold_repo": "https://github.com/ogchen/nanofold",
+  "nanofold_commit": "f670440e4fa533592e7b411408dfbffc5e1bf113",
+  "rcsb_mmcif_url_template": "https://files.rcsb.org/download/{pdb_id}.cif",
+  "modal_volume": {
+    "name": "autoalphafold3-data",
+    "mount_path": "/mnt/autoalphafold3",
+    "canonical": true,
+    "storage_policy": "Public data Volume for raw mmCIFs, public features, provenance, runs, and renders. Locked scorer assets must not be uploaded here."
+  },
+  "locked_volume": {
+    "name": "autoalphafold3-locked",
+    "mount_path": "/mnt/autoalphafold3-locked",
+    "canonical": true,
+    "storage_policy": "Scorer-only locked Volume for manifests, validation labels, and scorer metadata."
+  },
+  "length_min": 50,
+  "length_max": 300,
+  "counts": {
+    "train_tiny": 32,
+    "public_val_small": 16
+  },
+  "smoke_counts": {
+    "train_tiny": 8,
+    "public_val_small": 4
+  },
+  "template_search": {
+    "enabled_for_smoke": false,
+    "enabled_for_full": false,
+    "max_templates": 0,
+    "database": null,
+    "policy": "No-template benchmark. Template tensors are empty schema placeholders only; no template database is required."
+  },
+  "database_paths": {
+    "small_bfd": "/mnt/autoalphafold3/dbs/small_bfd/bfd-first_non_consensus_sequences.fasta",
+    "uniclust30": "/mnt/autoalphafold3/dbs/uniclust30_2016_03/uniclust30_2016_03"
+  },
+  "msa_search": {
+    "database": "small_bfd or reduced UniClust30/UniRef30-style database",
+    "full_alphafold_database_bundle": false
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schema_version": "autoaf3.config.scaffold.v1",
+  "status": "scaffold_only",
+  "description": "Placeholder for the future tiny NanoFold smoke config. Do not treat this as a runnable training config.",
+  "benchmark": {
+    "primary_metric": "best_val_calpha_lddt",
+    "scorer_version": "calpha_lddt_v1",
+    "max_templates": 0
+  }
+}

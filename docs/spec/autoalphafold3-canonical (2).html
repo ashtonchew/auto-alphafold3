@@ -197,7 +197,7 @@
   <p class="doc-subtitle">GPT-5.5 autoresearch for AlphaFold3-lite protein folding.</p>
   <div class="meta-row">
     <span><strong>Event</strong> · Modal Autoresearch Hackathon</span>
-    <span><strong>Date</strong> · Saturday, May 2026</span>
+    <span><strong>Date</strong> · Saturday, May 30, 2026</span>
     <span><strong>Window</strong> · ~10h</span>
     <span><strong>Status</strong> · canonical — control plane + Fold Cartographer</span>
   </div>
@@ -214,7 +214,7 @@
     <li><a href="#s5"><span class="toc-num">§5</span><span class="toc-title">Agent stack &amp; tooling</span></a></li>
     <li><a href="#s6"><span class="toc-num">§6</span><span class="toc-title">Data and benchmark</span></a></li>
     <li><a href="#s7"><span class="toc-num">§7</span><span class="toc-title">Where Modal comes in</span></a></li>
-    <li><a href="#s8"><span class="toc-num">§8</span><span class="toc-title">Pre-event prep</span></a></li>
+    <li><a href="#s8"><span class="toc-num">§8</span><span class="toc-title">Hackathon-start readiness</span></a></li>
     <li><a href="#s9"><span class="toc-num">§9</span><span class="toc-title">Estimated lines of code</span></a></li>
     <li><a href="#s10"><span class="toc-num">§10</span><span class="toc-title">Risk assessment</span></a></li>
     <li><a href="#s11"><span class="toc-num">§11</span><span class="toc-title">The demo</span></a></li>
@@ -233,7 +233,7 @@
 
   <p>But the target is not Google DeepMind's real AlphaFold3. Full AlphaFold3 is a large, production-grade biomolecular-complex model. It predicts joint structures for proteins, nucleic acids, small molecules, ions, and modified residues. Its official repository is an inference pipeline with parameter access and use constraints, not a hackathon-scale training substrate. Claiming that we improve, beat, reproduce, or train full AlphaFold3 would be false framing.</p>
 
-  <p>The right target is an <strong>AlphaFold3-lite research sandbox</strong>: small enough to read, train, profile, and patch; real enough that architectural and training changes mean something. That is why the implementation base is <a href="https://github.com/ogchen/nanofold"><code>ogchen/nanofold</code></a>. NanoFold is based on the AlphaFold2 and AlphaFold3 papers, is designed to train on a single mid-tier GPU, restricts the problem to monomer protein chains, predicts backbone atoms rather than full biomolecular complexes, and includes a real preprocessing stack for mmCIF structures, MSAs, templates, and Arrow IPC feature dumps.</p>
+  <p>The right target is an <strong>AlphaFold3-lite research sandbox</strong>: small enough to read, train, profile, and patch; real enough that architectural and training changes mean something. That is why the implementation base is <a href="https://github.com/ogchen/nanofold"><code>ogchen/nanofold</code></a>. NanoFold is based on the AlphaFold2 and AlphaFold3 papers, is designed to train on a single mid-tier GPU, restricts the problem to monomer protein chains, predicts backbone atoms rather than full biomolecular complexes, and includes a real feature-generation stack for mmCIF structures, MSAs, templates, and Arrow IPC feature dumps.</p>
 
   <div class="callout">
     <div class="callout-label">Core hypothesis</div>
@@ -339,11 +339,11 @@
     <li>The local orchestrator writes the canonical ledger entry.</li>
   </ol>
 
-  <p>For auto-AlphaFold3, the scalar is validation C-alpha lDDT. The editable surface is NanoFold-style architecture and training code. The fixed budget is a small training or inference-only sampler run on preprocessed Arrow features. The compute substrate is Modal. The locked contract is the validation split, scorer, raw labels, result parser, feature outputs, and baseline ledger.</p>
+  <p>For auto-AlphaFold3, the scalar is validation C-alpha lDDT. The editable surface is NanoFold-style architecture and training code. The fixed budget is a small training or inference-only sampler run on cached Arrow features. The compute substrate is Modal. The locked contract is the validation split, scorer, raw labels, result parser, feature outputs, and baseline ledger.</p>
 
   <div class="callout">
     <div class="callout-label">Autoresearch contract</div>
-    <p>The agent may edit the model/training/sampler search surface, but not the benchmark contract or the Modal control plane. If it can change the scorer, split, validation labels, preprocessing outputs, result parser, or infrastructure guardrails, the project stops being research and becomes evaluator hacking. The exact editable and locked file lists are canonical in §4.</p>
+    <p>The agent may edit the model/training/sampler search surface, but not the benchmark contract or the Modal control plane. If it can change the scorer, split, validation labels, cached feature outputs, result parser, or infrastructure guardrails, the project stops being research and becomes evaluator hacking. The exact editable and locked file lists are canonical in §4.</p>
   </div>
 
   <p>The research claim is the trajectory, not a single lucky checkpoint. A good run should read like this: "The agent saw that long-range contact precision improved while C-alpha lDDT stayed flat; it inferred the pair representation was learning distances but the coordinate path was not using them; it changed the geometry-loss ramp and recycling schedule; the score improved; it then tested whether the mechanism survived a seed rerun." That is an autoresearch story, not a grid search.</p>
@@ -422,7 +422,7 @@
   <h2><span class="sec-num">§ 4</span> <span class="sec-title">Methodology &amp; search space</span></h2>
   <hr class="sec-rule">
 
-  <p>The agent should not be restricted to a single config file. That would make sense for a frozen-probe plan; it is too weak for folding architecture research. The agent may edit a broad but designated search surface: selected NanoFold model/training modules, an <code>autoalphafold3/</code> patch area, configs, loss definitions, sampler wrappers, and training schedules. It may not edit scoring, split, preprocessing output, result parser, baseline ledger, or Modal control plane.</p>
+  <p>The agent should not be restricted to a single config file. That would make sense for a frozen-probe plan; it is too weak for folding architecture research. The agent may edit a broad but designated search surface: selected NanoFold model/training modules, an <code>autoalphafold3/</code> patch area, configs, loss definitions, sampler wrappers, and training schedules. It may not edit scoring, split, cached feature output, result parser, baseline ledger, or Modal control plane.</p>
 
   <h4>Search families</h4>
   <ul>
@@ -568,7 +568,7 @@ class AutoFoldResult:
   <h4>Decision rule</h4>
   <p>During search, a candidate is a <strong>KEEP</strong> if it improves best validation C-alpha lDDT over the current best by a minimum threshold and does not create unacceptable NaN/OOM/runtime behavior. A candidate is <strong>DISCARD</strong> if it fails the metric, violates budget, or only improves by noise. A candidate is <strong>FAIL</strong> if the training path breaks. A candidate is <strong>INFRA_FAIL</strong> if the Modal worker or artifact path fails independent of the patch.</p>
 
-  <p>During broad search, single-seed noise is tolerated. During final validation, the best candidate gets multiple seeds on the fixed public validation split, plus optional hidden validation if staged before the event. The hidden split is final-only; it is not used for search diagnostics.</p>
+  <p>During broad search, single-seed noise is tolerated. During final validation, the best candidate gets multiple seeds on the fixed public validation split. There is no hidden validation split in the active v4 scope.</p>
 </section>
 
 <section id="s5">
@@ -587,7 +587,7 @@ class AutoFoldResult:
   <ol>
     <li><strong>GPT-5.5 agent.</strong> Reads repo, configs, logs, and diagnostics. Writes one hypothesis, one patch, one <code>AutoFoldTrial</code>.</li>
     <li><strong>Local orchestrator.</strong> Validates patch scope, checks forbidden files, enforces budget/resource tier, runs preflight, submits to deployed Modal function, polls results, writes canonical ledger.</li>
-    <li><strong>Modal workers.</strong> Trial/sampler workers load preprocessed Arrow features, apply the patch in an isolated workspace, and write predictions/checkpoints under trial-scoped <code>/runs</code> paths. A separate scorer-only worker mounts locked labels/manifests, computes metrics, and returns canonical diagnostics.</li>
+    <li><strong>Modal workers.</strong> Trial/sampler workers load cached Arrow features, apply the patch in an isolated workspace, and write predictions/checkpoints under trial-scoped <code>/runs</code> paths. A separate scorer-only worker mounts locked labels/manifests, computes metrics, and returns canonical diagnostics.</li>
   </ol>
 
   <p>This separation keeps the scientific search broad while narrowing the operational surface. The agent can make real architecture/training/sampler changes, but it cannot mutate the infrastructure that enforces cost, locking, and scoring.</p>
@@ -681,15 +681,15 @@ def append_ledger(row: dict) -&gt; None:
   <h2><span class="sec-num">§ 6</span> <span class="sec-title">Data and benchmark</span></h2>
   <hr class="sec-rule">
 
-  <p>Data is the make-or-break constraint. Full folding preprocessing is too slow and too failure-prone to discover on event day.</p>
+  <p>Data is the make-or-break constraint. Full folding feature rebuilding is too slow and too failure-prone to discover inside the event trial loop.</p>
 
   <div class="callout">
     <div class="callout-label">Data rule</div>
-    <p><strong>Preprocess before event.</strong> During the event, never run full MSA/database preprocessing except tiny smoke checks. The hackathon starts from preprocessed Arrow IPC features, a tiny train subset, a fixed public validation split, and a working NanoFold default/tiny baseline.</p>
+    <p><strong>Hackathon-start data rule.</strong> During the event, never run full MSA/database feature rebuilding except explicitly marked tiny smoke checks. The hackathon starts from cached Arrow IPC features, a tiny train subset, a fixed public validation split, and a working NanoFold default/tiny baseline.</p>
   </div>
 
   <h3>6.1 &nbsp;NanoFold data path</h3>
-  <p>NanoFold consumes PDB/mmCIF structural inputs, searches sequence databases for MSAs, can search template databases, and writes Arrow IPC feature dumps. The relevant preprocessing for this hackathon includes mmCIF parsing from PDB, small BFD / Uniclust30-style sequence search for MSAs, empty template placeholders, and Arrow IPC feature output. This is real protein-folding data work, not something to debug after kickoff.</p>
+  <p>NanoFold consumes PDB/mmCIF structural inputs, searches sequence databases for MSAs, can search template databases, and writes Arrow IPC feature dumps. The relevant feature-generation path for this hackathon includes mmCIF parsing from PDB, small BFD / Uniclust30-style sequence search for MSAs, empty template placeholders, and Arrow IPC feature output. This path is outside the event trial loop; May 30 jobs should read cached features rather than debug full feature rebuilding.</p>
 
   <div class="callout">
     <div class="callout-label">No-template benchmark</div>
@@ -698,8 +698,8 @@ def append_ledger(row: dict) -&gt; None:
   </div>
 
   <h3>6.2 &nbsp;Canonical Modal Volume</h3>
-  <p>The current hackathon public-data store is the Modal Volume <code>autoalphafold3-data</code> in the <code>modal-ai-hackathon</code> workspace, mounted at <code>/mnt/autoalphafold3</code>. The completed local-to-Modal handoff uploaded the event-small no-template dataset on 2026-05-30. Event jobs should consume these cached files directly; they should not run PDB/mmCIF/MSA database preprocessing during the event.</p>
-  <p>The uploaded public bundle intentionally excludes reduced MSA databases and the local PDB70 directory. PDB70 is out of scope because official runs are pinned to <code>max_templates=0</code>. The data Volume contains selected raw mmCIFs, preprocessed Arrow features, provenance, and feature fingerprints. The locked Volume contains active manifests, public validation labels, and scorer-version metadata. If larger future preprocessing is needed, run it as a pre-event data-owner task and write a new immutable feature artifact rather than mutating this one during agent trials.</p>
+  <p>The current hackathon public-data store is the Modal Volume <code>autoalphafold3-data</code> in the <code>modal-ai-hackathon</code> workspace, mounted at <code>/mnt/autoalphafold3</code>. The completed local-to-Modal handoff uploaded the event-small no-template dataset on May 30, 2026. Event jobs should consume these cached files directly; they should not run PDB/mmCIF/MSA database feature rebuilding during the event.</p>
+  <p>The uploaded public bundle intentionally excludes reduced MSA databases and the local PDB70 directory. PDB70 is out of scope because official runs are pinned to <code>max_templates=0</code>. The data Volume contains selected raw mmCIFs, cached Arrow features, provenance, and feature fingerprints. The locked Volume contains active manifests, public validation labels, and scorer-version metadata. If a larger future artifact is needed, run it as a separate data-owner rebuild task and write a new immutable feature artifact rather than mutating this one during agent trials.</p>
 
   <div class="callout">
     <div class="callout-label">Completed data handoff</div>
@@ -708,15 +708,15 @@ def append_ledger(row: dict) -&gt; None:
   </div>
 
   <p>Validation labels and scorer metadata now live in the separate scorer-only Modal Volume <code>autoalphafold3-locked</code>, mounted at <code>/mnt/autoalphafold3-locked</code> only for scorer/final-validation paths. Agent-accessible trial workers mount <code>autoalphafold3-data</code> read-only and must not mount <code>autoalphafold3-locked</code>.</p>
-  <p>This matches Modal Volume's intended write-once/read-many shape: raw inputs, public features, and baselines are written during pre-event prep, committed once, and read many times by training, sampler, scorer, and visualization jobs. Labels are read only by scorer/final-validation code. Event jobs may write only to trial-specific directories under <code>/runs</code>. They may not concurrently modify shared files, rewrite <code>/features</code>, or mount locked labels outside scorer/final-validation code.</p>
+  <p>This matches Modal Volume's intended write-once/read-many shape: raw inputs, public features, and baselines are written during the completed May 30 data handoff, committed once, and read many times by training, sampler, scorer, and visualization jobs. Labels are read only by scorer/final-validation code. Event jobs may write only to trial-specific directories under <code>/runs</code>. They may not concurrently modify shared files, rewrite <code>/features</code>, or mount locked labels outside scorer/final-validation code.</p>
 
   <p class="code-label">repo implementation artifacts for this handoff</p>
 <pre><code>configs/nanofold_dataset_local.json          # local 32/16 no-template dataset config
 configs/nanofold_event_small_candidates.txt # exact 48-chain event-small candidate list
 configs/nanofold_smoke_candidates.txt       # exact 8/4 local tiny candidate list
-docs/local_nanofold_preprocessing.md        # local preprocessing runbook
-docs/data/preprocessing_runbook.md          # Modal/public-data preprocessing runbook
-scripts/nanofold_preprocess_no_templates.py # wraps NanoFold preprocessing with max_templates=0
+docs/local_nanofold_data_rebuild_notes.md   # local data-owner rebuild boundary
+docs/data/may30_data_handoff.md             # Modal/public-data handoff state
+scripts/nanofold_preprocess_no_templates.py # wraps NanoFold feature generation with max_templates=0
 scripts/verify_nanofold_no_template_features.py
 scripts/modal_volume_smoke.py               # mounts both Modal Volumes and verifies handoff
 scripts/prepare_nanofold_data.py            # select/download/lightweight labels/fingerprints/upload helper
@@ -771,7 +771,7 @@ scripts/prepare_nanofold_data.py            # select/download/lightweight labels
 
   <h3>6.4 &nbsp;Splits</h3>
   <ul>
-    <li><strong>Train subset.</strong> Fixed small subset of preprocessed monomer chains for fast experiments. Size is chosen by runtime, not ambition.</li>
+    <li><strong>Train subset.</strong> Fixed small subset of cached-feature monomer chains for fast experiments. Size is chosen by runtime, not ambition.</li>
     <li><strong>Public validation subset.</strong> Fixed, small, fully locked. The agent sees metrics and aggregated diagnostics, not labels or split construction.</li>
     <li><strong>Baseline ledger.</strong> Contains NanoFold default/tiny baseline metrics, immutable after T+1.</li>
   </ul>
@@ -834,8 +834,8 @@ scripts/prepare_nanofold_data.py            # select/download/lightweight labels
 
       <rect class="f7-pre" x="320" y="58" width="246" height="46" rx="2"/>
       <text x="333" y="86" class="f7-k">A</text>
-      <text x="356" y="78" class="f7-lbl">preprocess &#183; Function.map</text>
-      <text x="356" y="94" class="f7-sub">CPU fan-out &#183; pre-event &#183; scale &#8594; 0</text>
+      <text x="356" y="78" class="f7-lbl">data build &#183; Function.map</text>
+      <text x="356" y="94" class="f7-sub">CPU fan-out &#183; data-owner &#183; scale &#8594; 0</text>
 
       <rect class="f7-bg" x="320" y="114" width="246" height="46" rx="2"/>
       <text x="333" y="142" class="f7-k">B</text>
@@ -873,7 +873,7 @@ scripts/prepare_nanofold_data.py            # select/download/lightweight labels
       <text x="628" y="374" class="f7-lbl" text-anchor="middle">runs</text>
       <text x="628" y="389" class="f7-sub" text-anchor="middle">read-write &#183; 1 writer / dir</text>
     </svg>
-    <figcaption><span class="fig-num">Fig. 7</span>Five execution modes. One orchestrator and one Modal app drive a pre-event CPU fan-out (A), single-GPU trials (B), an inference-only sampler burst (C), an interactive debug Sandbox (D), and a validation spike (E), over durable Volumes. GPUs scale to zero between waves; metrics and geometry diagnostics return to the orchestrator.</figcaption>
+    <figcaption><span class="fig-num">Fig. 7</span>Five execution modes. One orchestrator and one Modal app drive a completed data-build CPU fan-out (A), single-GPU trials (B), an inference-only sampler burst (C), an interactive debug Sandbox (D), and a validation spike (E), over durable Volumes. GPUs scale to zero between waves; metrics and geometry diagnostics return to the orchestrator.</figcaption>
   </figure>
 
   <h3>7.1 &nbsp;Execution modes</h3>
@@ -881,10 +881,10 @@ scripts/prepare_nanofold_data.py            # select/download/lightweight labels
     <div class="stage">
       <div class="stage-num">MODE A</div>
       <div class="stage-body">
-        <h5>Parallel CPU fan-out &mdash; build the benchmark</h5>
-        <div class="stage-shape">Function.map &middot; Volume.commit &middot; pre-event &middot; CPU &middot; scale &#8594; 0</div>
+        <h5>Parallel CPU fan-out &mdash; data-owner artifact build</h5>
+        <div class="stage-shape">Function.map &middot; Volume.commit &middot; data-owner &middot; CPU &middot; scale &#8594; 0</div>
         <p>mmCIF parsing and MSA search over hundreds of monomer chains is embarrassingly parallel, heavy, and one-shot. Template fields are written as empty placeholders because the benchmark is pinned to <code>max_templates=0</code>. One <code>preprocess_chain.map(all_ids)</code> wave builds the Arrow feature set into the data Volume, then releases. Parameter Golf had no such phase &mdash; its data was plain text.</p>
-        <p class="stage-cost">This is the feasibility hinge: it runs before T+0. During the event, trials read cached features; full database preprocessing is banned except tiny smoke checks. Tier: pre-event prep (&sect;8).</p>
+        <p class="stage-cost">This is the feasibility hinge: at hackathon start, trials read cached features; full database feature rebuilding is banned except tiny smoke checks. Tier: hackathon-start readiness (&sect;8).</p>
       </div>
     </div>
     <div class="stage">
@@ -919,8 +919,8 @@ scripts/prepare_nanofold_data.py            # select/download/lightweight labels
       <div class="stage-body">
         <h5>Validation spike &mdash; multi-seed + render, then zero</h5>
         <div class="stage-shape">fan-out candidates &#215; seeds &middot; gpu="H100" &middot; render overlays &middot; scaledown_window 60s</div>
-        <p>Final-only. At T+7, stop broad search; rerun the best one to three candidates across multiple seeds on the locked public split; use hidden validation only here; render predicted-vs-true backbone overlays for baseline and best candidate. Scale up briefly, validate honestly, scale down.</p>
-        <p class="stage-cost">Tier: <code>final</code>. The only place hidden validation is touched.</p>
+        <p>Final-only. At T+7, stop broad search; rerun the best one to three candidates across multiple seeds on the locked public split; render predicted-vs-true backbone overlays for baseline and best candidate. Scale up briefly, validate honestly, scale down.</p>
+        <p class="stage-cost">Tier: <code>final</code>. Multi-seed public validation and rendering only.</p>
       </div>
     </div>
   </div>
@@ -951,7 +951,7 @@ runs_rw = data_v.with_mount_options(sub_path="/runs")
 runs_ro = data_v.with_mount_options(read_only=True, sub_path="/runs")
 locked_ro = locked_v.with_mount_options(read_only=True)
 status_d = modal.Dict.from_name("autoalphafold3-status", create_if_missing=True)
-DATA = "/mnt/autoalphafold3"                 # full data mount, pre-event preprocessing only
+DATA = "/mnt/autoalphafold3"                 # full data mount, data-owner rebuild only
 FEATURES = "/mnt/autoalphafold3-features"    # event read-only subpath mount
 RUNS = "/mnt/autoalphafold3-runs"            # event run-artifact subpath mount
 LOCKED = "/mnt/autoalphafold3-locked"
@@ -998,10 +998,10 @@ scorer_image = (
 cpu_image = modal.Image.debian_slim().apt_install("hmmer", "hhsuite") \
                 .pip_install("biopython==1.84", "pyarrow==18.1.0")
 
-# ---- MODE A - pre-event parallel CPU fan-out: build public features, then scale to zero ----
+# ---- MODE A - data-owner parallel CPU fan-out: build public features, then scale to zero ----
 @app.function(image=cpu_image, cpu=8.0, timeout=30 * 60, volumes={DATA: data_v})
 def preprocess_chain(pdb_id: str) -&gt; dict:
-    feats = run_msa_search_with_empty_templates(pdb_id)  # heavy, one-shot, pre-event only
+    feats = run_msa_search_with_empty_templates(pdb_id)  # heavy, one-shot, data-owner rebuild only
     write_arrow(feats, f"{DATA}/features/{pdb_id}.arrow")
     data_v.commit()
     return {"pdb_id": pdb_id, "ok": True}
@@ -1179,14 +1179,14 @@ def run_wave(proposal):
 </section>
 
 <section id="s8">
-  <h2><span class="sec-num">§ 8</span> <span class="sec-title">Pre-event prep</span></h2>
+  <h2><span class="sec-num">§ 8</span> <span class="sec-title">Hackathon-start readiness</span></h2>
   <hr class="sec-rule">
 
-  <p>Pre-event prep is the difference between a folding demo and a preprocessing postmortem. The team should arrive with a working smoke baseline, preprocessed features in the canonical <code>autoalphafold3-data</code> Modal Volume, deployed Modal app, locked scorer, and an initial <code>program.md</code>. The event is for autoresearch, not data plumbing.</p>
+  <p>May 30 hackathon-start readiness is the difference between a folding demo and a data-plumbing postmortem. Event jobs start from cached features in the canonical <code>autoalphafold3-data</code> Modal Volume, scorer-only assets in <code>autoalphafold3-locked</code>, a deployed Modal app, a locked scorer, and an initial <code>program.md</code>. The event is for autoresearch, not data plumbing.</p>
 
   <div class="callout">
-    <div class="callout-label">Current prep status</div>
-    <p><strong>Data preprocessing and upload are complete for event-small.</strong> The <code>modal-ai-hackathon</code> workspace contains <code>autoalphafold3-data</code> with 48 selected public mmCIFs, <code>nanofold_event_small_no_templates.arrow</code>, provenance, and fingerprints, plus <code>autoalphafold3-locked</code> with active 32/16 manifests and public validation labels. The next handoff step is not data generation; it is wiring Modal training/evaluation workers to consume public features read-only and mounting locked labels only in scorer/final-validation code.</p>
+    <div class="callout-label">Current May 30 status</div>
+    <p><strong>Data handoff is complete for event-small.</strong> The <code>modal-ai-hackathon</code> workspace contains <code>autoalphafold3-data</code> with 48 selected public mmCIFs, <code>nanofold_event_small_no_templates.arrow</code>, provenance, and fingerprints, plus <code>autoalphafold3-locked</code> with active 32/16 manifests and public validation labels. The next handoff step is not data generation; it is wiring Modal training/evaluation workers to consume public features read-only and mounting locked labels only in scorer/final-validation code.</p>
   </div>
 
   <h3>8.1 &nbsp;Team roles</h3>
@@ -1195,7 +1195,7 @@ def run_wave(proposal):
       <h6 style="color: var(--ink-muted);">Protein/data owner</h6>
       <ul>
         <li>Maintain the completed 32/16 event-small train/validation split</li>
-        <li>Treat mmCIF/MSA preprocessing with <code>max_templates=0</code> as complete for event-small</li>
+        <li>Treat mmCIF/MSA feature artifacts with <code>max_templates=0</code> as complete for event-small</li>
         <li>Own the canonical <code>autoalphafold3-data</code> and scorer-only <code>autoalphafold3-locked</code> Volume layouts</li>
         <li>Keep selected raw mmCIFs, Arrow IPC features, fingerprints, and run artifacts in the data Volume</li>
         <li>Keep validation labels, scorer code, and scorer version metadata in scorer-only mounts during agent trials</li>
@@ -1232,9 +1232,9 @@ def run_wave(proposal):
     <div class="perm-col">
       <h6 style="color: var(--accent);">Shared rule</h6>
       <ul>
-        <li>No full preprocessing during event</li>
+        <li>No full feature rebuilding during event</li>
         <li>No scorer edits after baseline lock</li>
-        <li>No hidden validation until final rerun</li>
+        <li>No hidden validation split in the active scope</li>
         <li>No direct <code>modal run</code> from the agent</li>
         <li>No "we improved AlphaFold3" claims</li>
         <li>No SimplexFold implementation dependency</li>
@@ -1246,7 +1246,7 @@ def run_wave(proposal):
   <h4>Repo and architecture</h4>
   <ul class="checklist">
     <li>Clone <code>ogchen/nanofold</code> and run local import smoke.</li>
-    <li>Read README, docs, config files, Docker setup, training pipeline, preprocessing pipeline, and model files under <code>nanofold/train</code>.</li>
+    <li>Read README, docs, config files, Docker setup, training pipeline, feature-generation pipeline, and model files under <code>nanofold/train</code>.</li>
     <li>Map editable modules: trunk, Pairformer, diffusion, losses, trainer, config, dataset wrapper.</li>
     <li>Create <code>autoalphafold3/</code> patch area and adapter layer.</li>
     <li>Create <code>docs/framing.md</code>: AlphaFold3-lite, not full AlphaFold3.</li>
@@ -1256,7 +1256,7 @@ def run_wave(proposal):
   <ul class="checklist">
     <li><strong>Done.</strong> Created Modal Volumes <code>autoalphafold3-data</code> and <code>autoalphafold3-locked</code> in workspace <code>modal-ai-hackathon</code>.</li>
     <li><strong>Done.</strong> Uploaded 48 selected public PDB/mmCIF inputs into <code>/mnt/autoalphafold3/raw/mmcif</code>.</li>
-    <li><strong>Done.</strong> Ran local NanoFold no-template MSA preprocessing with small BFD and Uniclust30; no PDB70/template search was used.</li>
+    <li><strong>Done.</strong> Ran local NanoFold no-template MSA feature generation with small BFD and Uniclust30; no PDB70/template search was used.</li>
     <li><strong>Done.</strong> Uploaded <code>/mnt/autoalphafold3/features/nanofold_event_small_no_templates.arrow</code> with 48 records.</li>
     <li><strong>Done.</strong> Uploaded lightweight helper files <code>train_tiny.arrow</code> and <code>public_val_small.arrow</code>; no <code>train_small.arrow</code> exists for this event-small handoff.</li>
     <li><strong>Done.</strong> Uploaded <code>feature_fingerprints.json</code> and <code>provenance.json</code> to the data Volume.</li>
@@ -1316,7 +1316,7 @@ def run_wave(proposal):
   <hr class="sec-rule">
 
   <ul class="ledger">
-    <li><div class="risk"><strong>Preprocessing takes too long.</strong> MSA preprocessing can consume the whole event.</div><div class="mit">Preprocess before event. Store Arrow IPC features in <code>autoalphafold3-data</code>. During the event, only run tiny smoke checks against already-prepared paths. Keep templates disabled with <code>max_templates=0</code>.</div></li>
+    <li><div class="risk"><strong>Feature rebuilding takes too long.</strong> MSA feature generation can consume the whole event.</div><div class="mit">Use the already prepared Arrow IPC features in <code>autoalphafold3-data</code>. During the event, only run tiny smoke checks against already-prepared paths. Keep templates disabled with <code>max_templates=0</code>.</div></li>
     <li><div class="risk"><strong>Training loop is too slow for 10 hours.</strong> Folding models are heavier than probe heads.</div><div class="mit">Use <code>auto_tiny</code>, short budgets, sampler-only inner loops, and final multi-seed only for best candidates.</div></li>
     <li><div class="risk"><strong>Agent mutates infrastructure.</strong> If the agent edits Modal app, scoring, or budget caps, the loop becomes unsafe.</div><div class="mit">Modal app is locked. Agent submits typed trials only. Orchestrator checks forbidden files before every run.</div></li>
     <li><div class="risk"><strong>Default NanoFold random split violates benchmark lock.</strong> A ratio split is not a locked evaluator.</div><div class="mit">Use explicit manifests and manifest hashes through <code>locked_dataset.py</code>. Refuse official trials using random split.</div></li>
@@ -1326,7 +1326,7 @@ def run_wave(proposal):
     <li><div class="risk"><strong>Validation C-alpha lDDT is noisy.</strong> Small validation subsets can produce false positives.</div><div class="mit">Use a keep threshold above baseline noise. Rerun final candidates across multiple seeds and report mean/variance.</div></li>
     <li><div class="risk"><strong>Diagnostics leak labels or become objective hacking.</strong> Rich diagnostics can tempt overfitting to public validation.</div><div class="mit">Diagnostics are aggregated, locked, and public-val only. Hidden validation remains final-only. Primary metric stays best validation C-alpha lDDT.</div></li>
     <li><div class="risk"><strong>Shared ledger writes collide.</strong> Multiple workers appending one file can lose data.</div><div class="mit">Workers write only per-trial directories. Local orchestrator is the single ledger writer.</div></li>
-    <li><div class="risk"><strong>Modal GPU image issues.</strong> Torch, CUDA, pyarrow, and NanoFold dependencies can fail inside the container.</div><div class="mit">Build and test image before event. Pin dependencies. Keep a minimal fallback image that runs tiny baseline and scorer.</div></li>
+    <li><div class="risk"><strong>Modal GPU image issues.</strong> Torch, CUDA, pyarrow, and NanoFold dependencies can fail inside the container.</div><div class="mit">At event start, pin and verify dependencies against the fallback image. Keep a minimal fallback image that runs tiny baseline and scorer.</div></li>
     <li><div class="risk"><strong>Unfair "AlphaFold3" overclaim.</strong> Judges may infer we modified real AlphaFold3.</div><div class="mit">Repeat the framing everywhere: NanoFold-style AlphaFold3-lite sandbox, not full AlphaFold3.</div></li>
     <li><div class="risk"><strong>SimplexFold comparison distracts from NanoFold base.</strong> The project could drift into explaining another repo.</div><div class="mit">Use SimplexFold only as ambition/demo reference. All implementation, metrics, and patches live in NanoFold / auto-AlphaFold3.</div></li>
     <li><div class="risk"><strong>Demo does not improve score.</strong> The final candidate may only match baseline or improve modestly.</div><div class="mit">Build the demo around trajectory, diagnostics, hypotheses, failure signatures, Modal jobs, and overlays. A modest improvement with mechanism still lands.</div></li>
@@ -1365,10 +1365,10 @@ def run_wave(proposal):
   <h2><span class="sec-num">§ 12</span> <span class="sec-title">Timeline</span></h2>
   <hr class="sec-rule">
 
-  <p>Ten-hour event plan. This assumes pre-event preprocessing, Modal deployment, baseline smoke, and scorer validation are complete.</p>
+  <p>Ten-hour event plan. This assumes May 30 data handoff, Modal deployment, baseline smoke, and scorer validation are complete.</p>
 
   <ul class="timeline">
-    <li><span class="when">Pre</span><span class="what"><strong>Before event.</strong> Completed so far: authenticated <code>modal-ai-hackathon</code>, created <code>autoalphafold3-data</code> and <code>autoalphafold3-locked</code>, uploaded the 48-chain event-small no-template dataset, moved labels/manifests into the locked Volume, and verified both Volumes from Modal. Remaining: deploy the Modal training/eval app, run NanoFold default/tiny baseline, create scorer, create Fold Cartographer, create <code>program.md</code>, create trajectory and overlay skeletons, set budget cap.</span></li>
+    <li><span class="when">T+0 state</span><span class="what"><strong>May 30 current state.</strong> Completed so far: authenticated <code>modal-ai-hackathon</code>, created <code>autoalphafold3-data</code> and <code>autoalphafold3-locked</code>, uploaded the 48-chain event-small no-template dataset, moved labels/manifests into the locked Volume, and verified both Volumes from Modal. Remaining: deploy the Modal training/eval app, run NanoFold default/tiny baseline, create scorer, create Fold Cartographer, create <code>program.md</code>, create trajectory and overlay skeletons, set budget cap.</span></li>
     <li><span class="when">T+0</span><span class="what"><strong>Smoke.</strong> Run tiny NanoFold config on Modal. Verify train/eval/checkpoint/render loop. Confirm scorer returns validation C-alpha lDDT and diagnostics.</span></li>
     <li><span class="when">T+1</span><span class="what"><strong>Baseline fixed.</strong> Baseline NanoFold default/tiny score written to immutable ledger. Public validation split and parser locked. Modal control-plane locks verified.</span></li>
     <li><span class="when">T+2</span><span class="what"><strong>Agent begins.</strong> GPT-5.5 reads repo, configs, logs, <code>program.md</code>, and the latest baseline error report. First hypotheses are watched manually for patch discipline.</span></li>
@@ -1386,7 +1386,7 @@ def run_wave(proposal):
 
   <h4>Minimum viable</h4>
   <ul>
-    <li>NanoFold runs on Modal from preprocessed Arrow features.</li>
+    <li>NanoFold runs on Modal from cached Arrow features.</li>
     <li>A baseline validation C-alpha lDDT score exists.</li>
     <li>GPT-5.5 completes multiple fixed-budget experiments through the orchestrator.</li>
     <li>Fold Cartographer emits at least one useful error report.</li>
@@ -1537,11 +1537,10 @@ benchmark contract or Modal control plane.
 Do not modify:
 
 - public validation split definition
-- hidden validation split definition
 - scoring script
 - metric computation
 - raw validation labels
-- data preprocessing outputs during the event
+- cached feature outputs during the event
 - baseline result ledger
 - result parser
 - any locked Volume file
@@ -1554,7 +1553,7 @@ Do not patch it.
 
 ## Data rule
 
-Do not run full MSA/database preprocessing during the event.
+Do not run full MSA/database feature rebuilding during the event.
 
 Template policy:
 - Pin max_templates=0 for every official baseline, trial, and final validation.
@@ -1564,12 +1563,12 @@ Template policy:
 
 Allowed:
 - read existing Arrow IPC features
-- run tiny smoke preprocessing only if explicitly marked smoke
+- run tiny smoke feature checks only if explicitly marked smoke
 - inspect feature metadata
-- train and evaluate on preprocessed features
+- train and evaluate on cached features
 
 Forbidden:
-- launch full PDB/mmCIF/MSA preprocessing
+- launch full PDB/mmCIF/MSA feature rebuilding
 - enable templates or fetch template structures
 - rebuild validation features
 - change train/validation membership
@@ -1638,7 +1637,7 @@ Allowed:
 
 Forbidden:
 - select samples using validation labels directly
-- tune sample selection on hidden validation
+- tune sample selection on labels or held-out private data
 - call the sampler result a model-training improvement unless checkpoint is unchanged
 
 ## Hypothesis log format
@@ -1777,7 +1776,7 @@ By T+8, produce:
   <h4>Implementation base</h4>
   <ol>
     <li><span class="title">ogchen — <code>nanofold</code>.</span> <span class="src">Small protein folding model based on AlphaFold2 and AlphaFold3 papers; implementation base for auto-AlphaFold3.</span> <a href="https://github.com/ogchen/nanofold">github.com/ogchen/nanofold</a></li>
-    <li><span class="title">NanoFold documentation.</span> <span class="src">Docs for understanding NanoFold, training, preprocessing, and differences from AlphaFold systems.</span> <a href="https://ogchen.github.io/nanofold/">ogchen.github.io/nanofold</a></li>
+    <li><span class="title">NanoFold documentation.</span> <span class="src">Docs for understanding NanoFold, training, feature generation, and differences from AlphaFold systems.</span> <a href="https://ogchen.github.io/nanofold/">ogchen.github.io/nanofold</a></li>
     <li><span class="title">NanoFold — Differences to AlphaFold.</span> <span class="src">Monomer-only scope, backbone atoms, training compromises, and omissions relative to full AlphaFold systems.</span> <a href="https://ogchen.github.io/nanofold/Differences_to_Alphafold.html">ogchen.github.io/nanofold/Differences_to_Alphafold.html</a></li>
   </ol>
 
@@ -1798,7 +1797,7 @@ By T+8, produce:
 
   <h4>Modal infrastructure</h4>
   <ol>
-    <li><span class="title">Modal Volumes guide.</span> <span class="src">Persistent storage for reduced DBs, raw mmCIFs, preprocessed Arrow features, checkpoints, logs, and rendered outputs; includes commit/reload and concurrent-write caveats.</span> <a href="https://modal.com/docs/guide/volumes">modal.com/docs/guide/volumes</a></li>
+    <li><span class="title">Modal Volumes guide.</span> <span class="src">Persistent storage for reduced DBs, raw mmCIFs, cached Arrow features, checkpoints, logs, and rendered outputs; includes commit/reload and concurrent-write caveats.</span> <a href="https://modal.com/docs/guide/volumes">modal.com/docs/guide/volumes</a></li>
     <li><span class="title">Modal Large dataset ingestion guide.</span> <span class="src">Pattern for downloading and transforming large datasets inside Modal functions, storing outputs into a Volume, and avoiding repeated decompression.</span> <a href="https://modal.com/docs/guide/dataset-ingestion">modal.com/docs/guide/dataset-ingestion</a></li>
     <li><span class="title">Modal Sandboxes guide.</span> <span class="src">Debug sandboxes and isolated execution environments for generated code or interactive inspection.</span> <a href="https://modal.com/docs/guide/sandboxes">modal.com/docs/guide/sandboxes</a></li>
     <li><span class="title">Modal Job processing guide.</span> <span class="src">Deploy function, submit jobs with <code>.spawn()</code>, and poll with <code>FunctionCall.get()</code>.</span> <a href="https://modal.com/docs/guide/job-queue">modal.com/docs/guide/job-queue</a></li>
@@ -1821,7 +1820,7 @@ By T+8, produce:
 
 <footer class="doc-foot">
   <span>autoalphafold3-spec · v3 canonical · NanoFold base · Fold Cartographer</span>
-  <span>preprocess before event</span>
+  <span>cached features, no full event feature rebuilds</span>
 </footer>
 
 </div>

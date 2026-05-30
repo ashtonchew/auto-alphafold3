@@ -159,6 +159,27 @@ Audit Modal assets for search readiness:
 python -m autoalphafold3.agent audit-modal-assets --search-ready
 ```
 
+Record deployed Modal event authority proof:
+
+```bash
+python -m autoalphafold3.agent audit-modal-authority \
+  --mode modal \
+  --approve I_APPROVE_MODAL_EVENT_AUTHORITY
+```
+
+Produce and freeze Falsification Gate calibration evidence:
+
+```bash
+python -m autoalphafold3.agent run-gate-calibration \
+  --mode modal \
+  --approve I_APPROVE_GATE_CALIBRATION_RUN
+python -m autoalphafold3.agent calibrate-gate \
+  --mode from-evidence \
+  --known-null-evidence runs/gate_calibration/known_null.json \
+  --known-positive-evidence runs/gate_calibration/known_positive.json \
+  --approve I_APPROVE_GATE_CALIBRATION
+```
+
 Submit a future approved trial:
 
 ```bash

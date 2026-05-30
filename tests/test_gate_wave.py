@@ -110,14 +110,12 @@ def test_gate_wave_modal_adapter_uses_required_starmap_exception_contract() -> N
             *,
             order_outputs: bool,
             return_exceptions: bool,
-            wrap_returned_exceptions: bool | None,
         ) -> list[dict[str, object]]:
             self.calls.append(
                 {
                     "inputs": inputs,
                     "order_outputs": order_outputs,
                     "return_exceptions": return_exceptions,
-                    "wrap_returned_exceptions": wrap_returned_exceptions,
                 }
             )
             return [
@@ -137,7 +135,6 @@ def test_gate_wave_modal_adapter_uses_required_starmap_exception_contract() -> N
     assert report.status == TrialStatus.SCORED
     assert function.calls[0]["order_outputs"] is True
     assert function.calls[0]["return_exceptions"] is True
-    assert function.calls[0]["wrap_returned_exceptions"] is False
     assert function.calls[0]["inputs"][0][0]["control_kind"] == "knockout"
     assert require_scored_gate_wave(report, expected_controls=controls) == report
 
@@ -229,9 +226,10 @@ def test_gate_wave_cancel_failure_normalizes_to_infra_fail() -> None:
 def test_gate_wave_lookup_failure_normalizes_to_infra_fail() -> None:
     class FakeClsNamespace:
         @staticmethod
-        def from_name(app_name: str, class_name: str) -> object:
+        def from_name(app_name: str, class_name: str, environment_name: str | None = None) -> object:
             assert app_name == "autoalphafold3-modal"
             assert class_name == DEFAULT_GATE_CLASS
+            assert environment_name is None
             raise RuntimeError("lookup unavailable")
 
     fake_modal = types.SimpleNamespace(Cls=FakeClsNamespace)
@@ -256,12 +254,10 @@ def test_gate_wave_modal_adapter_looks_up_trial_runner_method() -> None:
             *,
             order_outputs: bool,
             return_exceptions: bool,
-            wrap_returned_exceptions: bool | None,
         ) -> list[dict[str, object]]:
             self.calls.append(inputs)
             assert order_outputs is True
             assert return_exceptions is True
-            assert wrap_returned_exceptions is False
             return [
                 {
                     "status": "SCORED",
@@ -278,9 +274,10 @@ def test_gate_wave_modal_adapter_looks_up_trial_runner_method() -> None:
 
     class FakeClsNamespace:
         @staticmethod
-        def from_name(app_name: str, class_name: str) -> type[FakeRunner]:
+        def from_name(app_name: str, class_name: str, environment_name: str | None = None) -> type[FakeRunner]:
             assert app_name == "autoalphafold3-modal"
             assert class_name == DEFAULT_GATE_CLASS
+            assert environment_name == "main"
             return FakeRunner
 
     fake_modal = types.SimpleNamespace(Cls=FakeClsNamespace)
@@ -289,6 +286,7 @@ def test_gate_wave_modal_adapter_looks_up_trial_runner_method() -> None:
         build_gate_wave_controls(plan=plan(n_seeds=1), base_payload=base_payload()),
         modal_module=fake_modal,
         method_name=DEFAULT_GATE_METHOD,
+        environment_name="main",
     )
 
     assert report.status == TrialStatus.SCORED

@@ -28,8 +28,9 @@ Follow-up readiness hardening PRs are also merged:
 - PR #31 `fix: support live Modal asset handoff audit`
 - PR #38 `feat: add approved gate calibration command`
 - PR #40 `Add LLM phase policy`
+- PR #41 `baseline lock follow-up`
 
-The current readiness-live branch was rebased onto PR #40.
+The current readiness branch was rebased onto PR #41.
 
 ## Current State: Live Baseline Locked
 
@@ -77,31 +78,34 @@ The audit verified readable helper Arrow files on the Modal Volume, valid
 feature fingerprints, valid scorer metadata, and the locked/public Volume
 boundary.
 
-Readiness report still blocks autonomous search:
+Readiness report now passes after the approved live readiness artifacts:
 
 ```bash
 .venv/bin/python -m autoalphafold3.agent readiness-report --config-path configs/nanofold_dev_cpu_smoke.json
 ```
 
-Observed result: `autonomous_search_ready: false`.
+Observed result: `autonomous_search_ready: true`.
 
-The report now passes baseline lock and local gates. It still blocks autonomous
-search because real Falsification Gate calibration evidence is missing.
+The report passes baseline lock, local gates, mocked Modal contracts, live
+Modal event authority, and frozen Falsification Gate calibration. The optional
+live smoke remains `NOT_REQUESTED` and is not required for offline autonomous
+readiness.
 
-## Remaining Human/Live Blockers
+## Final Live Readiness Artifacts
 
-1. Falsification Gate calibration evidence is missing.
-   The readiness report correctly refuses to accept a missing
-   `runs/falsification_gate_calibration.json`. The committed `calibrate-gate`
-   command can validate and freeze real known-null and known-positive evidence,
-   but no committed command currently produces that evidence. Hand-writing it
-   would be fake gate evidence.
+This branch adds and records:
 
-2. Readiness still reports Modal event authority as a pending live action in
-   the offline report. The Modal app was deployed during the baseline run, but
-   the readiness report does not currently persist a live deployment proof
-   artifact. Autonomous search must remain blocked until the explicit search
-   readiness action verifies event authority and gate calibration is complete.
+- `runs/modal_event_authority.json`, produced by
+  `audit-modal-authority --mode modal --approve I_APPROVE_MODAL_EVENT_AUTHORITY`;
+- `runs/gate_calibration/known_null.json` and
+  `runs/gate_calibration/known_positive.json`, produced by
+  `run-gate-calibration --mode modal --approve I_APPROVE_GATE_CALIBRATION_RUN`;
+- `runs/falsification_gate_calibration.json`, produced by
+  `calibrate-gate --mode from-evidence --approve I_APPROVE_GATE_CALIBRATION`.
+
+These are pre-search readiness artifacts. They do not start autonomous search,
+write baseline artifacts, write canonical ledger records, or write Discovery
+Ledger records.
 
 ## Done Standard
 

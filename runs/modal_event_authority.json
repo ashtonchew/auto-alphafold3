@@ -1,0 +1,14 @@
+{
+  "app_name": "autoalphafold3-modal",
+  "arbitrary_agent_sandbox_allowed": false,
+  "authority_class": "TrustedOrchestrator",
+  "can_submit_trials": true,
+  "direct_modal_run_allowed": false,
+  "required_event_authority": "modal_hosted_trusted_orchestrator",
+  "starts_search": false,
+  "status": "PASS",
+  "trusted_orchestrator": true,
+  "writes_baseline": false,
+  "writes_discovery_ledger": false,
+  "writes_ledger": false
+}

@@ -560,6 +560,10 @@ if modal is not None:
         "autoalphafold3",
         copy=True,
     )
+    harness_image = modal.Image.debian_slim().pip_install("numpy", "openai", "pyarrow", "pydantic").add_local_python_source(
+        "autoalphafold3",
+        copy=True,
+    )
     train_image = modal.Image.debian_slim().pip_install("numpy", "pyarrow", "pydantic", "torch").add_local_python_source(
         "autoalphafold3",
         copy=True,
@@ -673,9 +677,10 @@ if modal is not None:
             return self.run({**control_payload, "seed": seed})
 
     @app.cls(
-        image=scorer_image,
+        image=harness_image,
         cpu=1.0,
         volumes={RUNS_MOUNT: runs_rw},
+        secrets=[modal.Secret.from_name("openai-api-key")],
     )
     class TrustedOrchestrator:
         """CPU-only trusted harness entrypoint; execution workers do not call it."""
@@ -683,6 +688,43 @@ if modal is not None:
         @modal.method()
         def authority_health(self) -> dict[str, Any]:
             return modal_event_authority_health()
+
+        @modal.method()
+        def plan_sampler_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
+            """Plan one sampler candidate with the harness-only OpenAI secret."""
+
+            from openai import OpenAI
+
+            from autoalphafold3.llm_policy import AgentSearchPhase, default_llm_phase_policy
+            from autoalphafold3.sampler_loop import (
+                SamplerCandidatePlan,
+                _PLANNER_SYSTEM_PROMPT,
+                _extract_parsed_plan,
+                _planner_prompt,
+            )
+
+            policy = default_llm_phase_policy(
+                AgentSearchPhase.HYPOTHESIS_GENERATION,
+                model=str(payload.get("model", "gpt-5.4-mini")),
+            )
+            prompt = _planner_prompt(
+                seed_trial=dict(payload["seed_trial"]),
+                trial_id=str(payload["trial_id"]),
+                candidate_index=int(payload["candidate_index"]),
+                prior_decisions=list(payload.get("prior_decisions") or []),
+                global_current_best=dict(payload.get("global_current_best") or payload.get("current_best") or {}),
+                search_reference=dict(payload.get("search_reference") or {}),
+            )
+            kwargs = policy.to_responses_create_kwargs()
+            response = OpenAI().responses.parse(
+                **kwargs,
+                input=[
+                    {"role": "system", "content": _PLANNER_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                text_format=SamplerCandidatePlan,
+            )
+            return _extract_parsed_plan(response).model_dump(mode="json")
 
         @modal.method()
         def submit_trial(self, trial_json: dict[str, Any]) -> dict[str, Any]:

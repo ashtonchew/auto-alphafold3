@@ -1,0 +1,954 @@
+{
+  "schema_version": "autoaf3.canonical_sampler_run.v1",
+  "run_id": "sampler_12_t092_t103_2026_05_30",
+  "created_at": "2026-05-30T00:00:00Z",
+  "source": "Real Modal autonomous-sampler-loop continuation plus committed T092-T094 smoke rows; metrics from runs/ledger.jsonl.",
+  "disclaimer": "Canonical UI evidence only. This is not a Discovery Ledger record and does not claim a confirmed discovery.",
+  "command": ".venv/bin/python -m autoalphafold3.agent autonomous-sampler-loop --seed-trial trials/T012.json --max-candidates 9 --start-trial-id T095 --mode modal --planner llm --model gpt-5.4-mini --poll-interval-s 2 --per-candidate-timeout-s 300 --failure-streak-limit 1 --search-reference-trial-id T081 --prior-decision-trial-id T092 --prior-decision-trial-id T093 --prior-decision-trial-id T094 --approve I_APPROVE_AUTONOMOUS_SAMPLER_LOOP",
+  "loop_status": "PASS",
+  "stopped_reason": "max_candidates_reached",
+  "global_current_best": {
+    "trial_id": "T000",
+    "candidate_id": "baseline_auto_tiny",
+    "primary_metric": "best_val_calpha_lddt",
+    "score": 0.07941230438543605,
+    "interpretation": "Locked global baseline; only this comparison can produce KEEP/Discovery Ledger eligibility."
+  },
+  "search_reference": {
+    "trial_id": "T081",
+    "candidate_id": "T081_sampler",
+    "primary_metric": "best_val_calpha_lddt",
+    "score": 0.008276756926787072,
+    "interpretation": "Same-family frozen-checkpoint sampler reference; not a global discovery baseline."
+  },
+  "summary": {
+    "candidates_requested": 12,
+    "candidates_recorded": 12,
+    "continuation_seed_prior_decisions": [
+      "T092",
+      "T093",
+      "T094"
+    ],
+    "live_continuation_candidates": [
+      "T095",
+      "T096",
+      "T097",
+      "T098",
+      "T099",
+      "T100",
+      "T101",
+      "T102",
+      "T103"
+    ],
+    "best_trial_id": "T096",
+    "best_score": 0.018519489370625704,
+    "best_global_delta": -0.06089281501481034,
+    "best_search_reference_delta": 0.010242732443838632,
+    "best_score_ratio_to_search_reference": 2.2375296912114013,
+    "best_live_continuation_trial_id": "T096",
+    "best_live_continuation_score": 0.018519489370625704,
+    "global_keep_count": 0,
+    "sampler_improved_count": 12,
+    "fold_cartographer_signature": "toy_geometry_failed",
+    "fold_cartographer_canonical_target": "local_geometry_weak"
+  },
+  "candidates": [
+    {
+      "trial_id": "T092",
+      "step_index": 1,
+      "continuation_role": "seed_prior_decision",
+      "model": "gpt-5.4-mini",
+      "planner": "ledger_continuation",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.008827230071561509,
+      "mean_val_calpha_lddt": 0.008694094947111403,
+      "median_val_calpha_lddt": 0.00891166025451317,
+      "num_failed_targets": 0,
+      "global_delta": -0.07058507431387454,
+      "search_reference_delta": 0.0005504731447744365,
+      "score_ratio_to_search_reference": 1.0665083135391924,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.008694094947111403,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.008694094947111403,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T092",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "A slightly lower-noise, later-refining schedule will improve local geometry on weak-geometry targets by preserving coarse topology while allowing a final cleanup pass.",
+        "sampler_steps": 8,
+        "sampler_noise_scale": 0.8,
+        "sampler_step_scale": 1.15,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 2,
+        "sampler_selection_policy": "geometry",
+        "seed": 92,
+        "max_templates": 0
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T092",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T092/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T092/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T092/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T093",
+      "step_index": 2,
+      "continuation_role": "seed_prior_decision",
+      "model": "gpt-5.4-mini",
+      "planner": "ledger_continuation",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.014653070853757635,
+      "mean_val_calpha_lddt": 0.013783696655218006,
+      "median_val_calpha_lddt": 0.012842132212974021,
+      "num_failed_targets": 0,
+      "global_delta": -0.06475923353167841,
+      "search_reference_delta": 0.006376313926970563,
+      "score_ratio_to_search_reference": 1.770387965162312,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.013783696655218005,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.013783696655218005,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T093",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "A more conservative, geometry-biased refinement pass will improve local C-alpha lDDT by reducing over-diffusion while keeping enough late-stage cleanup to fix weak-geometry residues.",
+        "sampler_steps": 9,
+        "sampler_noise_scale": 0.7,
+        "sampler_step_scale": 1.25,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 3,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 137,
+        "max_templates": 0
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T093",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T093/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T093/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T093/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T094",
+      "step_index": 3,
+      "continuation_role": "seed_prior_decision",
+      "model": "gpt-5.4-mini",
+      "planner": "ledger_continuation",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.014790689139951244,
+      "mean_val_calpha_lddt": 0.014178717028126628,
+      "median_val_calpha_lddt": 0.013968372074908475,
+      "num_failed_targets": 0,
+      "global_delta": -0.0646216152454848,
+      "search_reference_delta": 0.006513932213164172,
+      "score_ratio_to_search_reference": 1.78701504354711,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.014178717028126628,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.014178717028126628,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T094",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "A slightly more aggressive late-refine pass with marginally lower noise and denser steps will preserve global fold signal while improving weak local geometry cleanup.",
+        "sampler_steps": 10,
+        "sampler_noise_scale": 0.65,
+        "sampler_step_scale": 1.3,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 3,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 211,
+        "max_templates": 0
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T094",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T094/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T094/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T094/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T095",
+      "step_index": 4,
+      "continuation_role": "live_continuation_candidate",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.014784135888227738,
+      "mean_val_calpha_lddt": 0.01490530113030731,
+      "median_val_calpha_lddt": 0.013267593856481272,
+      "num_failed_targets": 0,
+      "global_delta": -0.06462816849720832,
+      "search_reference_delta": 0.006507378961440666,
+      "score_ratio_to_search_reference": 1.7862232779097387,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.01490530113030731,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.01490530113030731,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T095",
+        "trial_kind": "sampler",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "Slightly lower diffusion noise with a marginally denser late-refine schedule will reduce local geometry breakage while preserving the coarse fold, improving C-alpha lDDT on weak-geometry targets.",
+        "prediction": {
+          "causal_component": "diffusion_sampler_step_scale",
+          "expected_lddt_delta_band": [
+            0.001,
+            0.01
+          ],
+          "predicted_axis": "local_geometry",
+          "predicted_direction": "up"
+        },
+        "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt",
+        "sampler_steps": 10,
+        "sampler_noise_scale": 0.6,
+        "sampler_step_scale": 1.35,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 3,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 257,
+        "max_templates": 0,
+        "artifact_dir": "runs/trials/T095"
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T095",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T095/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T095/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T095/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T096",
+      "step_index": 5,
+      "continuation_role": "live_continuation_candidate",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.018519489370625704,
+      "mean_val_calpha_lddt": 0.018199629086528786,
+      "median_val_calpha_lddt": 0.017148369153631212,
+      "num_failed_targets": 0,
+      "global_delta": -0.06089281501481034,
+      "search_reference_delta": 0.010242732443838632,
+      "score_ratio_to_search_reference": 2.2375296912114013,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.018199629086528786,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.018199629086528786,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T096",
+        "trial_kind": "sampler",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "A more conservative late-refine pass with slightly lower noise, denser steps, and a small multi-seed choice will reduce local geometry breakage while preserving the coarse fold.",
+        "prediction": {
+          "causal_component": "diffusion_sampler_step_scale",
+          "expected_lddt_delta_band": [
+            0.001,
+            0.004
+          ],
+          "predicted_axis": "local_geometry",
+          "predicted_direction": "up"
+        },
+        "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt",
+        "sampler_steps": 11,
+        "sampler_noise_scale": 0.55,
+        "sampler_step_scale": 1.4,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 4,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 389,
+        "max_templates": 0,
+        "artifact_dir": "runs/trials/T096"
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T096",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T096/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T096/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T096/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T097",
+      "step_index": 6,
+      "continuation_role": "live_continuation_candidate",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.01657317360874466,
+      "mean_val_calpha_lddt": 0.016384984946151166,
+      "median_val_calpha_lddt": 0.016339267738304925,
+      "num_failed_targets": 0,
+      "global_delta": -0.06283913077669138,
+      "search_reference_delta": 0.008296416681957587,
+      "score_ratio_to_search_reference": 2.002375296912114,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.01638498494615117,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.01638498494615117,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T097",
+        "trial_kind": "sampler",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "A slightly lower-noise, slightly denser late-refine schedule will improve local geometry by reducing over-diffusion while preserving enough final cleanup.",
+        "prediction": {
+          "causal_component": "diffusion_sampler_step_scale",
+          "expected_lddt_delta_band": [
+            0.001,
+            0.006
+          ],
+          "predicted_axis": "local_geometry",
+          "predicted_direction": "up"
+        },
+        "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt",
+        "sampler_steps": 11,
+        "sampler_noise_scale": 0.5,
+        "sampler_step_scale": 1.45,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 4,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 503,
+        "max_templates": 0,
+        "artifact_dir": "runs/trials/T097"
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T097",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T097/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T097/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T097/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T098",
+      "step_index": 7,
+      "continuation_role": "live_continuation_candidate",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.015196990746808567,
+      "mean_val_calpha_lddt": 0.0148116635900631,
+      "median_val_calpha_lddt": 0.013911729640003027,
+      "num_failed_targets": 0,
+      "global_delta": -0.06421531363862748,
+      "search_reference_delta": 0.006920233820021495,
+      "score_ratio_to_search_reference": 1.836104513064133,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.0148116635900631,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.0148116635900631,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T098",
+        "trial_kind": "sampler",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "A moderate-noise late-refine schedule with slightly denser steps and compact-geometry selection will improve local C-alpha lDDT by preserving coarse fold signal while giving a stronger final cleanup pass.",
+        "prediction": {
+          "causal_component": "diffusion_sampler_step_scale",
+          "expected_lddt_delta_band": [
+            0.001,
+            0.008
+          ],
+          "predicted_axis": "local_geometry",
+          "predicted_direction": "up"
+        },
+        "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt",
+        "sampler_steps": 9,
+        "sampler_noise_scale": 0.62,
+        "sampler_step_scale": 1.28,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 3,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 347,
+        "max_templates": 0,
+        "artifact_dir": "runs/trials/T098"
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T098",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T098/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T098/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T098/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T099",
+      "step_index": 8,
+      "continuation_role": "live_continuation_candidate",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.01583265616398857,
+      "mean_val_calpha_lddt": 0.015398674448947472,
+      "median_val_calpha_lddt": 0.015447526572228447,
+      "num_failed_targets": 0,
+      "global_delta": -0.06357964822144747,
+      "search_reference_delta": 0.007555899237201498,
+      "score_ratio_to_search_reference": 1.9129057798891524,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.01539867444894747,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.01539867444894747,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T099",
+        "trial_kind": "sampler",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "A slightly more conservative late-refine sampler with modestly lower noise and compact-geometry selection will better preserve fold topology while cleaning local C-alpha geometry.",
+        "prediction": {
+          "causal_component": "diffusion_sampler_step_scale",
+          "expected_lddt_delta_band": [
+            0.001,
+            0.005
+          ],
+          "predicted_axis": "local_geometry",
+          "predicted_direction": "up"
+        },
+        "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt",
+        "sampler_steps": 10,
+        "sampler_noise_scale": 0.58,
+        "sampler_step_scale": 1.32,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 4,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 619,
+        "max_templates": 0,
+        "artifact_dir": "runs/trials/T099"
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T099",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T099/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T099/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T099/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T100",
+      "step_index": 9,
+      "continuation_role": "live_continuation_candidate",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.016265170777739913,
+      "mean_val_calpha_lddt": 0.016167804200988456,
+      "median_val_calpha_lddt": 0.015898155996860112,
+      "num_failed_targets": 0,
+      "global_delta": -0.06314713360769614,
+      "search_reference_delta": 0.007988413850952841,
+      "score_ratio_to_search_reference": 1.965162311955661,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.016167804200988452,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.016167804200988452,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T100",
+        "trial_kind": "sampler",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "A slightly lower-noise late-refine sampler with compact-geometry selection and one extra sample will better preserve coarse fold signal while improving final local cleanup on weak-geometry targets.",
+        "prediction": {
+          "causal_component": "diffusion_sampler_step_scale",
+          "expected_lddt_delta_band": [
+            0.001,
+            0.005
+          ],
+          "predicted_axis": "local_geometry",
+          "predicted_direction": "up"
+        },
+        "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt",
+        "sampler_steps": 10,
+        "sampler_noise_scale": 0.56,
+        "sampler_step_scale": 1.34,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 4,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 701,
+        "max_templates": 0,
+        "artifact_dir": "runs/trials/T100"
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T100",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T100/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T100/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T100/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T101",
+      "step_index": 10,
+      "continuation_role": "live_continuation_candidate",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.014941413929591864,
+      "mean_val_calpha_lddt": 0.014853297959748674,
+      "median_val_calpha_lddt": 0.014026908011277164,
+      "num_failed_targets": 0,
+      "global_delta": -0.06447089045584418,
+      "search_reference_delta": 0.006664657002804792,
+      "score_ratio_to_search_reference": 1.8052256532066508,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.014853297959748674,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.014853297959748674,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T101",
+        "trial_kind": "sampler",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "Slightly stronger late refinement with modestly lower noise will better preserve coarse fold while cleaning local geometry on weak-geometry targets.",
+        "prediction": {
+          "causal_component": "diffusion_sampler_step_scale",
+          "expected_lddt_delta_band": [
+            0.001,
+            0.01
+          ],
+          "predicted_axis": "local_geometry",
+          "predicted_direction": "up"
+        },
+        "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt",
+        "sampler_steps": 10,
+        "sampler_noise_scale": 0.6,
+        "sampler_step_scale": 1.3,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 4,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 761,
+        "max_templates": 0,
+        "artifact_dir": "runs/trials/T101"
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T101",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T101/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T101/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T101/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T102",
+      "step_index": 11,
+      "continuation_role": "live_continuation_candidate",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.01564261186400692,
+      "mean_val_calpha_lddt": 0.015116881790701704,
+      "median_val_calpha_lddt": 0.015304838980026603,
+      "num_failed_targets": 0,
+      "global_delta": -0.06376969252142912,
+      "search_reference_delta": 0.007365854937219847,
+      "score_ratio_to_search_reference": 1.8899445764053837,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.015116881790701702,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.015116881790701702,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T102",
+        "trial_kind": "sampler",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "A slightly lower-noise late-refine pass with compact-geometry selection and a small multi-seed draw will further reduce local backbone breakage while preserving the coarse fold signal on weak-geometry targets.",
+        "prediction": {
+          "causal_component": "diffusion_sampler_step_scale",
+          "expected_lddt_delta_band": [
+            0.001,
+            0.01
+          ],
+          "predicted_axis": "local_geometry",
+          "predicted_direction": "up"
+        },
+        "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt",
+        "sampler_steps": 10,
+        "sampler_noise_scale": 0.57,
+        "sampler_step_scale": 1.33,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 4,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 827,
+        "max_templates": 0,
+        "artifact_dir": "runs/trials/T102"
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T102",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T102/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T102/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T102/predictions.json"
+      }
+    },
+    {
+      "trial_id": "T103",
+      "step_index": 12,
+      "continuation_role": "live_continuation_candidate",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.016802537419067343,
+      "mean_val_calpha_lddt": 0.01642241495090089,
+      "median_val_calpha_lddt": 0.01615508964318687,
+      "num_failed_targets": 0,
+      "global_delta": -0.0626097669663687,
+      "search_reference_delta": 0.00852578049228027,
+      "score_ratio_to_search_reference": 2.030087094220111,
+      "beats_global_current_best": false,
+      "beats_search_reference": true,
+      "sampler_search_status": "SAMPLER_IMPROVED",
+      "writes_discovery_ledger": false,
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.01642241495090089,
+        "summary": {
+          "canonical_target": "local_geometry_weak",
+          "mean_target_calpha_lddt": 0.01642241495090089,
+          "nan_prediction_residue_count": 0,
+          "num_scored_targets": 16,
+          "num_targets": 16
+        },
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16,
+            "target_ids_head": [
+              "2LZM_A",
+              "1AZU_A",
+              "1NXB_A",
+              "1BP2_A",
+              "2BP2_A"
+            ]
+          }
+        }
+      },
+      "trial_config": {
+        "trial_id": "T103",
+        "trial_kind": "sampler",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "local_geometry_weak",
+        "hypothesis": "A slightly stronger late-refine pass with marginally lower noise and compact-geometry selection will reduce local backbone breakage without losing coarse topology.",
+        "prediction": {
+          "causal_component": "diffusion_sampler_step_scale",
+          "expected_lddt_delta_band": [
+            0.001,
+            0.006
+          ],
+          "predicted_axis": "local_geometry",
+          "predicted_direction": "up"
+        },
+        "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt",
+        "sampler_steps": 11,
+        "sampler_noise_scale": 0.54,
+        "sampler_step_scale": 1.38,
+        "sampler_schedule_shape": "late_refine",
+        "sampler_num_samples": 4,
+        "sampler_selection_policy": "compact_geometry",
+        "seed": 941,
+        "max_templates": 0,
+        "artifact_dir": "runs/trials/T103"
+      },
+      "artifacts": {
+        "artifact_dir": "/mnt/autoalphafold3/runs/trials/T103",
+        "error_report_json": "/mnt/autoalphafold3/runs/trials/T103/error_report.json",
+        "manifest": "manifests/public_val_small.json",
+        "metrics_json": "/mnt/autoalphafold3/runs/trials/T103/metrics.json",
+        "predictions_json": "/mnt/autoalphafold3/runs/trials/T103/predictions.json"
+      }
+    }
+  ]
+}

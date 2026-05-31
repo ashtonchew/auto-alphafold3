@@ -13,9 +13,11 @@ from autoalphafold3.checkpoint_runner import CheckpointRunError, run_one_batch_c
 from autoalphafold3.gate_calibration import GateCalibrationError, calibrate_gate
 from autoalphafold3.gate_calibration_runner import GateCalibrationRunError, run_gate_calibration
 from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
-from autoalphafold3.llm_policy import AgentSearchPhase, default_llm_phase_policies, default_llm_phase_policy
+from autoalphafold3.llm_policy import DEFAULT_LLM_MODEL, AgentSearchPhase, default_llm_phase_policies, default_llm_phase_policy
 from autoalphafold3.modal_authority import ModalAuthorityError, audit_modal_event_authority
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
+from autoalphafold3.sampler_loop import APPROVAL_TEXT as SAMPLER_LOOP_APPROVAL_TEXT
+from autoalphafold3.sampler_loop import SamplerLoopError, run_incremental_sampler_loop
 from autoalphafold3.modal_assets import (
     ModalAssetAuditError,
     audit_modal_assets,
@@ -89,6 +91,24 @@ def main(argv: list[str] | None = None) -> int:
     checkpoint_run_parser.add_argument("--modal-env", default=None)
     checkpoint_run_parser.add_argument("--approve", default=None)
 
+    sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
+    sampler_loop_parser.add_argument("--repo-root", default=".")
+    sampler_loop_parser.add_argument("--seed-trial", default="trials/T012.json")
+    sampler_loop_parser.add_argument("--output-dir", default="trials")
+    sampler_loop_parser.add_argument("--ledger-path", default="runs/ledger.jsonl")
+    sampler_loop_parser.add_argument("--baseline-dir", default="runs/baseline")
+    sampler_loop_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
+    sampler_loop_parser.add_argument("--max-candidates", type=int, default=3)
+    sampler_loop_parser.add_argument("--start-trial-id", default=None)
+    sampler_loop_parser.add_argument("--poll-interval-s", type=float, default=2.0)
+    sampler_loop_parser.add_argument("--per-candidate-timeout-s", type=int, default=180)
+    sampler_loop_parser.add_argument("--failure-streak-limit", type=int, default=2)
+    sampler_loop_parser.add_argument("--planner", choices=("deterministic", "llm"), default="deterministic")
+    sampler_loop_parser.add_argument("--model", default=DEFAULT_LLM_MODEL)
+    sampler_loop_parser.add_argument("--search-reference-trial-id", default=None)
+    sampler_loop_parser.add_argument("--prior-decision-trial-id", action="append", default=[])
+    sampler_loop_parser.add_argument("--approve", default=None)
+
     calibrate_parser = subparsers.add_parser("calibrate-gate")
     calibrate_parser.add_argument("--repo-root", default=".")
     calibrate_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
@@ -125,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Show only one autonomous-search LLM phase policy.",
     )
-    llm_policy_parser.add_argument("--model", default="gpt-5.5")
+    llm_policy_parser.add_argument("--model", default=DEFAULT_LLM_MODEL)
     llm_policy_parser.add_argument(
         "--format",
         choices=("policy", "responses", "agents-sdk"),
@@ -230,6 +250,32 @@ def main(argv: list[str] | None = None) -> int:
             )
         except CheckpointRunError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "autonomous-sampler-loop":
+        try:
+            result = run_incremental_sampler_loop(
+                seed_trial_path=args.seed_trial,
+                repo_root=args.repo_root,
+                output_dir=args.output_dir,
+                ledger_path=args.ledger_path,
+                baseline_dir=args.baseline_dir,
+                mode=args.mode,
+                approval=args.approve,
+                max_candidates=args.max_candidates,
+                start_trial_id=args.start_trial_id,
+                poll_interval_s=args.poll_interval_s,
+                per_candidate_timeout_s=args.per_candidate_timeout_s,
+                failure_streak_limit=args.failure_streak_limit,
+                planner=args.planner,
+                model=args.model,
+                search_reference_trial_id=args.search_reference_trial_id,
+                prior_decision_trial_ids=args.prior_decision_trial_id,
+            )
+        except SamplerLoopError as exc:
+            expected = SAMPLER_LOOP_APPROVAL_TEXT if args.mode == "modal" else None
+            print(json.dumps({"status": "FAIL", "error": str(exc), "approval": expected}, indent=2, sort_keys=True))
             return 1
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0

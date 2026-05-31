@@ -1,0 +1,419 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from autoalphafold3.sampler_loop import (
+    APPROVAL_TEXT,
+    SamplerCandidatePlan,
+    SamplerLoopError,
+    run_incremental_sampler_loop,
+)
+from tests.test_two_stage_orchestrator import write_baseline_lock
+
+
+def seed_trial(tmp_path: Path) -> Path:
+    path = tmp_path / "trials/T012.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "trial_id": "T012",
+                "parent_commit": "a" * 40,
+                "agent_session_id": "pytest",
+                "trial_kind": "sampler",
+                "hypothesis": "seed",
+                "move_family": "diffusion_sampler_golf",
+                "diagnostic_target": "local_geometry_weak",
+                "prediction": {
+                    "causal_component": "sampler",
+                    "predicted_axis": "local_geometry",
+                    "predicted_direction": "up",
+                    "expected_lddt_delta_band": [0.001, 0.01],
+                },
+                "patch_path": None,
+                "config_path": "configs/nanofold_dev_cpu_smoke.json",
+                "budget": "sampler",
+                "seed": 0,
+                "n_res": 32,
+                "sampler_steps": 1,
+                "sampler_noise_scale": 1.0,
+                "sampler_step_scale": 1.0,
+                "sampler_schedule_shape": "linear",
+                "sampler_num_samples": 1,
+                "sampler_selection_policy": "first",
+                "max_wall_minutes": 5,
+                "manifest_hashes": {},
+                "scorer_version": "calpha_lddt_v1",
+                "primary_metric": "best_val_calpha_lddt",
+                "param_cap": 176514,
+                "gpu_memory_cap": 80.0,
+                "cost_cap": 2.0,
+                "timeout_cap": 300,
+                "artifact_dir": "runs/trials/T012",
+                "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+class FakeSamplerClient:
+    def __init__(self, scores: list[float] | None = None, fail: bool = False) -> None:
+        self.scores = scores or [0.1]
+        self.fail = fail
+        self.submitted: list[str] = []
+
+    def submit(self, trial_path: Path) -> str:
+        trial = json.loads(trial_path.read_text(encoding="utf-8"))
+        self.submitted.append(trial["trial_id"])
+        return f"modal:orchestrator-{trial['trial_id']}"
+
+    def wait_for_sampler(self, call_id: str, *, timeout_s: int, poll_interval_s: float) -> dict[str, object]:
+        if self.fail:
+            raise TimeoutError("synthetic timeout")
+        trial_id = call_id.rsplit("-", 1)[-1]
+        return {
+            "schema_version": "autoaf3.sampler_manifest.v1",
+            "status": "SAMPLER_PREDICTED",
+            "trial_id": trial_id,
+            "real_training_performed": False,
+            "inference_only": True,
+            "writes_discovery_ledger": False,
+        }
+
+    def score(self, trial_id: str) -> dict[str, object]:
+        score = self.scores[min(len(self.submitted) - 1, len(self.scores) - 1)]
+        return {
+            "schema_version": "autoaf3.metrics.v1",
+            "status": "SCORED",
+            "trial_id": trial_id,
+            "candidate_id": f"{trial_id}_sampler",
+            "primary_metric": "best_val_calpha_lddt",
+            "metrics": {
+                "best_val_calpha_lddt": score,
+                "num_targets": 16,
+                "num_scored_targets": 16,
+                "num_failed_targets": 0,
+            },
+            "fold_cartographer": {"signature": "scored", "summary": {}, "buckets": {}},
+            "artifacts": {"metrics_json": f"runs/trials/{trial_id}/metrics.json"},
+            "error_report": {"failure_signature": None},
+        }
+
+
+class ScoreAwarePlanner:
+    def __init__(self) -> None:
+        self.observed_scores: list[float | None] = []
+        self.observed_fold_cartographer: list[dict[str, object] | None] = []
+
+    def plan(
+        self,
+        *,
+        seed_trial: dict[str, object],
+        trial_id: str,
+        candidate_index: int,
+        prior_decisions: list[dict[str, object]],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
+    ) -> SamplerCandidatePlan:
+        latest_score = prior_decisions[-1].get("score") if prior_decisions else None
+        self.observed_scores.append(float(latest_score) if isinstance(latest_score, int | float) else None)
+        latest_fold_cartographer = prior_decisions[-1].get("fold_cartographer") if prior_decisions else None
+        self.observed_fold_cartographer.append(
+            latest_fold_cartographer if isinstance(latest_fold_cartographer, dict) else None
+        )
+        sampler_steps = 4 if latest_score is not None and latest_score < 0.42 else 1
+        return SamplerCandidatePlan(
+            diagnostic_target="local_geometry_weak",
+            hypothesis=f"LLM-style planner chooses sampler candidate {candidate_index} after observing prior score.",
+            intervention=f"Use sampler_steps={sampler_steps} from score-aware planner.",
+            predicted_direction="up",
+            expected_lddt_delta_band=[0.001, 0.01],
+            sampler_steps=sampler_steps,
+            sampler_noise_scale=1.0,
+            sampler_step_scale=1.0,
+            sampler_schedule_shape="linear",
+            sampler_num_samples=1,
+            sampler_selection_policy="first",
+            seed=10 + candidate_index,
+            rationale=(
+                f"latest_score={latest_score}; global_best={global_current_best.get('score')}; "
+                f"search_reference={search_reference.get('score')}"
+            ),
+        )
+
+
+class InvalidPlanner:
+    def plan(
+        self,
+        *,
+        seed_trial: dict[str, object],
+        trial_id: str,
+        candidate_index: int,
+        prior_decisions: list[dict[str, object]],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
+    ) -> SamplerCandidatePlan:
+        return SamplerCandidatePlan(
+            diagnostic_target="local_geometry_weak",
+            hypothesis="Invalid planner tries to edit scorer labels and Modal GPU policy.",
+            intervention="Change scorer labels and Modal GPU policy.",
+            predicted_direction="up",
+            expected_lddt_delta_band=[0.001, 0.01],
+            sampler_steps=1,
+            sampler_noise_scale=1.0,
+            sampler_step_scale=1.0,
+            sampler_schedule_shape="linear",
+            sampler_num_samples=1,
+            sampler_selection_policy="first",
+            seed=0,
+            rationale="This should fail validation.",
+        )
+
+
+class DiagnosticSamplerClient(FakeSamplerClient):
+    def score(self, trial_id: str) -> dict[str, object]:
+        payload = super().score(trial_id)
+        payload["fold_cartographer"] = {
+            "signature": "toy_geometry_failed",
+            "summary": {
+                "canonical_target": "local_geometry_weak",
+                "mean_target_calpha_lddt": 0.123,
+                "nan_prediction_residue_count": 0,
+                "num_scored_targets": 16,
+                "num_targets": 16,
+                "ignored_verbose_field": "not needed by planner",
+            },
+            "buckets": {
+                "toy_all": {
+                    "eligible_pair_count": 38149,
+                    "target_ids": ["A", "B", "C", "D", "E", "F"],
+                }
+            },
+        }
+        return payload
+
+
+def test_sampler_loop_dry_run_generates_incremental_trials(tmp_path: Path) -> None:
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        max_candidates=3,
+        start_trial_id="T020",
+    )
+
+    assert result.status == "PASS"
+    assert result.mode == "dry-run"
+    assert result.generated_trials == ["T020", "T021", "T022"]
+    assert result.scored_trials == []
+    assert result.planner == "deterministic"
+    assert len(result.wrote_files) == 3
+    trial = json.loads((tmp_path / "trials/T020.json").read_text())
+    assert trial["sampler_steps"] == 4
+    assert trial["sampler_noise_scale"] == 1.0
+    assert trial["sampler_schedule_shape"] == "linear"
+    assert trial["sampler_num_samples"] == 1
+
+
+def test_sampler_loop_modal_requires_exact_approval(tmp_path: Path) -> None:
+    with pytest.raises(SamplerLoopError, match=APPROVAL_TEXT):
+        run_incremental_sampler_loop(
+            seed_trial_path=seed_trial(tmp_path),
+            repo_root=tmp_path,
+            mode="modal",
+            client=FakeSamplerClient(),
+        )
+
+
+def test_sampler_loop_modal_scores_and_records_stage_one(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=2,
+        start_trial_id="T030",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=FakeSamplerClient(scores=[0.1, 0.43]),
+    )
+
+    assert result.status == "PASS"
+    assert result.scored_trials == ["T030", "T031"]
+    assert result.best_trial_id == "T031"
+    assert result.decisions[0]["status"] == "DISCARD"
+    assert result.decisions[1]["status"] == "KEEP"
+    assert result.decisions[0]["beats_global_current_best"] is False
+    assert result.decisions[1]["beats_global_current_best"] is True
+    ledger = (tmp_path / "runs/ledger.jsonl").read_text(encoding="utf-8")
+    assert '"status": "SCORED"' in ledger
+    assert '"status": "KEEP"' in ledger
+
+
+def test_sampler_loop_reports_search_reference_separately_from_global_keep(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=2,
+        start_trial_id="T080",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=FakeSamplerClient(scores=[0.1, 0.2]),
+        search_reference_trial_id="T080",
+    )
+
+    assert result.search_reference["trial_id"] == "T080"
+    assert result.search_reference["score"] == 0.1
+    assert result.decisions[0]["status"] == "DISCARD"
+    assert result.decisions[0]["sampler_search_status"] == "SAMPLER_NOT_IMPROVED"
+    assert result.decisions[0]["search_reference_delta"] == 0.0
+    assert result.decisions[1]["status"] == "DISCARD"
+    assert result.decisions[1]["beats_global_current_best"] is False
+    assert result.decisions[1]["beats_search_reference"] is True
+    assert result.decisions[1]["sampler_search_status"] == "SAMPLER_IMPROVED"
+    assert result.decisions[1]["search_reference_delta"] == pytest.approx(0.1)
+    assert result.decisions[1]["global_delta"] == pytest.approx(-0.22)
+
+
+def test_sampler_loop_stops_on_repeated_infra_failures(tmp_path: Path) -> None:
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=5,
+        start_trial_id="T040",
+        failure_streak_limit=2,
+        client=FakeSamplerClient(fail=True),
+    )
+
+    assert result.status == "FAIL"
+    assert result.generated_trials == ["T040", "T041"]
+    assert result.stopped_reason.startswith("failure_streak_limit")
+
+
+def test_sampler_loop_planner_observes_prior_score_before_next_candidate(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    planner = ScoreAwarePlanner()
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=2,
+        start_trial_id="T050",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=FakeSamplerClient(scores=[0.1, 0.43]),
+        planner="llm",
+        planner_client=planner,
+    )
+
+    assert result.status == "PASS"
+    assert planner.observed_scores == [None, 0.1]
+    assert planner.observed_fold_cartographer[0] is None
+    assert json.loads((tmp_path / "trials/T050.json").read_text())["sampler_steps"] == 1
+    assert json.loads((tmp_path / "trials/T051.json").read_text())["sampler_steps"] == 4
+    assert result.decisions[1]["planner"] == "llm"
+
+
+def test_sampler_loop_feeds_fold_cartographer_diagnostics_to_next_plan(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    planner = ScoreAwarePlanner()
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=2,
+        start_trial_id="T070",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=DiagnosticSamplerClient(scores=[0.1, 0.2]),
+        planner="llm",
+        planner_client=planner,
+    )
+
+    diagnostic = planner.observed_fold_cartographer[1]
+    assert result.status == "PASS"
+    assert diagnostic is not None
+    assert diagnostic["signature"] == "toy_geometry_failed"
+    assert diagnostic["canonical_target"] == "local_geometry_weak"
+    assert diagnostic["mean_target_calpha_lddt"] == 0.123
+    assert diagnostic["summary"] == {
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.123,
+        "nan_prediction_residue_count": 0,
+        "num_scored_targets": 16,
+        "num_targets": 16,
+    }
+    assert diagnostic["buckets"] == {
+        "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 6,
+            "target_ids_head": ["A", "B", "C", "D", "E"],
+        }
+    }
+
+
+def test_sampler_loop_can_continue_from_scored_ledger_decisions(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    seed_path = seed_trial(tmp_path)
+    first_planner = ScoreAwarePlanner()
+    first = run_incremental_sampler_loop(
+        seed_trial_path=seed_path,
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=2,
+        start_trial_id="T080",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=DiagnosticSamplerClient(scores=[0.1, 0.2]),
+        planner="llm",
+        planner_client=first_planner,
+        search_reference_trial_id="T080",
+    )
+    continuation_planner = ScoreAwarePlanner()
+
+    second = run_incremental_sampler_loop(
+        seed_trial_path=seed_path,
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=1,
+        start_trial_id="T082",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=DiagnosticSamplerClient(scores=[0.3]),
+        planner="llm",
+        planner_client=continuation_planner,
+        search_reference_trial_id="T080",
+        prior_decision_trial_ids=["T080", "T081"],
+    )
+
+    assert first.status == "PASS"
+    assert second.status == "PASS"
+    assert continuation_planner.observed_scores == [0.2]
+    diagnostic = continuation_planner.observed_fold_cartographer[0]
+    assert diagnostic is not None
+    assert diagnostic["signature"] == "toy_geometry_failed"
+    assert second.decisions[0]["continuation_source"] == "ledger"
+    assert second.decisions[-1]["trial_id"] == "T082"
+    assert second.decisions[-1]["beats_search_reference"] is True
+
+
+def test_sampler_loop_rejects_invalid_planner_output_before_writing(tmp_path: Path) -> None:
+    with pytest.raises(SamplerLoopError, match="planner failed"):
+        run_incremental_sampler_loop(
+            seed_trial_path=seed_trial(tmp_path),
+            repo_root=tmp_path,
+            max_candidates=1,
+            start_trial_id="T060",
+            planner="llm",
+            planner_client=InvalidPlanner(),
+        )
+
+    assert not (tmp_path / "trials/T060.json").exists()

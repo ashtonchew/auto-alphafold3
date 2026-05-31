@@ -278,6 +278,12 @@ class AutoFoldTrial(BaseModel):
     seed: int = Field(ge=0)
     n_res: int | None = Field(default=None, ge=1)
     max_steps: int | None = Field(default=None, ge=1)
+    sampler_steps: int | None = Field(default=None, ge=1)
+    sampler_noise_scale: float | None = Field(default=None, gt=0.0, le=2.0)
+    sampler_step_scale: float | None = Field(default=None, gt=0.0, le=2.0)
+    sampler_schedule_shape: Literal["linear", "cosine", "late_refine"] | None = None
+    sampler_num_samples: int | None = Field(default=None, ge=1, le=4)
+    sampler_selection_policy: Literal["first", "geometry", "compact_geometry"] | None = None
     max_wall_minutes: int = Field(ge=1)
     manifest_hashes: dict[str, str] = Field(default_factory=dict)
     scorer_version: str = SCORER_VERSION
@@ -310,9 +316,23 @@ class AutoFoldTrial(BaseModel):
                 raise ValueError("sampler trials require checkpoint_path")
             if self.max_steps is not None:
                 raise ValueError("sampler trials must not set training max_steps")
+            if self.sampler_steps is None:
+                raise ValueError("sampler trials require sampler_steps")
         elif self.trial_kind in {TrialKind.TRAINING, TrialKind.DEBUG, TrialKind.FINAL_VALIDATION}:
             if self.max_steps is None:
                 raise ValueError(f"{self.trial_kind.value} trials require max_steps")
+            if self.sampler_steps is not None:
+                raise ValueError(f"{self.trial_kind.value} trials must not set sampler_steps")
+            sampler_fields = {
+                "sampler_noise_scale": self.sampler_noise_scale,
+                "sampler_step_scale": self.sampler_step_scale,
+                "sampler_schedule_shape": self.sampler_schedule_shape,
+                "sampler_num_samples": self.sampler_num_samples,
+                "sampler_selection_policy": self.sampler_selection_policy,
+            }
+            present = [name for name, value in sampler_fields.items() if value is not None]
+            if present:
+                raise ValueError(f"{self.trial_kind.value} trials must not set sampler-only fields: {present}")
         if self.budget == BudgetTier.DRY_RUN and self.gpu_memory_cap != 0.0:
             raise ValueError("dry_run budget must use gpu_memory_cap=0.0")
         return self

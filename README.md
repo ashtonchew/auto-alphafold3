@@ -47,10 +47,10 @@ The primary optimization target is always `best_val_calpha_lddt`. Diagnostics gu
 
 ## LLM Phase Policy
 
-The future Modal-hosted OpenAI Agents SDK harness must use the repo policy in `autoalphafold3/llm_policy.py` instead of relying on SDK defaults. The default model target is `gpt-5.5`, with Priority processing for both search phases:
+The future Modal-hosted OpenAI Agents SDK harness must use the repo policy in `autoalphafold3/llm_policy.py` instead of relying on SDK defaults. The default model target is `gpt-5.4-mini`, with Priority processing for both search phases. Use `--model gpt-5.5` only as an explicit override/config choice:
 
 - `hypothesis_generation`: web search enabled, reasoning effort `low`, text verbosity `low`.
-- `patch_planning`: web search disabled, reasoning effort `medium`, text verbosity `low`.
+- `patch_planning`: web search disabled, reasoning effort `low`, text verbosity `low`.
 
 Inspect the concrete kwargs/spec with:
 

@@ -21,7 +21,7 @@ APPROVAL_TEXT = "I_APPROVE_AUTONOMOUS_SAMPLER_LOOP"
 
 _PLANNER_SYSTEM_PROMPT = """You are the NanoFold-style AlphaFold3-lite sampler planner.
 Return exactly one JSON plan matching the provided schema.
-You may only vary frozen-checkpoint inference-time sampler settings: sampler_steps and seed.
+You may only vary frozen-checkpoint inference-time sampler settings: sampler_steps, seed, noise/step scale, schedule shape, sample count, and label-free selection policy.
 Do not propose scorer, label, manifest, Modal, GPU, Volume, template, checkpoint-training, or gate changes.
 The objective is best_val_calpha_lddt; diagnostics only route hypotheses.
 Candidate plans must be falsifiable and pre-registered before the run."""
@@ -54,7 +54,12 @@ class SamplerCandidatePlan(BaseModel):
     intervention: str = Field(min_length=1)
     predicted_direction: str = Field(pattern="^(up|down|flat)$")
     expected_lddt_delta_band: list[float] = Field(min_length=2, max_length=2)
-    sampler_steps: int = Field(ge=1, le=8)
+    sampler_steps: int = Field(ge=1, le=12)
+    sampler_noise_scale: float = Field(ge=0.25, le=2.0)
+    sampler_step_scale: float = Field(ge=0.25, le=2.0)
+    sampler_schedule_shape: str = Field(pattern="^(linear|cosine|late_refine)$")
+    sampler_num_samples: int = Field(ge=1, le=4)
+    sampler_selection_policy: str = Field(pattern="^(first|geometry|compact_geometry)$")
     seed: int = Field(ge=0)
     rationale: str = Field(min_length=1)
 
@@ -201,6 +206,11 @@ def run_incremental_sampler_loop(
                     "seed": trial["seed"],
                     "planner": planner,
                     "hypothesis": plan.hypothesis,
+                    "sampler_noise_scale": trial.get("sampler_noise_scale"),
+                    "sampler_step_scale": trial.get("sampler_step_scale"),
+                    "sampler_schedule_shape": trial.get("sampler_schedule_shape"),
+                    "sampler_num_samples": trial.get("sampler_num_samples"),
+                    "sampler_selection_policy": trial.get("sampler_selection_policy"),
                     "reason": "dry-run generated candidate only",
                 }
             )
@@ -247,6 +257,11 @@ def run_incremental_sampler_loop(
                     "seed": trial["seed"],
                     "planner": planner,
                     "hypothesis": plan.hypothesis,
+                    "sampler_noise_scale": trial.get("sampler_noise_scale"),
+                    "sampler_step_scale": trial.get("sampler_step_scale"),
+                    "sampler_schedule_shape": trial.get("sampler_schedule_shape"),
+                    "sampler_num_samples": trial.get("sampler_num_samples"),
+                    "sampler_selection_policy": trial.get("sampler_selection_policy"),
                     "worker_status": manifest.get("status"),
                     "num_failed_targets": scored.metrics.get("num_failed_targets"),
                 }
@@ -268,6 +283,11 @@ def run_incremental_sampler_loop(
                     "seed": trial["seed"],
                     "planner": planner,
                     "hypothesis": plan.hypothesis,
+                    "sampler_noise_scale": trial.get("sampler_noise_scale"),
+                    "sampler_step_scale": trial.get("sampler_step_scale"),
+                    "sampler_schedule_shape": trial.get("sampler_schedule_shape"),
+                    "sampler_num_samples": trial.get("sampler_num_samples"),
+                    "sampler_selection_policy": trial.get("sampler_selection_policy"),
                 }
             )
             if failure_streak >= failure_streak_limit:
@@ -338,16 +358,29 @@ class DeterministicSamplerPlanner:
         current_best: dict[str, object],
     ) -> SamplerCandidatePlan:
         sampler_steps = _next_sampler_steps(candidate_index, prior_decisions)
+        noise_scale, step_scale, schedule_shape, num_samples, selection_policy = _deterministic_sampler_knobs(
+            candidate_index,
+            prior_decisions,
+        )
         return SamplerCandidatePlan(
             diagnostic_target=str(seed_trial.get("diagnostic_target") or "local_geometry_weak"),
             hypothesis=(
                 "Incremental frozen-checkpoint sampler candidate selected after observing prior sampler scores; "
-                "vary only inference-time sampler steps and seed."
+                "vary only bounded inference-time sampler schedule and target-blind selection settings."
             ),
-            intervention=f"Use sampler_steps={sampler_steps} with deterministic seed {candidate_index}.",
+            intervention=(
+                f"Use sampler_steps={sampler_steps}, noise_scale={noise_scale}, "
+                f"step_scale={step_scale}, schedule={schedule_shape}, samples={num_samples}, "
+                f"selection={selection_policy} with deterministic seed {candidate_index}."
+            ),
             predicted_direction="up",
             expected_lddt_delta_band=[0.001, 0.01],
             sampler_steps=sampler_steps,
+            sampler_noise_scale=noise_scale,
+            sampler_step_scale=step_scale,
+            sampler_schedule_shape=schedule_shape,
+            sampler_num_samples=num_samples,
+            sampler_selection_policy=selection_policy,
             seed=candidate_index,
             rationale=f"Current best is {current_best.get('score')}; prior decisions count is {len(prior_decisions)}.",
         )
@@ -468,6 +501,11 @@ def _candidate_trial(
     trial["agent_session_id"] = "autoaf3-incremental-sampler-loop"
     trial["diagnostic_target"] = plan.diagnostic_target
     trial["sampler_steps"] = plan.sampler_steps
+    trial["sampler_noise_scale"] = plan.sampler_noise_scale
+    trial["sampler_step_scale"] = plan.sampler_step_scale
+    trial["sampler_schedule_shape"] = plan.sampler_schedule_shape
+    trial["sampler_num_samples"] = plan.sampler_num_samples
+    trial["sampler_selection_policy"] = plan.sampler_selection_policy
     trial["seed"] = plan.seed
     trial["hypothesis"] = plan.hypothesis
     trial["prediction"] = {
@@ -481,11 +519,35 @@ def _candidate_trial(
 
 def _next_sampler_steps(candidate_index: int, prior_decisions: list[dict[str, object]]) -> int:
     if not prior_decisions:
-        return 1
+        return 4
     scored = [row for row in prior_decisions if isinstance(row.get("score"), int | float)]
     if len(scored) >= 2 and float(scored[-1]["score"]) > float(scored[-2]["score"]):
-        return min(4, int(scored[-1].get("sampler_steps", 1)) + 1)
-    return [1, 2, 3, 4][candidate_index % 4]
+        return min(12, int(scored[-1].get("sampler_steps", 4)) + 1)
+    return [4, 6, 8, 5, 10, 3][candidate_index % 6]
+
+
+def _deterministic_sampler_knobs(
+    candidate_index: int,
+    prior_decisions: list[dict[str, object]],
+) -> tuple[float, float, str, int, str]:
+    scored = [row for row in prior_decisions if isinstance(row.get("score"), int | float)]
+    if len(scored) >= 2 and float(scored[-1]["score"]) > float(scored[-2]["score"]):
+        return (
+            float(scored[-1].get("sampler_noise_scale") or 1.0),
+            min(2.0, float(scored[-1].get("sampler_step_scale") or 1.0) + 0.1),
+            str(scored[-1].get("sampler_schedule_shape") or "linear"),
+            min(4, int(scored[-1].get("sampler_num_samples") or 1) + 1),
+            "geometry",
+        )
+    knob_grid = [
+        (1.0, 1.0, "linear", 1, "first"),
+        (0.8, 1.0, "cosine", 2, "geometry"),
+        (1.2, 0.9, "late_refine", 2, "geometry"),
+        (0.7, 1.1, "cosine", 3, "compact_geometry"),
+        (1.4, 0.8, "late_refine", 3, "geometry"),
+        (0.9, 1.2, "linear", 4, "compact_geometry"),
+    ]
+    return knob_grid[candidate_index % len(knob_grid)]
 
 
 def _build_planner(
@@ -542,8 +604,13 @@ def _planner_prompt(
         },
         "prior_decisions": prior_decisions[-20:],
         "allowed_knobs": {
-            "sampler_steps": "integer 1..8",
+            "sampler_steps": "integer 1..12",
             "seed": "integer >= 0",
+            "sampler_noise_scale": "float in [0.25, 2.0]; scales diffusion schedule maximum noise",
+            "sampler_step_scale": "float in [0.25, 2.0]; scales schedule point density",
+            "sampler_schedule_shape": "one of linear, cosine, late_refine",
+            "sampler_num_samples": "integer 1..4; repeated predictions per target",
+            "sampler_selection_policy": "one of first, geometry, compact_geometry; label-free selection only",
         },
         "hard_constraints": [
             "sampler-only frozen checkpoint",

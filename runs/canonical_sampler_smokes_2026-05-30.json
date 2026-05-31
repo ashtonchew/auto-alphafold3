@@ -1,0 +1,86 @@
+{
+  "schema_version": "autoaf3.canonical_sampler_smokes.v1",
+  "created_at": "2026-05-30T00:00:00Z",
+  "source": "local runs/ledger.jsonl rows recorded from live Modal sampler-loop smokes",
+  "disclaimer": "Canonical smoke-run evidence only. This is not a Discovery Ledger record and does not claim a confirmed discovery.",
+  "locked_baseline": {
+    "trial_id": "T000",
+    "primary_metric": "best_val_calpha_lddt",
+    "score": 0.07941230438543605
+  },
+  "runs": [
+    {
+      "trial_id": "T081",
+      "model": "deterministic",
+      "planner": "deterministic",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.008276756926787072,
+      "mean_val_calpha_lddt": 0.008044645887676049,
+      "median_val_calpha_lddt": 0.008112995421022156,
+      "num_failed_targets": 0,
+      "diagnostic_target": "local_geometry_weak",
+      "writes_discovery_ledger": false
+    },
+    {
+      "trial_id": "T082",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.008276756926787072,
+      "mean_val_calpha_lddt": 0.008044645887676049,
+      "median_val_calpha_lddt": 0.008112995421022156,
+      "num_failed_targets": 0,
+      "diagnostic_target": "local_geometry_weak",
+      "sampler_steps": 6,
+      "seed": 137,
+      "writes_discovery_ledger": false
+    },
+    {
+      "trial_id": "T083",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.008355395947469134,
+      "mean_val_calpha_lddt": 0.008101817046576278,
+      "median_val_calpha_lddt": 0.008112995421022156,
+      "num_failed_targets": 0,
+      "diagnostic_target": "local_geometry_weak",
+      "sampler_steps": 6,
+      "seed": 83,
+      "writes_discovery_ledger": false
+    },
+    {
+      "trial_id": "T084",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.008722378043985426,
+      "mean_val_calpha_lddt": 0.008600283237801286,
+      "median_val_calpha_lddt": 0.008459995886888335,
+      "num_failed_targets": 0,
+      "diagnostic_target": "local_geometry_weak",
+      "sampler_steps": 7,
+      "seed": 214,
+      "writes_discovery_ledger": false
+    },
+    {
+      "trial_id": "T085",
+      "model": "gpt-5.4-mini",
+      "planner": "llm",
+      "status": "DISCARD",
+      "worker_status": "SAMPLER_PREDICTED",
+      "best_val_calpha_lddt": 0.008276756926787072,
+      "mean_val_calpha_lddt": 0.008044645887676049,
+      "median_val_calpha_lddt": 0.008112995421022156,
+      "num_failed_targets": 0,
+      "diagnostic_target": "local_geometry_weak",
+      "sampler_steps": 5,
+      "seed": 907,
+      "writes_discovery_ledger": false
+    }
+  ]
+}

@@ -66,8 +66,20 @@ The loop is incremental, not a static sweep:
 
 The deterministic planner remains available for reproducible dry-runs and
 tests. The LLM planner plugs into the same boundary and may only choose
-sampler-only frozen-checkpoint settings: `sampler_steps`, seed, hypothesis,
-diagnostic target, predicted direction, and expected lDDT delta band. It cannot
+sampler-only frozen-checkpoint settings:
+
+- `sampler_steps`: integer `1..12`
+- `seed`: integer `>=0`
+- `sampler_noise_scale`: float `0.25..2.0`
+- `sampler_step_scale`: float `0.25..2.0`
+- `sampler_schedule_shape`: `linear`, `cosine`, or `late_refine`
+- `sampler_num_samples`: integer `1..4`
+- `sampler_selection_policy`: `first`, `geometry`, or `compact_geometry`
+- hypothesis, diagnostic target, predicted direction, and expected lDDT delta band
+
+The selection policies are target-blind and do not read validation labels:
+`geometry` picks the sample with the lowest internal C-alpha geometry penalty,
+and `compact_geometry` adds a mild compactness penalty. The planner cannot
 author patches, submit directly, score directly, write ledgers, write the
 Discovery Ledger, or change Modal resource policy.
 

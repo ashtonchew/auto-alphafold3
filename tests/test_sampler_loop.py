@@ -38,6 +38,12 @@ def seed_trial(tmp_path: Path) -> Path:
                 "budget": "sampler",
                 "seed": 0,
                 "n_res": 32,
+                "sampler_steps": 1,
+                "sampler_noise_scale": 1.0,
+                "sampler_step_scale": 1.0,
+                "sampler_schedule_shape": "linear",
+                "sampler_num_samples": 1,
+                "sampler_selection_policy": "first",
                 "max_wall_minutes": 5,
                 "manifest_hashes": {},
                 "scorer_version": "calpha_lddt_v1",
@@ -122,6 +128,11 @@ class ScoreAwarePlanner:
             predicted_direction="up",
             expected_lddt_delta_band=[0.001, 0.01],
             sampler_steps=sampler_steps,
+            sampler_noise_scale=1.0,
+            sampler_step_scale=1.0,
+            sampler_schedule_shape="linear",
+            sampler_num_samples=1,
+            sampler_selection_policy="first",
             seed=10 + candidate_index,
             rationale=f"latest_score={latest_score}; current_best={current_best.get('score')}",
         )
@@ -144,6 +155,11 @@ class InvalidPlanner:
             predicted_direction="up",
             expected_lddt_delta_band=[0.001, 0.01],
             sampler_steps=1,
+            sampler_noise_scale=1.0,
+            sampler_step_scale=1.0,
+            sampler_schedule_shape="linear",
+            sampler_num_samples=1,
+            sampler_selection_policy="first",
             seed=0,
             rationale="This should fail validation.",
         )
@@ -163,7 +179,11 @@ def test_sampler_loop_dry_run_generates_incremental_trials(tmp_path: Path) -> No
     assert result.scored_trials == []
     assert result.planner == "deterministic"
     assert len(result.wrote_files) == 3
-    assert json.loads((tmp_path / "trials/T020.json").read_text())["sampler_steps"] == 1
+    trial = json.loads((tmp_path / "trials/T020.json").read_text())
+    assert trial["sampler_steps"] == 4
+    assert trial["sampler_noise_scale"] == 1.0
+    assert trial["sampler_schedule_shape"] == "linear"
+    assert trial["sampler_num_samples"] == 1
 
 
 def test_sampler_loop_modal_requires_exact_approval(tmp_path: Path) -> None:

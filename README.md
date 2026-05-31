@@ -59,7 +59,7 @@ python -m autoalphafold3.agent llm-policy --format agents-sdk
 
 ## Current Status
 
-This repository is a scaffold with real contracts and local tests. It should be read as infrastructure, contracts, and smoke fixtures rather than a completed benchmark run.
+This repository now has the foundation evidence needed to describe a real NanoFold-style AlphaFold3-lite control loop: locked assets, a locked baseline, a Modal-hosted trusted orchestrator proof, gate calibration evidence, a frozen one-batch checkpoint, and live sampler/scorer smokes. It is still not a confirmed-discovery repo; sampler candidates so far are recorded as `DISCARD` globally.
 
 Present today:
 
@@ -68,19 +68,38 @@ Present today:
 - Fold Cartographer diagnostic contracts
 - Falsification Gate verdict logic
 - typed trial, ledger, and Discovery Ledger schemas
-- Modal app contract metadata and asset audits
-- baseline lock and readiness reporting commands
-- local toy data for smoke tests
+- Modal app contract metadata, asset audits, and event-authority proof
+- locked baseline metrics and error report under `runs/baseline/`
+- real one-batch frozen checkpoint manifest for sampler-only trials
+- live Modal sampler/scorer smoke artifacts and canonical sampler summaries
+- local toy data for contract tests
 
-Still required before autonomous event search:
+Still required before any discovery claim:
 
-- real official manifests and cached Arrow feature assets
-- real locked baseline metrics and error report
-- human-approved Modal deployment readiness
-- gate calibration evidence
-- event authority switched to the Modal-hosted trusted orchestrator
+- a candidate that clears the locked global baseline threshold as a provisional `KEEP`
+- a Falsification Gate run for that provisional `KEEP`
+- a `CONFIRMED` mechanism written by the trusted orchestrator into the Discovery Ledger
+- broader model/training search beyond the current frozen-checkpoint sampler-only evidence, if the project wants to claim more than sampler-family progress
 
-Treat local stub artifacts as directory-shape and contract evidence only. They are unsuitable for benchmark-performance claims.
+Treat local stub artifacts as directory-shape and contract evidence only. Use only committed real Modal/scorer artifacts for result claims.
+
+## Results
+
+The locked global baseline is `T000` with `best_val_calpha_lddt=0.07941230438543605` on `public_val_small`, scored by `calpha_lddt_v1` across 16 of 16 targets with `max_templates=0` and `official_benchmark_result=true`. The Fold Cartographer signature is `toy_geometry_failed`, with canonical target `local_geometry_weak`.
+
+The first live sampler/scorer path succeeded after the frozen checkpoint was created at `T010`. The same-family default sampler reference `T081` scored `best_val_calpha_lddt=0.008276756926787072` with 16 of 16 targets scored and no failed targets.
+
+Sampler-family search found real improvements over that same-family reference, but not over the locked global baseline. The strongest committed sampler smoke candidate is `T088`, with `best_val_calpha_lddt=0.02098351201866366`, a `+0.012706755091876588` delta over `T081` and about `2.54x` the reference score. The canonical 12-candidate GPT-5.4 mini sampler run (`T092` through `T103`) recorded all 12 candidates as `SAMPLER_IMPROVED` versus `T081`; its best candidate was `T096` with `best_val_calpha_lddt=0.018519489370625704`, `+0.010242732443838632` over `T081`, and `-0.06089281501481034` versus the locked baseline.
+
+No sampler candidate cleared the global baseline, so every candidate remains global `DISCARD`. No provisional `KEEP`, Falsification Gate run on a winning candidate, confirmed mechanism, or Discovery Ledger entry has been produced.
+
+Primary evidence files:
+
+- `runs/baseline/metrics.json`
+- `runs/canonical_sampler_smokes_2026-05-30.json`
+- `runs/canonical_sampler_12_candidate_run_2026-05-30.json`
+- `runs/falsification_gate_calibration.json`
+- `runs/modal_event_authority.json`
 
 ## Quick Start
 

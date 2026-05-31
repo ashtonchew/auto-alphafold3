@@ -105,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
     sampler_loop_parser.add_argument("--failure-streak-limit", type=int, default=2)
     sampler_loop_parser.add_argument("--planner", choices=("deterministic", "llm"), default="deterministic")
     sampler_loop_parser.add_argument("--model", default=DEFAULT_LLM_MODEL)
+    sampler_loop_parser.add_argument("--search-reference-trial-id", default=None)
+    sampler_loop_parser.add_argument("--prior-decision-trial-id", action="append", default=[])
     sampler_loop_parser.add_argument("--approve", default=None)
 
     calibrate_parser = subparsers.add_parser("calibrate-gate")
@@ -268,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
                 failure_streak_limit=args.failure_streak_limit,
                 planner=args.planner,
                 model=args.model,
+                search_reference_trial_id=args.search_reference_trial_id,
+                prior_decision_trial_ids=args.prior_decision_trial_id,
             )
         except SamplerLoopError as exc:
             expected = SAMPLER_LOOP_APPROVAL_TEXT if args.mode == "modal" else None

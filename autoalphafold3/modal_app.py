@@ -712,7 +712,8 @@ if modal is not None:
                 trial_id=str(payload["trial_id"]),
                 candidate_index=int(payload["candidate_index"]),
                 prior_decisions=list(payload.get("prior_decisions") or []),
-                current_best=dict(payload.get("current_best") or {}),
+                global_current_best=dict(payload.get("global_current_best") or payload.get("current_best") or {}),
+                search_reference=dict(payload.get("search_reference") or {}),
             )
             kwargs = policy.to_responses_create_kwargs()
             response = OpenAI().responses.parse(

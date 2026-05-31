@@ -21,6 +21,13 @@ from autoalphafold3.runner import (
 from autoalphafold3.schema import PRIMARY_METRIC, SCORER_VERSION
 
 SAMPLER_MANIFEST_SCHEMA = "autoaf3.sampler_manifest.v1"
+DEFAULT_SAMPLER_NOISE_SCALE = 1.0
+DEFAULT_SAMPLER_STEP_SCALE = 1.0
+DEFAULT_SAMPLER_SCHEDULE_SHAPE = "linear"
+DEFAULT_SAMPLER_NUM_SAMPLES = 1
+DEFAULT_SAMPLER_SELECTION_POLICY = "first"
+SAMPLER_SCHEDULE_SHAPES = {"linear", "cosine", "late_refine"}
+SAMPLER_SELECTION_POLICIES = {"first", "geometry", "compact_geometry"}
 
 
 class SamplerError(RuntimeError):
@@ -74,13 +81,14 @@ def run_sampler_trial(
         checkpoint_manifest=checkpoint_manifest,
     )
     trainer = Trainer(config, loggers=[], checkpoint_save_freq=0, checkpoint=checkpoint)
+    sampler_settings = _sampler_settings(trial_json)
     predictions = _sample_public_predictions(
         trainer=trainer,
         feature_file=feature_file,
         public_feature_file=Path(features_dir) / f"{split}.arrow",
         residue_crop_size=int(config["residue_crop_size"]),
         num_msa=int(config["num_msa_samples"]),
-        sampler_steps=int(trial_json.get("sampler_steps", 1)),
+        sampler_settings=sampler_settings,
     )
     prediction_payload = write_prediction_artifact(
         trial_id=trial_id,
@@ -108,7 +116,7 @@ def run_sampler_trial(
             "checkpoint_path": str(checkpoint_path),
             "checkpoint_sha256": str(checkpoint_manifest["checkpoint_sha256"]),
             "max_templates": 0,
-            "sampler_steps": int(trial_json.get("sampler_steps", 1)),
+            **sampler_settings,
             "primary_metric": PRIMARY_METRIC,
             "scorer_version": SCORER_VERSION,
             "disclaimer": (
@@ -132,7 +140,7 @@ def run_sampler_trial(
         "real_training_performed": False,
         "inference_only": True,
         "max_templates": 0,
-        "sampler_steps": int(trial_json.get("sampler_steps", 1)),
+        **sampler_settings,
         "starts_search": False,
         "writes_baseline": False,
         "writes_ledger": False,
@@ -171,7 +179,7 @@ def _sample_public_predictions(
     public_feature_file: Path,
     residue_crop_size: int,
     num_msa: int,
-    sampler_steps: int,
+    sampler_settings: dict[str, object],
 ) -> list[dict[str, object]]:
     import pyarrow as pa
     import pyarrow.compute as pc
@@ -200,26 +208,67 @@ def _sample_public_predictions(
         feature_index = _select_nanofold_row(index, public_row, fallback_index=fallback_index)
         dataset = ChainDataset(nanofold_table, [feature_index], residue_crop_size, num_msa)
         batch = trainer.load_batch(next(iter(dataset)))
-        predicted_ca = _sample_ca_coordinates(trainer.model, batch, sampler_steps=sampler_steps)
+        predicted_ca, selection = _sample_selected_ca_coordinates(
+            trainer.model,
+            batch,
+            sampler_settings=sampler_settings,
+        )
         target_len = int(public_row.get("sequence_length") or len(sequence) or len(predicted_ca))
         predictions.append(
             {
                 "target_id": target_id,
                 "predicted_ca": _resize_ca_trace(predicted_ca, target_len),
+                "selection": selection,
             }
         )
     return predictions
 
 
-def _sample_ca_coordinates(model: Any, features: dict[str, Any], *, sampler_steps: int) -> list[list[float]]:
+def _sample_selected_ca_coordinates(
+    model: Any,
+    features: dict[str, Any],
+    *,
+    sampler_settings: dict[str, object],
+) -> tuple[list[list[float]], dict[str, object]]:
+    num_samples = int(sampler_settings["sampler_num_samples"])
+    policy = str(sampler_settings["sampler_selection_policy"])
+    candidates: list[tuple[float, int, list[list[float]]]] = []
+    for sample_index in range(num_samples):
+        ca = _sample_ca_coordinates(model, features, sampler_settings=sampler_settings)
+        quality = _label_free_ca_quality(ca, policy=policy)
+        candidates.append((quality, sample_index, ca))
+        if policy == "first":
+            break
+    quality, selected_index, selected = min(candidates, key=lambda row: (row[0], row[1]))
+    return selected, {
+        "policy": policy,
+        "num_samples": num_samples,
+        "selected_index": selected_index,
+        "label_free_quality": quality,
+    }
+
+
+def _sample_ca_coordinates(
+    model: Any,
+    features: dict[str, Any],
+    *,
+    sampler_settings: dict[str, object],
+) -> list[list[float]]:
     import torch
 
+    sampler_steps = int(sampler_settings["sampler_steps"])
     if sampler_steps < 1:
         raise SamplerError("sampler_steps must be at least 1")
     model.eval()
     with torch.no_grad():
         model.diffusion_model.inference = True
-        _install_sampler_schedule(model.diffusion_model, sampler_steps=sampler_steps)
+        _install_sampler_schedule(
+            model.diffusion_model,
+            sampler_steps=sampler_steps,
+            noise_scale=float(sampler_settings["sampler_noise_scale"]),
+            step_scale=float(sampler_settings["sampler_step_scale"]),
+            schedule_shape=str(sampler_settings["sampler_schedule_shape"]),
+        )
         input_embedding, single_rep_init, pair_rep_init = model.nanofold_input(features)
         single_rep_prev = torch.zeros_like(single_rep_init)
         pair_rep_prev = torch.zeros_like(pair_rep_init)
@@ -253,19 +302,107 @@ def _sample_ca_coordinates(model: Any, features: dict[str, Any], *, sampler_step
     return [[float(coord) for coord in row] for row in values]
 
 
-def _install_sampler_schedule(diffusion_model: Any, *, sampler_steps: int) -> None:
+def _install_sampler_schedule(
+    diffusion_model: Any,
+    *,
+    sampler_steps: int,
+    noise_scale: float = DEFAULT_SAMPLER_NOISE_SCALE,
+    step_scale: float = DEFAULT_SAMPLER_STEP_SCALE,
+    schedule_shape: str = DEFAULT_SAMPLER_SCHEDULE_SHAPE,
+) -> None:
     import torch
 
-    s_max = 160
+    if sampler_steps < 1:
+        raise SamplerError("sampler_steps must be at least 1")
+    if not 0.25 <= noise_scale <= 2.0:
+        raise SamplerError("sampler_noise_scale must be in [0.25, 2.0]")
+    if not 0.25 <= step_scale <= 2.0:
+        raise SamplerError("sampler_step_scale must be in [0.25, 2.0]")
+    if schedule_shape not in SAMPLER_SCHEDULE_SHAPES:
+        raise SamplerError(f"unsupported sampler_schedule_shape: {schedule_shape}")
+
+    s_max = 160 * noise_scale
     s_min = 0.0004
     p = 7
-    schedule_points = max(2, sampler_steps + 1)
-    steps = torch.arange(schedule_points, device=next(diffusion_model.parameters()).device) / (schedule_points - 1)
+    schedule_points = max(2, int(round((sampler_steps + 1) * step_scale)))
+    raw_steps = torch.arange(schedule_points, device=next(diffusion_model.parameters()).device) / (schedule_points - 1)
+    if schedule_shape == "cosine":
+        steps = 0.5 - 0.5 * torch.cos(raw_steps * math.pi)
+    elif schedule_shape == "late_refine":
+        steps = raw_steps**1.5
+    else:
+        steps = raw_steps
     schedule = diffusion_model.data_std_dev * (
         s_max ** (1 / p)
         + steps * (s_min ** (1 / p) - s_max ** (1 / p))
     ) ** p
     diffusion_model.schedule = torch.cat([schedule, torch.zeros_like(schedule[:1])])
+
+
+def _sampler_settings(trial_json: dict[str, Any]) -> dict[str, object]:
+    settings = {
+        "sampler_steps": int(trial_json.get("sampler_steps", 1)),
+        "sampler_noise_scale": float(trial_json.get("sampler_noise_scale", DEFAULT_SAMPLER_NOISE_SCALE)),
+        "sampler_step_scale": float(trial_json.get("sampler_step_scale", DEFAULT_SAMPLER_STEP_SCALE)),
+        "sampler_schedule_shape": str(trial_json.get("sampler_schedule_shape", DEFAULT_SAMPLER_SCHEDULE_SHAPE)),
+        "sampler_num_samples": int(trial_json.get("sampler_num_samples", DEFAULT_SAMPLER_NUM_SAMPLES)),
+        "sampler_selection_policy": str(
+            trial_json.get("sampler_selection_policy", DEFAULT_SAMPLER_SELECTION_POLICY)
+        ),
+    }
+    _validate_sampler_settings(settings)
+    return settings
+
+
+def _validate_sampler_settings(settings: dict[str, object]) -> None:
+    if not 1 <= int(settings["sampler_steps"]) <= 12:
+        raise SamplerError("sampler_steps must be in [1, 12]")
+    if not 0.25 <= float(settings["sampler_noise_scale"]) <= 2.0:
+        raise SamplerError("sampler_noise_scale must be in [0.25, 2.0]")
+    if not 0.25 <= float(settings["sampler_step_scale"]) <= 2.0:
+        raise SamplerError("sampler_step_scale must be in [0.25, 2.0]")
+    if str(settings["sampler_schedule_shape"]) not in SAMPLER_SCHEDULE_SHAPES:
+        raise SamplerError("sampler_schedule_shape must be linear, cosine, or late_refine")
+    if not 1 <= int(settings["sampler_num_samples"]) <= 4:
+        raise SamplerError("sampler_num_samples must be in [1, 4]")
+    if str(settings["sampler_selection_policy"]) not in SAMPLER_SELECTION_POLICIES:
+        raise SamplerError("sampler_selection_policy must be first, geometry, or compact_geometry")
+
+
+def _label_free_ca_quality(ca: list[list[float]], *, policy: str) -> float:
+    if policy == "first":
+        return 0.0
+    if len(ca) < 2:
+        return float("inf")
+    distances = [_distance(ca[index], ca[index - 1]) for index in range(1, len(ca))]
+    bond_penalty = sum((distance - 3.8) ** 2 for distance in distances) / len(distances)
+    jump_penalty = sum(max(0.0, distance - 8.0) ** 2 for distance in distances) / len(distances)
+    smooth_penalty = 0.0
+    if len(ca) >= 3:
+        angles = []
+        for index in range(2, len(ca)):
+            prev_vec = _vector(ca[index - 1], ca[index - 2])
+            next_vec = _vector(ca[index], ca[index - 1])
+            angles.append((_norm(next_vec) - _norm(prev_vec)) ** 2)
+        smooth_penalty = sum(angles) / len(angles)
+    compact_penalty = 0.0
+    if policy == "compact_geometry":
+        center = [sum(row[axis] for row in ca) / len(ca) for axis in range(3)]
+        radius = sum(_distance(row, center) for row in ca) / len(ca)
+        compact_penalty = max(0.0, radius - 25.0) / 25.0
+    return bond_penalty + jump_penalty + 0.25 * smooth_penalty + compact_penalty
+
+
+def _distance(left: list[float], right: list[float]) -> float:
+    return math.sqrt(sum((float(left[axis]) - float(right[axis])) ** 2 for axis in range(3)))
+
+
+def _vector(left: list[float], right: list[float]) -> list[float]:
+    return [float(left[axis]) - float(right[axis]) for axis in range(3)]
+
+
+def _norm(vector: list[float]) -> float:
+    return math.sqrt(sum(component * component for component in vector))
 
 
 def _sampler_device(config: dict[str, Any]) -> str:

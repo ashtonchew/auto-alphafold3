@@ -191,3 +191,61 @@ small score improvement, then tested a shorter counter-move (`sampler_steps=5`)
 after the longer run. All three hypotheses targeted `local_geometry_weak` and
 the sampler-step-length mechanism, which is valid for the sampler-only leg but
 not yet diverse enough to claim broad autonomous research quality.
+
+## 2026-05-30 Expanded Sampler-Knob Smokes
+
+After adding bounded sampler schedule knobs and target-blind multi-sample
+selection, the live loop was redeployed and rerun.
+
+GPT-5.4 mini, three candidates:
+
+```bash
+python -m autoalphafold3.agent autonomous-sampler-loop \
+  --seed-trial trials/T012.json \
+  --max-candidates 3 \
+  --start-trial-id T086 \
+  --mode modal \
+  --planner llm \
+  --model gpt-5.4-mini \
+  --poll-interval-s 2 \
+  --per-candidate-timeout-s 300 \
+  --failure-streak-limit 1 \
+  --approve I_APPROVE_AUTONOMOUS_SAMPLER_LOOP
+```
+
+Result: `T086`, `T087`, and `T088` all reached `SAMPLER_PREDICTED`,
+scored with `num_failed_targets=0`, and were recorded as `DISCARD`. The best
+candidate was `T088` with `best_val_calpha_lddt=0.02098351201866366`, using
+`sampler_steps=12`, `sampler_noise_scale=0.6`, `sampler_step_scale=1.5`,
+`sampler_schedule_shape=late_refine`, `sampler_num_samples=4`, and
+`sampler_selection_policy=compact_geometry`.
+
+GPT-5.5 override, three candidates:
+
+```bash
+python -m autoalphafold3.agent autonomous-sampler-loop \
+  --seed-trial trials/T012.json \
+  --max-candidates 3 \
+  --start-trial-id T089 \
+  --mode modal \
+  --planner llm \
+  --model gpt-5.5 \
+  --poll-interval-s 2 \
+  --per-candidate-timeout-s 300 \
+  --failure-streak-limit 1 \
+  --approve I_APPROVE_AUTONOMOUS_SAMPLER_LOOP
+```
+
+The first GPT-5.5 run scored `T089`, then exposed a planner-schema edge where
+the structured plan allowed `flat`/negative expected delta even though
+`AutoFoldTrial` does not. The schema was tightened and the remaining two
+candidates continued as `T090` and `T091`. All three GPT-5.5 candidates reached
+`SAMPLER_PREDICTED`, scored with `num_failed_targets=0`, and were recorded as
+`DISCARD`; the best GPT-5.5 candidate was `T090` with
+`best_val_calpha_lddt=0.011894151878161945`.
+
+The expanded sampler surface materially improved the sampler-only ceiling in
+this smoke from the prior best `0.008722378043985426` to `0.02098351201866366`,
+but it still did not clear the locked baseline score `0.07941230438543605`.
+Therefore no provisional `KEEP`, Falsification Gate run, or Discovery Ledger
+write occurred.

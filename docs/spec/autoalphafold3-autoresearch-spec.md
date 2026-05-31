@@ -589,6 +589,8 @@ When this spec is implemented, create or update:
   LLM planner reads before authoring candidate patches.
 - `docs/spec/autoresearch-acceptance-criteria.md`: checklist form of the
   implementation gates if this spec becomes too large for PR review.
+- `docs/handoffs/goal/autoalphafold3-autoresearch-implementation-goal-mode-prompt.md`:
+  Codex Goal-mode handoff for the end-to-end implementation wave.
 - `docs/spec/ui/README.md`: data-to-UI contract for autoresearch run summaries.
 - `README.md`: only after the loop exists, update Current Status and commands.
 

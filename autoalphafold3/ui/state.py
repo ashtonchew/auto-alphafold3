@@ -123,6 +123,7 @@ class UiState:
     is_sample: bool
     source: str  # "sample" or the runs dir
     geometry_sample: bool = False  # live board whose geometry panels still use sample data
+    ledger_sample: bool = False  # live board with no discovery_ledger.jsonl yet
     trials: list = field(default_factory=list)  # TrialRow, for the Trials view
     logs: list = field(default_factory=list)  # LogEvent, for the Logs view
 
@@ -185,14 +186,21 @@ def _status_display(status_value: str, discovery_value: str, kill_reason: str = 
 def load_state(runs_dir: str | Path = "runs") -> UiState:
     """Build a ``UiState`` from real run artifacts under ``runs_dir``.
 
-    Reuses the canonical readers (``read_ledger`` / ``read_discovery_ledger``).
-    Missing artifacts degrade to labelled placeholders; nothing is invented.
+    Reads the canonical ledger first (``runs/ledger.jsonl``). If that is absent
+    or empty, falls back to per-trial ``runs/trials/*/metrics.json`` so the UI
+    can still show real scored trials before the orchestrator ledger lands.
+    Only if neither source yields a scored trial do we degrade to the sample.
     """
     from autoalphafold3.ledger import read_ledger
 
     runs = Path(runs_dir)
     ledger_path = runs / "ledger.jsonl"
     rows = read_ledger(ledger_path=ledger_path) if ledger_path.exists() else []
+    source_kind = "ledger" if rows else ""
+    if not rows:
+        rows = _rows_from_trial_metrics(runs / "trials")
+        if rows:
+            source_kind = "per-trial metrics"
 
     baseline = _read_baseline(runs / "baseline" / "metrics.json")
 
@@ -255,7 +263,7 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         trajectory=trajectory,
         axes=sample.axes,
         failure_signature=failure_sig or sample.failure_signature,
-        ledger=ledger_rows or sample.ledger,
+        ledger=ledger_rows if ledger_rows else sample.ledger,
         gate=sample.gate,
         overlay=Overlay(is_sample=True, **_overlay_kwargs(sample.overlay)),
         provenance=_real_provenance(rows, scorer),
@@ -263,20 +271,96 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         scorer=scorer or "calpha_lddt_v1",
         is_sample=False,
         geometry_sample=True,
-        source=str(runs),
+        ledger_sample=not ledger_rows,
+        source=f"{runs} ({source_kind})" if source_kind else str(runs),
         trials=_build_trials(rows, baseline),
         logs=_build_logs(rows),
     )
 
 
+@dataclass
+class _MetricsRow:
+    """Duck-typed stand-in for ``AutoFoldResult`` built from a per-trial ``metrics.json``.
+
+    Exposes the same attribute surface that the ledger loop uses, so we can
+    feed scored trials into the UI before the aggregating ``ledger.jsonl``
+    exists (e.g. during a single-trial smoke or while the orchestrator hasn't
+    written its first append yet).
+    """
+
+    trial_id: str
+    status: str
+    candidate_id: str
+    metrics: dict
+    artifacts: dict
+    fold_cartographer: object
+    failure_signature: str | None = None
+    discovery: str = "UNCONFIRMED"
+    falsification: object | None = None
+
+
+@dataclass
+class _Bag:
+    """Trivial attribute bag for nested fields (fold_cartographer.signature)."""
+
+    signature: str = ""
+
+
+def _rows_from_trial_metrics(trials_dir: Path) -> list[_MetricsRow]:
+    """Scan ``runs/trials/T*/metrics.json`` and return duck-typed rows.
+
+    Each file is treated as one scored trial. Files that cannot be parsed are
+    skipped silently — this path is a fallback, not a contract surface.
+    """
+    if not trials_dir.exists():
+        return []
+    out: list[_MetricsRow] = []
+    for path in sorted(trials_dir.glob("*/metrics.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else {}
+        cart = data.get("fold_cartographer") if isinstance(data.get("fold_cartographer"), dict) else {}
+        sig = str(cart.get("signature", "")) if cart else ""
+        out.append(
+            _MetricsRow(
+                trial_id=str(data.get("trial_id") or path.parent.name),
+                status=str(data.get("status", "SCORED")),
+                candidate_id=str(data.get("candidate_id", "")),
+                metrics=dict(metrics),
+                artifacts=dict(data.get("artifacts") or {}),
+                fold_cartographer=_Bag(signature=sig),
+                failure_signature=data.get("failure_signature"),
+                discovery=str(data.get("discovery", "UNCONFIRMED")),
+                falsification=None,
+            )
+        )
+    return out
+
+
 def _read_baseline(path: Path) -> float | None:
+    """Pull ``best_val_calpha_lddt`` from a baseline metrics file.
+
+    Accepts both the top-level shape used by the UI sample/tests and the real
+    ``AutoFoldResult``-shaped file written by the baseline runner, where the
+    metric lives under ``metrics.best_val_calpha_lddt``.
+    """
     if not path.exists():
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+    if not isinstance(data, dict):
+        return None
     value = data.get("best_val_calpha_lddt")
+    if not isinstance(value, (int, float)):
+        nested = data.get("metrics")
+        if isinstance(nested, dict):
+            value = nested.get("best_val_calpha_lddt")
     return float(value) if isinstance(value, (int, float)) else None
 
 

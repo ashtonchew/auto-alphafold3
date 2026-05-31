@@ -78,6 +78,39 @@ def test_no_ledger_falls_back_to_sample(tmp_path: Path) -> None:
     assert state.best == 0.343
 
 
+def test_per_trial_metrics_fallback_when_no_ledger(tmp_path: Path) -> None:
+    """If runs/ledger.jsonl is missing, the UI should still surface real trials
+    from per-trial metrics.json files instead of silently falling back to the sample."""
+    runs = tmp_path / "runs"
+    (runs / "trials" / "T000").mkdir(parents=True)
+    (runs / "trials" / "T001").mkdir(parents=True)
+    (runs / "trials" / "T000" / "metrics.json").write_text(json.dumps({
+        "trial_id": "T000",
+        "status": "SCORED",
+        "candidate_id": "baseline_auto_tiny",
+        "fold_cartographer": {"signature": "toy_geometry_failed"},
+        "metrics": {"best_val_calpha_lddt": 0.0794, "scorer_version": "calpha_lddt_v1",
+                    "split": "public_val_small"},
+    }), encoding="utf-8")
+    (runs / "trials" / "T001" / "metrics.json").write_text(json.dumps({
+        "trial_id": "T001", "status": "SCORED", "candidate_id": "c1",
+        "fold_cartographer": {"signature": "geometry_loss"},
+        "metrics": {"best_val_calpha_lddt": 0.12},
+    }), encoding="utf-8")
+    # baseline file in the real AutoFoldResult-shape (metric nested under "metrics")
+    (runs / "baseline").mkdir()
+    (runs / "baseline" / "metrics.json").write_text(json.dumps({
+        "metrics": {"best_val_calpha_lddt": 0.08}}), encoding="utf-8")
+
+    state = load_state(runs)
+    assert state.is_sample is False
+    assert "per-trial metrics" in state.source
+    assert state.best == 0.12
+    assert state.baseline == 0.08
+    assert [p.trial_id for p in state.trajectory] == ["T000", "T001"]
+    assert state.counts["trials"] == 2
+
+
 def test_build_writes_outputs(tmp_path: Path) -> None:
     out = build(tmp_path / "ui", sample=True)
     payload = json.loads((out / "ui_state.json").read_text(encoding="utf-8"))

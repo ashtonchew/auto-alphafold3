@@ -20,6 +20,13 @@ def _geom_badge(s: UiState) -> str:
     return ""
 
 
+def _ledger_badge(s: UiState) -> str:
+    """A 'sample' pill for the Discovery Ledger when no discovery_ledger.jsonl exists yet."""
+    if s.ledger_sample and not s.is_sample:
+        return ' <span class="spill warn" style="margin-left:8px">sample</span>'
+    return ""
+
+
 def metric_band(s: UiState) -> str:
     best = f"{s.best:.3f}" if s.best is not None else "—"
     delta = ""
@@ -134,7 +141,7 @@ def ledger_section(s: UiState) -> str:
         else "Confirmed mechanisms only — the gated claim that survived knock-out, placebo, and a seed rerun."
     )
     return (
-        '<h2 class="block-title">Discovery Ledger</h2>'
+        f'<h2 class="block-title">Discovery Ledger{_ledger_badge(s)}</h2>'
         f'<div class="block-sub">{sub}</div>'
         '<table class="dtable"><thead><tr><th>Finding</th><th>Axis</th>'
         '<th class="r">Δ lDDT</th><th class="r">Verdict</th></tr></thead>'

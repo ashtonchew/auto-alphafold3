@@ -316,3 +316,47 @@ to the next planner turn. The observed signature stayed `toy_geometry_failed`,
 the canonical target stayed `local_geometry_weak`, and mean target C-alpha lDDT
 moved from `0.008694094947111403` on `T092` to `0.013783696655218005` on
 `T093` and `0.014178717028126628` on `T094`.
+
+## 2026-05-30 Canonical 12-Candidate Sampler Run
+
+The canonical sampler trajectory uses the successful `T092`-`T094` Fold
+Cartographer feedback smoke as prior decisions, then continues with nine live
+GPT-5.4 mini candidates:
+
+```bash
+python -m autoalphafold3.agent autonomous-sampler-loop \
+  --seed-trial trials/T012.json \
+  --max-candidates 9 \
+  --start-trial-id T095 \
+  --mode modal \
+  --planner llm \
+  --model gpt-5.4-mini \
+  --poll-interval-s 2 \
+  --per-candidate-timeout-s 300 \
+  --failure-streak-limit 1 \
+  --search-reference-trial-id T081 \
+  --prior-decision-trial-id T092 \
+  --prior-decision-trial-id T093 \
+  --prior-decision-trial-id T094 \
+  --approve I_APPROVE_AUTONOMOUS_SAMPLER_LOOP
+```
+
+Result: the continuation returned `PASS`, scored `T095` through `T103`, and
+stopped because `max_candidates` was reached. The canonical UI artifact is
+`runs/canonical_sampler_12_candidate_run_2026-05-30.json`; it records all 12
+candidate rows, sampler knobs, hypotheses, Fold Cartographer diagnostics,
+same-family sampler-reference comparisons, global baseline comparisons, and
+artifact pointers.
+
+Best candidate in the 12-run was `T096` with
+`best_val_calpha_lddt=0.018519489370625704`. It beat the same-family sampler
+reference `T081` by `0.010242732443838632`, about `2.24x` the reference score,
+but remained below the locked global baseline `T000` by
+`0.06089281501481034`. Therefore every candidate remained global `DISCARD`;
+no `KEEP`, Falsification Gate run, or Discovery Ledger write occurred.
+
+All 12 candidates beat the same-family sampler reference and are reported as
+`SAMPLER_IMPROVED` only. The Fold Cartographer signature stayed
+`toy_geometry_failed`, and the canonical diagnostic target stayed
+`local_geometry_weak`, so the honest interpretation is sampler-family progress
+under a frozen checkpoint, not a global discovery.

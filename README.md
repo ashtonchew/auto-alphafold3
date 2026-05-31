@@ -18,8 +18,6 @@ This project is intentionally smaller and stricter than its name sounds. Its tar
 
 ## What This Repo Is
 
-The repo is the May 30, 2026 hackathon-start foundation for an autonomous protein-folding research loop. It contains:
-
 - local control-plane code in `autoalphafold3/`
 - locked scorer code in `autoalphafold3/scorer/`
 - a pinned NanoFold working tree in `external/nanofold/`

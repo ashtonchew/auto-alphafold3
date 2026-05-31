@@ -1,0 +1,31 @@
+{
+  "best_val_calpha_lddt": 0.07941230438543605,
+  "baseline": 0.07941230438543605,
+  "delta_vs_baseline": 0.0,
+  "counts": {
+    "confirmed": 0,
+    "killed": 0,
+    "trials": 1,
+    "keep": 0,
+    "discard": 0,
+    "fail": 0,
+    "infra": 0
+  },
+  "split": "public_val_small",
+  "scorer": "calpha_lddt_v1",
+  "is_sample": false,
+  "source": "runs (per-trial metrics)",
+  "trajectory": [
+    {
+      "index": 1,
+      "trial_id": "T000",
+      "score": 0.07941230438543605,
+      "status": "provisional"
+    }
+  ],
+  "provenance": {
+    "candidate": "baseline_auto_tiny",
+    "git_sha": "",
+    "scorer": ""
+  }
+}

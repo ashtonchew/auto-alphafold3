@@ -360,6 +360,51 @@ def test_sampler_loop_feeds_fold_cartographer_diagnostics_to_next_plan(tmp_path:
     }
 
 
+def test_sampler_loop_can_continue_from_scored_ledger_decisions(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    seed_path = seed_trial(tmp_path)
+    first_planner = ScoreAwarePlanner()
+    first = run_incremental_sampler_loop(
+        seed_trial_path=seed_path,
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=2,
+        start_trial_id="T080",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=DiagnosticSamplerClient(scores=[0.1, 0.2]),
+        planner="llm",
+        planner_client=first_planner,
+        search_reference_trial_id="T080",
+    )
+    continuation_planner = ScoreAwarePlanner()
+
+    second = run_incremental_sampler_loop(
+        seed_trial_path=seed_path,
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=1,
+        start_trial_id="T082",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=DiagnosticSamplerClient(scores=[0.3]),
+        planner="llm",
+        planner_client=continuation_planner,
+        search_reference_trial_id="T080",
+        prior_decision_trial_ids=["T080", "T081"],
+    )
+
+    assert first.status == "PASS"
+    assert second.status == "PASS"
+    assert continuation_planner.observed_scores == [0.2]
+    diagnostic = continuation_planner.observed_fold_cartographer[0]
+    assert diagnostic is not None
+    assert diagnostic["signature"] == "toy_geometry_failed"
+    assert second.decisions[0]["continuation_source"] == "ledger"
+    assert second.decisions[-1]["trial_id"] == "T082"
+    assert second.decisions[-1]["beats_search_reference"] is True
+
+
 def test_sampler_loop_rejects_invalid_planner_output_before_writing(tmp_path: Path) -> None:
     with pytest.raises(SamplerLoopError, match="planner failed"):
         run_incremental_sampler_loop(

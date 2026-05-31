@@ -164,6 +164,7 @@ def run_incremental_sampler_loop(
     planner: str = "deterministic",
     model: str = DEFAULT_LLM_MODEL,
     search_reference_trial_id: str | None = None,
+    prior_decision_trial_ids: list[str] | None = None,
     client: SamplerLoopClient | None = None,
     planner_client: SamplerPlanner | None = None,
 ) -> SamplerLoopResult:
@@ -210,6 +211,14 @@ def run_incremental_sampler_loop(
         ledger_path=ledger_path,
         trial_id=search_reference_trial_id,
     )
+    if prior_decision_trial_ids:
+        decisions = _prior_decisions_from_ledger(
+            root=root,
+            ledger_path=ledger_path,
+            trial_ids=prior_decision_trial_ids,
+            global_current_best=global_current_best,
+            search_reference=search_reference,
+        )
 
     for index in range(max_candidates):
         trial_id = f"T{next_id + index:03d}"
@@ -721,6 +730,102 @@ def _candidate_comparisons(
         "search_reference": search_reference,
         "keep_threshold_delta": DEFAULT_KEEP_DELTA,
     }
+
+
+def _prior_decisions_from_ledger(
+    *,
+    root: Path,
+    ledger_path: str | Path,
+    trial_ids: list[str],
+    global_current_best: dict[str, object],
+    search_reference: dict[str, object],
+) -> list[dict[str, object]]:
+    if not trial_ids:
+        return []
+    wanted = [str(trial_id) for trial_id in trial_ids]
+    ledger = root / ledger_path
+    if not ledger.exists():
+        raise SamplerLoopError(f"cannot continue from prior trials because ledger is missing: {ledger}")
+
+    canonical = _canonical_sampler_smoke_index(root)
+    latest: dict[str, AutoFoldResult] = {}
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = AutoFoldResult.model_validate(json.loads(line))
+        except Exception:
+            continue
+        if row.trial_id not in wanted or row.status not in {TrialStatus.SCORED, TrialStatus.DISCARD, TrialStatus.KEEP}:
+            continue
+        if _score(row) is None:
+            continue
+        latest[row.trial_id] = row
+
+    missing = [trial_id for trial_id in wanted if trial_id not in latest]
+    if missing:
+        raise SamplerLoopError(f"cannot continue from prior trials missing scored ledger rows: {', '.join(missing)}")
+
+    decisions: list[dict[str, object]] = []
+    for trial_id in wanted:
+        row = latest[trial_id]
+        score = _score(row)
+        comparison = _candidate_comparisons(
+            score=score,
+            global_current_best=global_current_best,
+            search_reference=search_reference,
+            global_keep=row.status == TrialStatus.KEEP,
+        )
+        decision: dict[str, object] = {
+            "trial_id": row.trial_id,
+            "status": row.status.value,
+            "score": score,
+            "planner": "ledger_continuation",
+            "num_failed_targets": row.metrics.get("num_failed_targets"),
+            "fold_cartographer": _compact_fold_cartographer(row.fold_cartographer),
+            "continuation_source": "ledger",
+            **comparison,
+        }
+        if row.trial_id in canonical:
+            decision.update(canonical[row.trial_id])
+            decision["continuation_source"] = "ledger+canonical_sampler_smoke"
+        decisions.append(decision)
+    return decisions
+
+
+def _canonical_sampler_smoke_index(root: Path) -> dict[str, dict[str, object]]:
+    path = root / "runs/canonical_sampler_smokes_2026-05-30.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    rows = payload.get("runs")
+    if not isinstance(rows, list):
+        return {}
+    index: dict[str, dict[str, object]] = {}
+    keys = {
+        "hypothesis",
+        "sampler_steps",
+        "sampler_noise_scale",
+        "sampler_step_scale",
+        "sampler_schedule_shape",
+        "sampler_num_samples",
+        "sampler_selection_policy",
+        "seed",
+        "sampler_search_status",
+        "worker_status",
+        "global_delta",
+        "search_reference_delta",
+        "beats_search_reference",
+        "beats_global_current_best",
+    }
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("trial_id"), str):
+            continue
+        index[str(row["trial_id"])] = {key: row[key] for key in keys if key in row}
+    return index
 
 
 def _maybe_float(value: object) -> float | None:

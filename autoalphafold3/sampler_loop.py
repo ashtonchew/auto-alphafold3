@@ -290,6 +290,7 @@ def run_incremental_sampler_loop(
                     "sampler_selection_policy": trial.get("sampler_selection_policy"),
                     "worker_status": manifest.get("status"),
                     "num_failed_targets": scored.metrics.get("num_failed_targets"),
+                    "fold_cartographer": _compact_fold_cartographer(scored.fold_cartographer),
                 }
             )
             if score is not None and (best_score is None or score > best_score):
@@ -605,6 +606,50 @@ def _current_best_context(*, root: Path, baseline_dir: str | Path, ledger_path: 
         "candidate_id": best.candidate_id,
         "score": best.score,
     }
+
+
+def _compact_fold_cartographer(report: FoldCartographerReport) -> dict[str, object]:
+    summary = dict(report.summary)
+    compact_summary = {
+        key: summary[key]
+        for key in (
+            "canonical_target",
+            "mean_target_calpha_lddt",
+            "nan_prediction_residue_count",
+            "num_scored_targets",
+            "num_targets",
+        )
+        if key in summary
+    }
+    compact: dict[str, object] = {
+        "signature": report.signature,
+        "summary": compact_summary,
+    }
+    if "canonical_target" in compact_summary:
+        compact["canonical_target"] = compact_summary["canonical_target"]
+    if "mean_target_calpha_lddt" in compact_summary:
+        compact["mean_target_calpha_lddt"] = compact_summary["mean_target_calpha_lddt"]
+    bucket_summary = _compact_fold_cartographer_buckets(report.buckets)
+    if bucket_summary:
+        compact["buckets"] = bucket_summary
+    return compact
+
+
+def _compact_fold_cartographer_buckets(buckets: dict[str, object]) -> dict[str, object]:
+    compact: dict[str, object] = {}
+    for name, value in buckets.items():
+        if not isinstance(value, dict):
+            continue
+        row: dict[str, object] = {}
+        if "eligible_pair_count" in value:
+            row["eligible_pair_count"] = value["eligible_pair_count"]
+        target_ids = value.get("target_ids")
+        if isinstance(target_ids, list):
+            row["target_count"] = len(target_ids)
+            row["target_ids_head"] = [str(target_id) for target_id in target_ids[:5]]
+        if row:
+            compact[str(name)] = row
+    return compact
 
 
 def _planner_prompt(

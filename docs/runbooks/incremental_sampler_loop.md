@@ -64,6 +64,12 @@ The loop is incremental, not a static sweep:
 5. Record the scored row and stage-one decision in the canonical ledger.
 6. Feed the observed score and diagnostics into the next planner call.
 
+For scored candidates, the next planner prompt receives a compact Fold
+Cartographer block in `prior_decisions`: `signature`, `canonical_target`,
+`mean_target_calpha_lddt`, selected summary counts, and compact bucket counts.
+This makes the loop Fold Cartographer-driven without passing validation labels,
+raw scorer internals, or bulky per-target artifacts into the planner.
+
 The deterministic planner remains available for reproducible dry-runs and
 tests. The LLM planner plugs into the same boundary and may only choose
 sampler-only frozen-checkpoint settings:
@@ -220,6 +226,11 @@ candidate was `T088` with `best_val_calpha_lddt=0.02098351201866366`, using
 `sampler_schedule_shape=late_refine`, `sampler_num_samples=4`, and
 `sampler_selection_policy=compact_geometry`.
 
+Fold Cartographer diagnostics remained `signature=toy_geometry_failed` and
+`canonical_target=local_geometry_weak` across the run. Mean target C-alpha lDDT
+moved from `0.013645332384870059` on `T086`, down to
+`0.008044645887676049` on `T087`, then up to `0.01999694034070508` on `T088`.
+
 GPT-5.5 override, three candidates:
 
 ```bash
@@ -243,6 +254,11 @@ candidates continued as `T090` and `T091`. All three GPT-5.5 candidates reached
 `SAMPLER_PREDICTED`, scored with `num_failed_targets=0`, and were recorded as
 `DISCARD`; the best GPT-5.5 candidate was `T090` with
 `best_val_calpha_lddt=0.011894151878161945`.
+
+Fold Cartographer diagnostics also remained `signature=toy_geometry_failed` and
+`canonical_target=local_geometry_weak` for the GPT-5.5 run. Mean target C-alpha
+lDDT was `0.008506080525658197` for `T089`,
+`0.011453887030133602` for `T090`, and `0.008044645887676049` for `T091`.
 
 The expanded sampler surface materially improved the sampler-only ceiling in
 this smoke from the prior best `0.008722378043985426` to `0.02098351201866366`,

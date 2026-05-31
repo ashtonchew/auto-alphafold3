@@ -93,6 +93,20 @@
       "median_val_calpha_lddt": 0.012985724831176517,
       "num_failed_targets": 0,
       "diagnostic_target": "local_geometry_weak",
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.013645332384870059,
+        "nan_prediction_residue_count": 0,
+        "num_scored_targets": 16,
+        "num_targets": 16,
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16
+          }
+        }
+      },
       "hypothesis": "The baseline is under-refining local backbone geometry; a slightly denser, lower-noise late-refinement schedule should improve final C-alpha lDDT without overexploring.",
       "sampler_steps": 10,
       "sampler_noise_scale": 0.7,
@@ -114,6 +128,20 @@
       "median_val_calpha_lddt": 0.008112995421022156,
       "num_failed_targets": 0,
       "diagnostic_target": "local_geometry_weak",
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.008044645887676049,
+        "nan_prediction_residue_count": 0,
+        "num_scored_targets": 16,
+        "num_targets": 16,
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16
+          }
+        }
+      },
       "hypothesis": "The prior late-refine run likely underexplored early conformational alternatives; a moderate-noise cosine schedule with slightly fewer steps should preserve global fold while still allowing local geometry repair.",
       "sampler_steps": 8,
       "sampler_noise_scale": 0.9,
@@ -135,6 +163,20 @@
       "median_val_calpha_lddt": 0.020843421011527287,
       "num_failed_targets": 0,
       "diagnostic_target": "local_geometry_weak",
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.01999694034070508,
+        "nan_prediction_residue_count": 0,
+        "num_scored_targets": 16,
+        "num_targets": 16,
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16
+          }
+        }
+      },
       "hypothesis": "The prior geometry-focused runs likely still left a small number of loose local contacts unresolved; a lower-noise late-refine schedule with denser steps and compact-geometry selection should improve final C-alpha lDDT by tightening these regions without changing the global fold.",
       "sampler_steps": 12,
       "sampler_noise_scale": 0.6,
@@ -156,6 +198,20 @@
       "median_val_calpha_lddt": 0.008434208092441907,
       "num_failed_targets": 0,
       "diagnostic_target": "local_geometry_weak",
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.008506080525658197,
+        "nan_prediction_residue_count": 0,
+        "num_scored_targets": 16,
+        "num_targets": 16,
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16
+          }
+        }
+      },
       "writes_discovery_ledger": false
     },
     {
@@ -167,6 +223,20 @@
       "best_val_calpha_lddt": 0.011894151878161945,
       "num_failed_targets": 0,
       "diagnostic_target": "local_geometry_weak",
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.011453887030133602,
+        "nan_prediction_residue_count": 0,
+        "num_scored_targets": 16,
+        "num_targets": 16,
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16
+          }
+        }
+      },
       "hypothesis": "The baseline underperforms because very short/default diffusion sampling leaves local C-alpha geometry under-refined; adding modest extra denoising with a late-refinement-heavy schedule will improve local stereogeometry without requiring any checkpoint or scorer changes.",
       "sampler_steps": 8,
       "sampler_noise_scale": 0.8,
@@ -186,6 +256,20 @@
       "best_val_calpha_lddt": 0.008276756926787072,
       "num_failed_targets": 0,
       "diagnostic_target": "local_geometry_weak",
+      "fold_cartographer": {
+        "signature": "toy_geometry_failed",
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.008044645887676049,
+        "nan_prediction_residue_count": 0,
+        "num_scored_targets": 16,
+        "num_targets": 16,
+        "buckets": {
+          "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 16
+          }
+        }
+      },
       "hypothesis": "The failed late_refine/compact_geometry run suggests that aggressive refinement-biased sampling and compactness selection may over-collapse or overfit label-free geometry proxies for this weak checkpoint. A shorter, lower-noise cosine trajectory should preserve coarse fold signal while still adding mild denoising relative to the baseline.",
       "sampler_steps": 6,
       "sampler_noise_scale": 0.55,

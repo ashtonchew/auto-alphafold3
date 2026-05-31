@@ -108,6 +108,7 @@ class FakeSamplerClient:
 class ScoreAwarePlanner:
     def __init__(self) -> None:
         self.observed_scores: list[float | None] = []
+        self.observed_fold_cartographer: list[dict[str, object] | None] = []
 
     def plan(
         self,
@@ -120,6 +121,10 @@ class ScoreAwarePlanner:
     ) -> SamplerCandidatePlan:
         latest_score = prior_decisions[-1].get("score") if prior_decisions else None
         self.observed_scores.append(float(latest_score) if isinstance(latest_score, int | float) else None)
+        latest_fold_cartographer = prior_decisions[-1].get("fold_cartographer") if prior_decisions else None
+        self.observed_fold_cartographer.append(
+            latest_fold_cartographer if isinstance(latest_fold_cartographer, dict) else None
+        )
         sampler_steps = 4 if latest_score is not None and latest_score < 0.42 else 1
         return SamplerCandidatePlan(
             diagnostic_target="local_geometry_weak",
@@ -163,6 +168,29 @@ class InvalidPlanner:
             seed=0,
             rationale="This should fail validation.",
         )
+
+
+class DiagnosticSamplerClient(FakeSamplerClient):
+    def score(self, trial_id: str) -> dict[str, object]:
+        payload = super().score(trial_id)
+        payload["fold_cartographer"] = {
+            "signature": "toy_geometry_failed",
+            "summary": {
+                "canonical_target": "local_geometry_weak",
+                "mean_target_calpha_lddt": 0.123,
+                "nan_prediction_residue_count": 0,
+                "num_scored_targets": 16,
+                "num_targets": 16,
+                "ignored_verbose_field": "not needed by planner",
+            },
+            "buckets": {
+                "toy_all": {
+                    "eligible_pair_count": 38149,
+                    "target_ids": ["A", "B", "C", "D", "E", "F"],
+                }
+            },
+        }
+        return payload
 
 
 def test_sampler_loop_dry_run_generates_incremental_trials(tmp_path: Path) -> None:
@@ -254,9 +282,48 @@ def test_sampler_loop_planner_observes_prior_score_before_next_candidate(tmp_pat
 
     assert result.status == "PASS"
     assert planner.observed_scores == [None, 0.1]
+    assert planner.observed_fold_cartographer[0] is None
     assert json.loads((tmp_path / "trials/T050.json").read_text())["sampler_steps"] == 1
     assert json.loads((tmp_path / "trials/T051.json").read_text())["sampler_steps"] == 4
     assert result.decisions[1]["planner"] == "llm"
+
+
+def test_sampler_loop_feeds_fold_cartographer_diagnostics_to_next_plan(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    planner = ScoreAwarePlanner()
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=2,
+        start_trial_id="T070",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=DiagnosticSamplerClient(scores=[0.1, 0.2]),
+        planner="llm",
+        planner_client=planner,
+    )
+
+    diagnostic = planner.observed_fold_cartographer[1]
+    assert result.status == "PASS"
+    assert diagnostic is not None
+    assert diagnostic["signature"] == "toy_geometry_failed"
+    assert diagnostic["canonical_target"] == "local_geometry_weak"
+    assert diagnostic["mean_target_calpha_lddt"] == 0.123
+    assert diagnostic["summary"] == {
+        "canonical_target": "local_geometry_weak",
+        "mean_target_calpha_lddt": 0.123,
+        "nan_prediction_residue_count": 0,
+        "num_scored_targets": 16,
+        "num_targets": 16,
+    }
+    assert diagnostic["buckets"] == {
+        "toy_all": {
+            "eligible_pair_count": 38149,
+            "target_count": 6,
+            "target_ids_head": ["A", "B", "C", "D", "E"],
+        }
+    }
 
 
 def test_sampler_loop_rejects_invalid_planner_output_before_writing(tmp_path: Path) -> None:

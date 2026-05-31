@@ -1,11 +1,11 @@
 {
-  "best_val_calpha_lddt": 0.07941230438543605,
-  "baseline": 0.07941230438543605,
-  "delta_vs_baseline": 0.0,
+  "best_val_calpha_lddt": 0.02098351201866366,
+  "baseline": 0.008276756926787072,
+  "delta_vs_baseline": 0.012706755091876588,
   "counts": {
     "confirmed": 0,
     "killed": 0,
-    "trials": 15,
+    "trials": 14,
     "keep": 0,
     "discard": 14,
     "fail": 0,
@@ -14,94 +14,88 @@
   "split": "public_val_small",
   "scorer": "calpha_lddt_v1",
   "is_sample": false,
-  "source": "runs (per-trial metrics + canonical smokes)",
+  "source": "runs (canonical sampler smokes)",
   "trajectory": [
     {
       "index": 1,
-      "trial_id": "T000",
-      "score": 0.07941230438543605,
-      "status": "provisional"
-    },
-    {
-      "index": 2,
       "trial_id": "T081",
       "score": 0.008276756926787072,
       "status": "provisional"
     },
     {
-      "index": 3,
+      "index": 2,
       "trial_id": "T082",
       "score": 0.008276756926787072,
       "status": "provisional"
     },
     {
-      "index": 4,
+      "index": 3,
       "trial_id": "T083",
       "score": 0.008355395947469134,
       "status": "provisional"
     },
     {
-      "index": 5,
+      "index": 4,
       "trial_id": "T084",
       "score": 0.008722378043985426,
       "status": "provisional"
     },
     {
-      "index": 6,
+      "index": 5,
       "trial_id": "T085",
       "score": 0.008276756926787072,
       "status": "provisional"
     },
     {
-      "index": 7,
+      "index": 6,
       "trial_id": "T086",
       "score": 0.013637316836614328,
       "status": "provisional"
     },
     {
-      "index": 8,
+      "index": 7,
       "trial_id": "T087",
       "score": 0.008276756926787072,
       "status": "provisional"
     },
     {
-      "index": 9,
+      "index": 8,
       "trial_id": "T088",
       "score": 0.02098351201866366,
       "status": "provisional"
     },
     {
-      "index": 10,
+      "index": 9,
       "trial_id": "T089",
       "score": 0.00872893129570893,
       "status": "provisional"
     },
     {
-      "index": 11,
+      "index": 10,
       "trial_id": "T090",
       "score": 0.011894151878161945,
       "status": "provisional"
     },
     {
-      "index": 12,
+      "index": 11,
       "trial_id": "T091",
       "score": 0.008276756926787072,
       "status": "provisional"
     },
     {
-      "index": 13,
+      "index": 12,
       "trial_id": "T092",
       "score": 0.008827230071561509,
       "status": "provisional"
     },
     {
-      "index": 14,
+      "index": 13,
       "trial_id": "T093",
       "score": 0.014653070853757635,
       "status": "provisional"
     },
     {
-      "index": 15,
+      "index": 14,
       "trial_id": "T094",
       "score": 0.014790689139951244,
       "status": "provisional"

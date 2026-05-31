@@ -219,22 +219,30 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
     ledger_path = runs / "ledger.jsonl"
     rows = read_ledger(ledger_path=ledger_path) if ledger_path.exists() else []
     source_kind = "ledger" if rows else ""
-    if not rows:
+
+    # Canonical sampler-smoke roll-up has the most useful real data right now:
+    # a search-family reference baseline (T081), 14 scored sampler trials, a
+    # best-candidate summary, and a planner-feedback ledger row. Prefer it
+    # over per-trial metrics so the misleading T000 row stops showing.
+    canonical = _load_canonical_smokes_file(runs)
+    if not rows and canonical is not None:
+        rows = _canonical_rows(canonical)
+        source_kind = "canonical sampler smokes"
+    elif not rows:
         rows = _rows_from_trial_metrics(runs / "trials")
         if rows:
             source_kind = "per-trial metrics"
-    # Also merge any canonical sampler-smoke roll-up files. Wrapped so a bad
-    # file can never break the live board — degrades to whatever rows we had.
-    try:
-        canonical_rows = _rows_from_canonical_smokes(runs)
-        if canonical_rows:
-            existing_ids = {getattr(r, "trial_id", "") for r in rows}
-            rows = list(rows) + [r for r in canonical_rows if r.trial_id not in existing_ids]
-            source_kind = (source_kind + " + canonical smokes").strip(" +") if source_kind else "canonical smokes"
-    except Exception:
-        pass
 
-    baseline = _read_baseline(runs / "baseline" / "metrics.json")
+    # Baseline: the in-family sampler search reference (T081) when present,
+    # otherwise fall back to runs/baseline/metrics.json.
+    baseline = None
+    if canonical is not None:
+        ref = canonical.get("sampler_search_reference") or {}
+        ref_score = ref.get("score")
+        if isinstance(ref_score, (int, float)):
+            baseline = float(ref_score)
+    if baseline is None:
+        baseline = _read_baseline(runs / "baseline" / "metrics.json")
 
     # Trial specs are real pre-registered hypothesis data — load them whether or
     # not the orchestrator has produced scored output yet.
@@ -303,6 +311,17 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
     real_axes = _real_axes(rows, baseline_cart_mean)
     real_gate = _real_gate(rows, specs)
     real_overlay = _real_overlay(runs, rows, baseline, best)
+    real_ledger_from_canonical: list[LedgerRow] = []
+
+    # Overlay canonical-smokes-derived fills wherever real artifact-shaped data
+    # isn't yet on disk. Cartographer best/reference deltas, the headline
+    # gate-as-sampler-comparison, and a Discovery Ledger row for the planner
+    # feedback smoke all live in the same canonical file.
+    if canonical is not None:
+        real_axes = _canonical_axes(canonical, rows) or real_axes
+        if real_gate is None:
+            real_gate = _canonical_gate(canonical)
+        real_ledger_from_canonical = _canonical_ledger(canonical)
 
     return UiState(
         best=best,
@@ -313,7 +332,7 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         trajectory=trajectory,
         axes=real_axes,
         failure_signature=failure_sig,
-        ledger=ledger_rows,
+        ledger=ledger_rows or real_ledger_from_canonical,
         gate=real_gate,
         overlay=real_overlay,
         provenance=_real_provenance(rows, scorer),
@@ -322,7 +341,7 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         is_sample=False,
         show_cartographer=bool(real_axes),
         show_overlay=real_overlay is not None,
-        show_ledger=bool(ledger_rows),
+        show_ledger=bool(ledger_rows) or bool(real_ledger_from_canonical),
         source=f"{runs} ({source_kind})" if source_kind else str(runs),
         trials=_build_trials(rows, baseline),
         logs=_build_logs(rows),
@@ -398,59 +417,177 @@ def _rows_from_trial_metrics(trials_dir: Path) -> list[_MetricsRow]:
     return out
 
 
-def _rows_from_canonical_smokes(runs: Path) -> list[_MetricsRow]:
-    """Read every ``runs/canonical_sampler_smokes_*.json`` roll-up.
-
-    Each `runs[]` entry inside the file is one sampler trial — we project it
-    into the same duck-typed _MetricsRow shape the rest of the loader uses.
-    """
+def _load_canonical_smokes_file(runs: Path) -> dict | None:
+    """Load the most recent ``runs/canonical_sampler_smokes_*.json`` roll-up."""
     if not runs.exists():
-        return []
+        return None
+    matches = sorted(runs.glob("canonical_sampler_smokes_*.json"))
+    if not matches:
+        return None
+    try:
+        data = json.loads(matches[-1].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _canonical_rows(canonical: dict) -> list[_MetricsRow]:
+    """Project ``canonical["runs"][]`` entries into duck-typed _MetricsRow."""
     out: list[_MetricsRow] = []
-    for path in sorted(runs.glob("canonical_sampler_smokes_*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+    for entry in canonical.get("runs", []) or []:
+        if not isinstance(entry, dict) or not entry.get("trial_id"):
             continue
-        if not isinstance(data, dict):
-            continue
-        for entry in data.get("runs", []) or []:
-            if not isinstance(entry, dict) or not entry.get("trial_id"):
-                continue
-            best = entry.get("best_val_calpha_lddt")
-            mean = entry.get("mean_val_calpha_lddt", best)
-            median = entry.get("median_val_calpha_lddt")
-            metrics = {
-                "best_val_calpha_lddt": best,
-                "mean_val_calpha_lddt": mean,
-                "median_val_calpha_lddt": median,
-                "num_failed_targets": entry.get("num_failed_targets", 0),
-                "scorer_version": "calpha_lddt_v1",
-                "split": "public_val_small",
-                "move_family": "diffusion_sampler_golf",
-            }
-            summary = {
-                "canonical_target": entry.get("diagnostic_target", ""),
-                "mean_target_calpha_lddt": mean if isinstance(mean, (int, float)) else 0.0,
-                "nan_prediction_residue_count": 0,
-                "num_scored_targets": 16,
-                "num_targets": 16,
-            }
-            cart = _Bag(signature=entry.get("diagnostic_target", ""), summary=summary, buckets={})
-            out.append(
-                _MetricsRow(
-                    trial_id=str(entry["trial_id"]),
-                    status=str(entry.get("status", "SCORED")),
-                    candidate_id=f"{entry['trial_id']}_sampler",
-                    metrics=metrics,
-                    artifacts={},
-                    fold_cartographer=cart,
-                    failure_signature=entry.get("diagnostic_target"),
-                    discovery="UNCONFIRMED",
-                    falsification=None,
-                )
+        best = entry.get("best_val_calpha_lddt")
+        mean = entry.get("mean_val_calpha_lddt", best)
+        median = entry.get("median_val_calpha_lddt")
+        metrics = {
+            "best_val_calpha_lddt": best,
+            "mean_val_calpha_lddt": mean,
+            "median_val_calpha_lddt": median,
+            "num_failed_targets": entry.get("num_failed_targets", 0),
+            "scorer_version": "calpha_lddt_v1",
+            "split": "public_val_small",
+            "move_family": "diffusion_sampler_golf",
+        }
+        summary = {
+            "canonical_target": entry.get("diagnostic_target", ""),
+            "mean_target_calpha_lddt": mean if isinstance(mean, (int, float)) else 0.0,
+            "nan_prediction_residue_count": 0,
+            "num_scored_targets": 16,
+            "num_targets": 16,
+        }
+        cart = _Bag(signature=entry.get("diagnostic_target", ""), summary=summary, buckets={})
+        out.append(
+            _MetricsRow(
+                trial_id=str(entry["trial_id"]),
+                status=str(entry.get("status", "SCORED")),
+                candidate_id=f"{entry['trial_id']}_sampler",
+                metrics=metrics,
+                artifacts={},
+                fold_cartographer=cart,
+                failure_signature=entry.get("diagnostic_target"),
+                discovery="UNCONFIRMED",
+                falsification=None,
             )
+        )
     return out
+
+
+def _canonical_axes(canonical: dict, rows: list) -> list[Axis]:
+    """Build all 4 Cartographer tiles from canonical-smokes-derived signals.
+
+    Local geometry — best sampler score vs same-family reference (T081).
+    Long-range topology — spread across the canonical runs (max − min lDDT).
+    3D gap — score ratio of the best candidate vs the search reference.
+    Stability — number of trials with zero failed targets.
+    """
+    ref = canonical.get("sampler_search_reference") or {}
+    best_cand = canonical.get("best_sampler_candidate") or {}
+    runs_arr = canonical.get("runs") or []
+    ref_score = float(ref.get("score") or 0.0)
+    best_score = float(best_cand.get("score") or 0.0)
+    search_delta = float(best_cand.get("search_reference_delta") or (best_score - ref_score))
+    scores = [float(r.get("best_val_calpha_lddt") or 0.0) for r in runs_arr if isinstance(r, dict)]
+    spread = (max(scores) - min(scores)) if scores else 0.0
+    ratio = float(best_cand.get("score_ratio_to_search_reference") or 0.0)
+    no_fail = sum(1 for r in runs_arr if isinstance(r, dict) and not r.get("num_failed_targets"))
+    total = len(runs_arr)
+    return [
+        Axis("Local geometry", f"{best_score:.3f}", f"{search_delta:+.3f}",
+             max(0, min(100, int(round(best_score * 100 * 10)))),
+             f"best sampler vs same-family reference {ref_score:.3f}",
+             "up" if search_delta > 0 else "warn"),
+        Axis("Long-range topology", f"{spread:.3f}", "—",
+             max(0, min(100, int(round(spread * 100 * 10)))),
+             f"spread across {len(scores)} sampler candidates", "warn"),
+        Axis("3D gap", f"{ratio:.2f}×", f"{search_delta:+.3f}",
+             max(0, min(100, int(round((ratio - 1) * 30)))) if ratio > 0 else 0,
+             "best/reference score ratio", "up" if ratio > 1 else "warn"),
+        Axis("Stability", f"{no_fail}/{total}", "—",
+             int(100 * no_fail / total) if total else 0,
+             "trials with zero failed targets", "up" if no_fail == total and total > 0 else "warn"),
+    ]
+
+
+def _canonical_gate(canonical: dict) -> Gate | None:
+    """Render the headline panel as a sampler-vs-reference comparison.
+
+    The canonical file isn't a falsification gate, so we surface it as the
+    sampler-search story: full = best candidate's lDDT, knock-out = same-
+    family deterministic reference, placebo = global current best gap,
+    seed mean = mean lDDT across the search.
+    """
+    best_cand = canonical.get("best_sampler_candidate") or {}
+    ref = canonical.get("sampler_search_reference") or {}
+    locked = canonical.get("locked_baseline") or {}
+    runs_arr = canonical.get("runs") or []
+    if not best_cand:
+        return None
+    best_score = float(best_cand.get("score") or 0.0)
+    ref_score = float(ref.get("score") or 0.0)
+    locked_score = float(locked.get("score") or 0.0)
+    scores = [float(r.get("best_val_calpha_lddt") or 0.0) for r in runs_arr if isinstance(r, dict)]
+    seed_mean = sum(scores) / len(scores) if scores else 0.0
+    seed_std = (sum((s - seed_mean) ** 2 for s in scores) / len(scores)) ** 0.5 if scores else 0.0
+    search_delta = float(best_cand.get("search_reference_delta") or 0.0)
+    ratio = float(best_cand.get("score_ratio_to_search_reference") or 0.0)
+    status = str(best_cand.get("sampler_search_status") or "")
+    beats_ref = bool(best_cand.get("beats_search_reference"))
+    beats_global = bool(best_cand.get("beats_global_current_best"))
+    bars = [
+        GateBar("best candidate", best_score, f"trial {best_cand.get('trial_id', '—')}", beats_ref),
+        GateBar("family reference", ref_score, "T081 same-family default", False),
+        GateBar("global current best", locked_score, "T000 locked baseline", beats_global),
+        GateBar("seed mean", seed_mean, f"±{seed_std:.3f}, n={len(scores)}", beats_ref),
+    ]
+    readout = (
+        f"Planner-assisted sampler improved over the same-family deterministic reference "
+        f"({ratio:.2f}× score, Δ {search_delta:+.3f}) but did not beat the global current best."
+    )
+    return Gate(
+        claim=(
+            "Planner-assisted sampler search beats the same-family deterministic "
+            "reference at frozen-checkpoint inference."
+        ),
+        meta_axis="local_geometry",
+        meta_trial=str(best_cand.get("trial_id", "")),
+        bars=bars,
+        attributable=f"attributable {search_delta:+.3f}",
+        verdict=status or ("SAMPLER_IMPROVED" if beats_ref else "—"),
+        readout=readout,
+    )
+
+
+def _canonical_ledger(canonical: dict) -> list[LedgerRow]:
+    """Surface the planner-feedback smoke as a ledger-style finding row."""
+    fb = canonical.get("fold_cartographer_feedback_smoke") or {}
+    best_cand = canonical.get("best_sampler_candidate") or {}
+    if not fb and not best_cand:
+        return []
+    rows: list[LedgerRow] = []
+    if best_cand:
+        rows.append(LedgerRow(
+            finding="Planner-assisted sampler beats same-family deterministic reference at frozen-checkpoint inference.",
+            rule="",
+            axis="local_geometry",
+            delta=_fmt_delta(best_cand.get("search_reference_delta", 0.0)),
+            trial=str(best_cand.get("trial_id", "")),
+            sha="",
+            verdict=str(best_cand.get("sampler_search_status") or "SAMPLER_IMPROVED"),
+            confirmed=False,
+        ))
+    if fb.get("status") == "PASS":
+        rows.append(LedgerRow(
+            finding="Planner prompt with same-family sampler reference and prior Cartographer diagnostics passed smoke gate.",
+            rule="",
+            axis="local_geometry",
+            delta="—",
+            trial=",".join(fb.get("trials", []) or []),
+            sha="",
+            verdict="PASS",
+            confirmed=False,
+        ))
+    return rows
 
 
 def _load_trial_specs(specs_dir: Path) -> list[dict]:

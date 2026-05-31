@@ -13,20 +13,6 @@ from autoalphafold3.ui.components import esc, status_pill
 from autoalphafold3.ui.state import UiState
 
 
-def _geom_badge(s: UiState) -> str:
-    """A 'sample' pill for geometry panels on a live board not yet backed by artifacts."""
-    if s.geometry_sample and not s.is_sample:
-        return ' <span class="spill warn" style="margin-left:8px">sample</span>'
-    return ""
-
-
-def _ledger_badge(s: UiState) -> str:
-    """A 'sample' pill for the Discovery Ledger when no discovery_ledger.jsonl exists yet."""
-    if s.ledger_sample and not s.is_sample:
-        return ' <span class="spill warn" style="margin-left:8px">sample</span>'
-    return ""
-
-
 def metric_band(s: UiState) -> str:
     best = f"{s.best:.3f}" if s.best is not None else "—"
     delta = ""
@@ -108,7 +94,7 @@ def cartographer_section(s: UiState) -> str:
             f'<div class="diag-foot">{esc(a.foot)}</div></div>'
         )
     return (
-        f'<h2 class="block-title">Fold Cartographer{_geom_badge(s)}</h2>'
+        f'<h2 class="block-title">Fold Cartographer</h2>'
         '<div class="block-sub">Four geometry axes. Movement vs baseline, best candidate.</div>'
         f'<div class="diag-grid">{tiles}</div>'
     )
@@ -141,7 +127,7 @@ def ledger_section(s: UiState) -> str:
         else "Confirmed mechanisms only — the gated claim that survived knock-out, placebo, and a seed rerun."
     )
     return (
-        f'<h2 class="block-title">Discovery Ledger{_ledger_badge(s)}</h2>'
+        f'<h2 class="block-title">Discovery Ledger</h2>'
         f'<div class="block-sub">{sub}</div>'
         '<table class="dtable"><thead><tr><th>Finding</th><th>Axis</th>'
         '<th class="r">Δ lDDT</th><th class="r">Verdict</th></tr></thead>'
@@ -185,7 +171,7 @@ def gate_section(s: UiState) -> str:
     if g is None:
         return ""
     return (
-        f'<h2 class="block-title">Headline discovery on trial{_geom_badge(s)} '
+        f'<h2 class="block-title">Headline discovery on trial '
         f'<span class="right"><span class="badge">{esc(g.verdict)}</span></span></h2>'
         f'<p class="claim">{esc(g.claim)}</p>'
         f'<div class="claim-meta">pre-registered axis <span class="mono">{esc(g.meta_axis)}</span> '
@@ -197,8 +183,10 @@ def gate_section(s: UiState) -> str:
 
 def overlay_section(s: UiState) -> str:
     o = s.overlay
+    if o is None:
+        return ""
     return (
-        f'<h2 class="block-title">Structure overlay{_geom_badge(s)}</h2>'
+        f'<h2 class="block-title">Structure overlay</h2>'
         '<div class="block-sub">Predicted vs true Cα backbone, best confirmed candidate.</div>'
         '<div class="ov-grid"><div>'
         f"{components.backbone_overlay()}"

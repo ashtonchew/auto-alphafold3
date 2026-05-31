@@ -135,14 +135,15 @@ class UiState:
     failure_signature: str
     ledger: list[LedgerRow]
     gate: Gate | None
-    overlay: Overlay
+    overlay: Overlay | None
     provenance: dict[str, str]
     split: str
     scorer: str
     is_sample: bool
     source: str  # "sample" or the runs dir
-    geometry_sample: bool = False  # live board whose geometry panels still use sample data
-    ledger_sample: bool = False  # live board with no discovery_ledger.jsonl yet
+    show_cartographer: bool = True  # live board hides this section when no real data
+    show_overlay: bool = True  # live board hides this section when no real data
+    show_ledger: bool = True  # live board hides this section when no real discoveries
     trials: list = field(default_factory=list)  # TrialRow, for the Trials view
     logs: list = field(default_factory=list)  # LogEvent, for the Logs view
     hypothesis: "Hypothesis | None" = None  # pre-registered claim from trials/T*.json
@@ -277,16 +278,21 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
     ledger_rows = _real_ledger_rows(runs)
     delta = (best - baseline) if (best is not None and baseline is not None) else None
 
-    # Cartographer axes, gate, and overlay need richer per-trial artifacts; until
-    # those land we keep the labelled sample for the geometry panels (flagged via
-    # geometry_sample) rather than inventing numbers.
-    sample = sample_state()
     failure_sig = ""
     for row in reversed(rows):
         sig = getattr(row, "failure_signature", None) or getattr(row.fold_cartographer, "signature", "")
         if sig:
             failure_sig = str(sig)
             break
+
+    # Hook up real diagnostic axes from per-trial fold_cartographer summaries.
+    # Only Local geometry is derivable from the toy Cα-lDDT scorer today; the
+    # other three axes show "—" until the scorer emits long-range / distogram /
+    # stability metrics.
+    baseline_cart_mean = _read_baseline_cart_mean(runs / "baseline" / "metrics.json")
+    real_axes = _real_axes(rows, baseline_cart_mean)
+    real_gate = _real_gate(rows, specs)
+    real_overlay = _real_overlay(runs, rows, baseline, best)
 
     return UiState(
         best=best,
@@ -295,17 +301,18 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         prev_delta=None,
         counts=counts,
         trajectory=trajectory,
-        axes=sample.axes,
-        failure_signature=failure_sig or sample.failure_signature,
-        ledger=ledger_rows if ledger_rows else sample.ledger,
-        gate=sample.gate,
-        overlay=Overlay(is_sample=True, **_overlay_kwargs(sample.overlay)),
+        axes=real_axes,
+        failure_signature=failure_sig,
+        ledger=ledger_rows,
+        gate=real_gate,
+        overlay=real_overlay,
         provenance=_real_provenance(rows, scorer),
         split=split or "public_val_small",
         scorer=scorer or "calpha_lddt_v1",
         is_sample=False,
-        geometry_sample=True,
-        ledger_sample=not ledger_rows,
+        show_cartographer=bool(real_axes),
+        show_overlay=real_overlay is not None,
+        show_ledger=bool(ledger_rows),
         source=f"{runs} ({source_kind})" if source_kind else str(runs),
         trials=_build_trials(rows, baseline),
         logs=_build_logs(rows),
@@ -337,9 +344,11 @@ class _MetricsRow:
 
 @dataclass
 class _Bag:
-    """Trivial attribute bag for nested fields (fold_cartographer.signature)."""
+    """Trivial attribute bag for nested fields (fold_cartographer.signature/.summary/.buckets)."""
 
     signature: str = ""
+    summary: dict = field(default_factory=dict)
+    buckets: dict = field(default_factory=dict)
 
 
 def _rows_from_trial_metrics(trials_dir: Path) -> list[_MetricsRow]:
@@ -361,6 +370,8 @@ def _rows_from_trial_metrics(trials_dir: Path) -> list[_MetricsRow]:
         metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else {}
         cart = data.get("fold_cartographer") if isinstance(data.get("fold_cartographer"), dict) else {}
         sig = str(cart.get("signature", "")) if cart else ""
+        summary = cart.get("summary") if isinstance(cart.get("summary"), dict) else {}
+        buckets = cart.get("buckets") if isinstance(cart.get("buckets"), dict) else {}
         out.append(
             _MetricsRow(
                 trial_id=str(data.get("trial_id") or path.parent.name),
@@ -368,7 +379,7 @@ def _rows_from_trial_metrics(trials_dir: Path) -> list[_MetricsRow]:
                 candidate_id=str(data.get("candidate_id", "")),
                 metrics=dict(metrics),
                 artifacts=dict(data.get("artifacts") or {}),
-                fold_cartographer=_Bag(signature=sig),
+                fold_cartographer=_Bag(signature=sig, summary=dict(summary), buckets=dict(buckets)),
                 failure_signature=data.get("failure_signature"),
                 discovery=str(data.get("discovery", "UNCONFIRMED")),
                 falsification=None,
@@ -447,6 +458,146 @@ def _pending_trial_rows(specs: list[dict], scored_ids: set[str]) -> list[TrialRo
     return rows
 
 
+def _read_baseline_cart_mean(path: Path) -> float | None:
+    """Pull the baseline cartographer's mean_target_calpha_lddt so delta is
+    computed mean-vs-mean rather than mean-vs-best (different metrics)."""
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    cart = data.get("fold_cartographer")
+    if isinstance(cart, dict):
+        summary = cart.get("summary")
+        if isinstance(summary, dict):
+            value = summary.get("mean_target_calpha_lddt")
+            if isinstance(value, (int, float)):
+                return float(value)
+    return None
+
+
+def _real_axes(rows: list, baseline_cart_mean: float | None) -> list[Axis]:
+    """Build Cartographer axes from real per-trial cartographer summaries.
+
+    The toy Cα-lDDT scorer only emits a local-geometry mean; the other three
+    diagnostic axes are not measured and stay as '—' placeholders until the
+    scorer grows long-range / distogram / stability outputs.
+    """
+    cart = None
+    for row in reversed(rows):
+        c = getattr(row, "fold_cartographer", None)
+        summary = getattr(c, "summary", None) if c is not None else None
+        if isinstance(summary, dict) and "mean_target_calpha_lddt" in summary:
+            cart = summary
+            break
+    if cart is None:
+        return []
+    mean = float(cart.get("mean_target_calpha_lddt", 0.0))
+    delta = (mean - baseline_cart_mean) if baseline_cart_mean is not None else None
+    pct = max(0, min(100, int(round(mean * 100))))
+    local_foot = f"mean target Cα lDDT across {int(cart.get('num_scored_targets', 0))} targets"
+    local_tone = "up" if (delta is not None and delta > 0) else "warn"
+    nan_count = int(cart.get("nan_prediction_residue_count", 0))
+    stability_foot = "no NaN residues" if nan_count == 0 else f"{nan_count} NaN residues"
+    stability_tone = "up" if nan_count == 0 else "warn"
+    return [
+        Axis("Local geometry", f"{mean:.3f}", f"{delta:+.3f}" if delta is not None else "—", pct, local_foot, local_tone),
+        Axis("Long-range topology", "—", "—", 0, "not measured by Cα-lDDT scorer", "warn"),
+        Axis("3D gap", "—", "—", 0, "not measured by Cα-lDDT scorer", "warn"),
+        Axis("Stability", f"{int(cart.get('num_scored_targets', 0))}/{int(cart.get('num_targets', 0))}", "—", 100 if nan_count == 0 else 0, stability_foot, stability_tone),
+    ]
+
+
+def _real_gate(rows: list, specs: list[dict]) -> Gate | None:
+    """Build the headline gate card from real ``row.falsification`` evidence.
+
+    Returns None when no ledger row carries falsification data — the panel
+    is hidden rather than showing sample bars.
+    """
+    target_row = None
+    for row in reversed(rows):
+        if getattr(row, "falsification", None) is not None:
+            target_row = row
+            break
+    if target_row is None:
+        return None
+    fals = target_row.falsification
+    trial_id = str(getattr(target_row, "trial_id", ""))
+    axis = _enum_value(fals, "named_axis", "axis", "predicted_axis")
+    verdict = _enum_value(fals, "verdict")
+    discovery = _enum_value(target_row, "discovery")
+    spec = next((s for s in specs if str(s.get("trial_id")) == trial_id), None)
+    claim = str(spec.get("hypothesis", "")) if spec else ""
+    seed_std = float(getattr(fals, "seed_std", 0.0))
+    bars = [
+        GateBar("full", float(fals.gain_full), "", True),
+        GateBar("knock-out", float(fals.gain_knockout), "ablation", float(fals.gain_knockout) >= float(fals.gain_full) * 0.5),
+        GateBar("placebo", float(fals.gain_placebo), "null", False),
+        GateBar("seed mean", float(fals.seed_mean), f"±{seed_std:.3f}", True),
+    ]
+    attr = float(getattr(fals, "attributable_fraction", 0.0))
+    readout_lines = [
+        f"axis prediction { 'held' if getattr(fals, 'axis_prediction_held', False) else 'did not hold'}.",
+        ("Reverting the change erases most of the gain, the placebo does not reproduce it, "
+         "and the gain survives the seed rerun.") if discovery == "CONFIRMED"
+        else ("The control bars did not clear the gate threshold — the change is not attributable."),
+    ]
+    return Gate(
+        claim=claim,
+        meta_axis=axis,
+        meta_trial=trial_id,
+        bars=bars,
+        attributable=f"attributable {attr:.2f}",
+        verdict=verdict or ("CONFIRMED" if discovery == "CONFIRMED" else "KILLED" if discovery == "KILLED" else "—"),
+        readout=" ".join(readout_lines),
+    )
+
+
+def _real_overlay(runs: Path, rows: list, baseline: float | None, best: float | None) -> Overlay | None:
+    """Build the structure overlay from a real ``predictions.json`` artifact.
+
+    Returns None if no predictions file exists for the best-scored trial yet —
+    the panel hides rather than rendering a sample backbone. Per-residue err
+    levels stay at flat zero until the scorer persists per-residue lDDT.
+    """
+    best_row = None
+    best_score = -1.0
+    for row in rows:
+        metrics = row.metrics if isinstance(getattr(row, "metrics", None), dict) else {}
+        score = metrics.get("best_val_calpha_lddt")
+        if isinstance(score, (int, float)) and float(score) > best_score:
+            best_score = float(score)
+            best_row = row
+    if best_row is None:
+        return None
+    trial_id = str(getattr(best_row, "trial_id", ""))
+    pred_path = runs / "trials" / trial_id / "predictions.json"
+    if not pred_path.exists():
+        return None
+    try:
+        data = json.loads(pred_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    preds = data.get("predictions") if isinstance(data, dict) else None
+    if not isinstance(preds, list) or not preds:
+        return None
+    first = preds[0]
+    target = str(first.get("target_id", "—"))
+    coords = first.get("coordinates") or first.get("ca_coords") or []
+    length = len(coords) if isinstance(coords, list) else int(first.get("length", 0))
+    return Overlay(
+        is_sample=False,
+        target=target,
+        length=length,
+        before=float(baseline) if baseline is not None else 0.0,
+        after=float(best) if best is not None else 0.0,
+        err_levels=[0] * max(1, length),
+    )
+
+
 def _read_baseline(path: Path) -> float | None:
     """Pull ``best_val_calpha_lddt`` from a baseline metrics file.
 
@@ -509,10 +660,6 @@ def _real_provenance(rows: list, scorer: str) -> dict[str, str]:
         "git_sha": str(arts.get("git_sha", ""))[:7],
         "scorer": scorer,
     }
-
-
-def _overlay_kwargs(o: Overlay) -> dict[str, object]:
-    return {"target": o.target, "length": o.length, "before": o.before, "after": o.after, "err_levels": o.err_levels}
 
 
 def _fmt_delta(value: object) -> str:

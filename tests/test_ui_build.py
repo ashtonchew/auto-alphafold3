@@ -25,7 +25,7 @@ def _traj_points(html: str) -> list[dict]:
 def test_sample_board_renders_key_values() -> None:
     state = sample_state()
     html = render_board(state)
-    for needle in ("0.343", "+0.018", "baseline 0.325", "CONFIRMED", "sampler", 'id="trajChart"', "Sample"):
+    for needle in ("0.343", "+0.018", "baseline 0.325", "CONFIRMED", "sampler", 'id="trajChart"', "Demo board"):
         assert needle in html, needle
     assert len(_traj_points(html)) == len(state.trajectory) == 20
 
@@ -59,23 +59,62 @@ def test_load_state_from_real_ledger(tmp_path: Path) -> None:
 
     state = load_state(runs)
     assert state.is_sample is False
-    assert state.geometry_sample is True  # geometry panels still sample until artifacts land
     assert state.best == 0.392
     assert state.baseline == 0.325
     assert state.counts["trials"] == 2
     assert state.counts["confirmed"] == 1  # the KEEP row
     assert [p.trial_id for p in state.trajectory] == ["T001", "T002"]
+    # No real falsification, discovery_ledger, or predictions → those sections hide.
+    assert state.gate is None
+    assert state.overlay is None
+    assert state.show_ledger is False
 
     html = render_board(state)
     assert "0.392" in html
     assert "baseline 0.325" in html
-    assert "sample" in html  # geometry badge present on the live board
+    assert "sample" not in html.lower() or "sampler" in html.lower()  # no 'sample' badge
 
 
 def test_no_ledger_falls_back_to_sample(tmp_path: Path) -> None:
     state = load_state(tmp_path / "empty-runs")
     assert state.is_sample is True
     assert state.best == 0.343
+
+
+def test_real_falsification_populates_gate(tmp_path: Path) -> None:
+    """When a ledger row carries falsification evidence, the gate panel must
+    show real bars (gain_full / knock-out / placebo / seed mean) — not sample."""
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    row = {
+        "trial_id": "T012",
+        "status": "KEEP",
+        "candidate_id": "cand_31",
+        "fold_cartographer": {"signature": "distogram_good_lddt_flat"},
+        "metrics": {"best_val_calpha_lddt": 0.343, "scorer_version": "calpha_lddt_v1"},
+        "discovery": "CONFIRMED",
+        "falsification": {
+            "gain_full": 0.018,
+            "gain_knockout": 0.004,
+            "gain_placebo": 0.002,
+            "attributable_fraction": 0.74,
+            "axis_delta_observed": 0.05,
+            "axis_prediction_held": True,
+            "seed_mean": 0.016,
+            "seed_std": 0.004,
+            "verdict": "CONFIRMED",
+        },
+    }
+    (runs / "ledger.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    state = load_state(runs)
+    assert state.gate is not None
+    assert state.gate.verdict == "CONFIRMED"
+    assert state.gate.meta_trial == "T012"
+    # bar values came from the real falsification record
+    assert state.gate.bars[0].value == 0.018  # full
+    assert state.gate.bars[1].value == 0.004  # knock-out
+    assert state.gate.bars[2].value == 0.002  # placebo
+    assert state.gate.bars[3].value == 0.016  # seed mean
 
 
 def test_per_trial_metrics_fallback_when_no_ledger(tmp_path: Path) -> None:

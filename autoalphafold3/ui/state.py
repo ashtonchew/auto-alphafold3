@@ -223,6 +223,16 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         rows = _rows_from_trial_metrics(runs / "trials")
         if rows:
             source_kind = "per-trial metrics"
+    # Also merge any canonical sampler-smoke roll-up files. Wrapped so a bad
+    # file can never break the live board — degrades to whatever rows we had.
+    try:
+        canonical_rows = _rows_from_canonical_smokes(runs)
+        if canonical_rows:
+            existing_ids = {getattr(r, "trial_id", "") for r in rows}
+            rows = list(rows) + [r for r in canonical_rows if r.trial_id not in existing_ids]
+            source_kind = (source_kind + " + canonical smokes").strip(" +") if source_kind else "canonical smokes"
+    except Exception:
+        pass
 
     baseline = _read_baseline(runs / "baseline" / "metrics.json")
 
@@ -385,6 +395,61 @@ def _rows_from_trial_metrics(trials_dir: Path) -> list[_MetricsRow]:
                 falsification=None,
             )
         )
+    return out
+
+
+def _rows_from_canonical_smokes(runs: Path) -> list[_MetricsRow]:
+    """Read every ``runs/canonical_sampler_smokes_*.json`` roll-up.
+
+    Each `runs[]` entry inside the file is one sampler trial — we project it
+    into the same duck-typed _MetricsRow shape the rest of the loader uses.
+    """
+    if not runs.exists():
+        return []
+    out: list[_MetricsRow] = []
+    for path in sorted(runs.glob("canonical_sampler_smokes_*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        for entry in data.get("runs", []) or []:
+            if not isinstance(entry, dict) or not entry.get("trial_id"):
+                continue
+            best = entry.get("best_val_calpha_lddt")
+            mean = entry.get("mean_val_calpha_lddt", best)
+            median = entry.get("median_val_calpha_lddt")
+            metrics = {
+                "best_val_calpha_lddt": best,
+                "mean_val_calpha_lddt": mean,
+                "median_val_calpha_lddt": median,
+                "num_failed_targets": entry.get("num_failed_targets", 0),
+                "scorer_version": "calpha_lddt_v1",
+                "split": "public_val_small",
+                "move_family": "diffusion_sampler_golf",
+            }
+            summary = {
+                "canonical_target": entry.get("diagnostic_target", ""),
+                "mean_target_calpha_lddt": mean if isinstance(mean, (int, float)) else 0.0,
+                "nan_prediction_residue_count": 0,
+                "num_scored_targets": 16,
+                "num_targets": 16,
+            }
+            cart = _Bag(signature=entry.get("diagnostic_target", ""), summary=summary, buckets={})
+            out.append(
+                _MetricsRow(
+                    trial_id=str(entry["trial_id"]),
+                    status=str(entry.get("status", "SCORED")),
+                    candidate_id=f"{entry['trial_id']}_sampler",
+                    metrics=metrics,
+                    artifacts={},
+                    fold_cartographer=cart,
+                    failure_signature=entry.get("diagnostic_target"),
+                    discovery="UNCONFIRMED",
+                    falsification=None,
+                )
+            )
     return out
 
 

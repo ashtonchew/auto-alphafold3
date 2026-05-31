@@ -76,7 +76,31 @@ class SamplerCandidatePlan(BaseModel):
         if low > high:
             raise ValueError("expected_lddt_delta_band must be ordered")
         text = f"{self.hypothesis} {self.intervention} {self.rationale}".lower()
-        forbidden = ("scorer", "label", "manifest", "modal", "gpu", "volume", "checkpoint training", "template")
+        forbidden = (
+            "change scorer",
+            "edit scorer",
+            "modify scorer",
+            "change label",
+            "edit label",
+            "modify label",
+            "read validation label",
+            "change manifest",
+            "edit manifest",
+            "modify manifest",
+            "change modal",
+            "edit modal",
+            "modify modal",
+            "change gpu",
+            "edit gpu",
+            "modify gpu",
+            "change volume",
+            "edit volume",
+            "modify volume",
+            "checkpoint training",
+            "train checkpoint",
+            "use template",
+            "add template",
+        )
         if any(token in text for token in forbidden):
             raise ValueError("sampler plan must not touch scorer, labels, manifests, Modal policy, training, or templates")
         return self

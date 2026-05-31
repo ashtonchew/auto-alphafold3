@@ -150,6 +150,36 @@ def ledger_section(s: UiState) -> str:
     )
 
 
+def hypothesis_section(s: UiState) -> str:
+    """Pre-registered hypothesis card, populated from a real ``trials/T*.json`` spec.
+
+    Renders nothing when no spec is featured (keeps the board uncluttered when
+    the only data on disk is scored output).
+    """
+    h = s.hypothesis
+    if h is None:
+        return ""
+    band = f"+{h.expected_band_lo:.3f} to +{h.expected_band_hi:.3f}"
+    direction = "↑" if h.predicted_direction == "up" else ("↓" if h.predicted_direction == "down" else h.predicted_direction)
+    sampler = f" · sampler_steps {h.sampler_steps}" if h.sampler_steps is not None else ""
+    return (
+        '<h2 class="block-title">Pre-registered hypothesis '
+        f'<span class="right"><span class="spill info">pending</span></span></h2>'
+        f'<p class="claim">{esc(h.claim)}</p>'
+        f'<div class="claim-meta">trial <span class="mono">{esc(h.trial_id)}</span> · '
+        f'target <span class="mono">{esc(h.diagnostic_target)}</span> · '
+        f'move family <span class="mono">{esc(h.move_family)}</span> · '
+        f'predicted axis <span class="mono">{esc(h.predicted_axis)}</span> '
+        f'<span class="mono">{esc(direction)}</span></div>'
+        '<div class="claim-meta" style="margin-top:8px">'
+        f'expected Δ best_val_calpha_lddt <span class="mono num">{esc(band)}</span> · '
+        f'budget <span class="mono">{esc(h.budget)}</span>{esc(sampler)} · '
+        f'component <span class="mono">{esc(h.causal_component)}</span></div>'
+        '<div class="readout">Claim and predicted axis are committed before the run. '
+        'The falsification gate will check it against knock-out, placebo, and seed reruns once the trial scores.</div>'
+    )
+
+
 def gate_section(s: UiState) -> str:
     g = s.gate
     if g is None:
@@ -190,12 +220,14 @@ def overlay_section(s: UiState) -> str:
 _FILTERS = [
     ("all", "All"), ("confirmed", "Confirmed"), ("keep", "KEEP"),
     ("discard", "DISCARD"), ("killed", "Killed"), ("fail", "Failed"),
+    ("pending", "Pending"),
 ]
 
 
 def trials_table(s: UiState) -> str:
+    all_trials = list(s.trials) + list(s.pending_trials)
     rows = ""
-    for t in s.trials:
+    for t in all_trials:
         if t.tone == "muted":
             pill = f'<span class="spill muted">{esc(t.status)}</span>'
         else:
@@ -213,16 +245,22 @@ def trials_table(s: UiState) -> str:
         )
 
     def count(cat: str) -> int:
-        return len(s.trials) if cat == "all" else sum(1 for t in s.trials if t.cat == cat)
+        return len(all_trials) if cat == "all" else sum(1 for t in all_trials if t.cat == cat)
 
     chips = "".join(
         f'<button class="fbtn{" is-active" if cat == "all" else ""}" data-filter="{cat}" type="button">'
         f'{esc(label)}<span class="n">{count(cat)}</span></button>'
         for cat, label in _FILTERS
     )
-    total = s.counts.get("trials", len(s.trials))
-    shown = len(s.trials)
-    cap = f"Showing {shown} of {total} trials." if shown < total else f"{total} trials."
+    scored = s.counts.get("trials", len(s.trials))
+    pending = len(s.pending_trials)
+    total = scored + pending
+    parts = []
+    if scored:
+        parts.append(f"{scored} scored")
+    if pending:
+        parts.append(f"{pending} pending")
+    cap = f"{total} trials ({', '.join(parts)})." if parts else f"{total} trials."
     return (
         '<h2 class="block-title">Trials</h2>'
         '<div class="block-sub">Every submitted trial. Filter by status; failures and kills stay visible.</div>'

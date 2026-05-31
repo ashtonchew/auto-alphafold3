@@ -50,6 +50,7 @@ def render_board(s: UiState, board_href: str = "index.html") -> str:
         + panels.metric_band(s)
         + f'<div class="row two"><div>{traj_inner}</div><div>{panels.cartographer_section(s)}</div></div>'
         + f'<div class="row flush">{panels.ledger_section(s)}</div>'
+        + (f'<div class="row">{panels.hypothesis_section(s)}</div>' if s.hypothesis is not None else "")
         + f'<div class="row">{panels.gate_section(s)}</div>'
         + f'<div class="row">{panels.overlay_section(s)}</div>'
         + _footer(s)

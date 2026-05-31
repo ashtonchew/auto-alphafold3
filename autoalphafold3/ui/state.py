@@ -95,6 +95,25 @@ class TrialRow:
 
 
 @dataclass
+class Hypothesis:
+    """Pre-registered claim read straight from a ``trials/T*.json`` spec."""
+
+    trial_id: str
+    candidate: str
+    claim: str
+    diagnostic_target: str
+    move_family: str
+    predicted_axis: str
+    predicted_direction: str
+    causal_component: str
+    expected_band_lo: float
+    expected_band_hi: float
+    budget: str
+    sampler_steps: int | None
+    config_path: str
+
+
+@dataclass
 class LogEvent:
     """One line in the Logs feed."""
 
@@ -126,6 +145,8 @@ class UiState:
     ledger_sample: bool = False  # live board with no discovery_ledger.jsonl yet
     trials: list = field(default_factory=list)  # TrialRow, for the Trials view
     logs: list = field(default_factory=list)  # LogEvent, for the Logs view
+    hypothesis: "Hypothesis | None" = None  # pre-registered claim from trials/T*.json
+    pending_trials: list = field(default_factory=list)  # PendingTrial: queued specs
 
     def to_json(self) -> dict[str, object]:
         """Denormalised summary — the data contract a live frontend could poll."""
@@ -204,6 +225,10 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
 
     baseline = _read_baseline(runs / "baseline" / "metrics.json")
 
+    # Trial specs are real pre-registered hypothesis data — load them whether or
+    # not the orchestrator has produced scored output yet.
+    specs = _load_trial_specs(Path("trials"))
+
     trajectory: list[TrialPoint] = []
     counts = {"confirmed": 0, "killed": 0, "trials": 0, "keep": 0, "discard": 0, "fail": 0, "infra": 0}
     best: float | None = None
@@ -236,9 +261,18 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
             if best is None or float(score) > best:
                 best = float(score)
 
-    # No real scored trials yet → show the coherent sample board.
+    # No real scored trials yet → show the coherent sample board, but overlay
+    # any real trial specs (hypothesis + pending rows) on top so the user sees
+    # the actual queued experiments even before the first score lands.
     if not trajectory:
-        return sample_state()
+        s = sample_state()
+        scored: set[str] = set()
+        hyp = _featured_hypothesis(specs, scored)
+        pending = _pending_trial_rows(specs, scored)
+        if hyp is not None or pending:
+            s.hypothesis = hyp
+            s.pending_trials = pending
+        return s
 
     ledger_rows = _real_ledger_rows(runs)
     delta = (best - baseline) if (best is not None and baseline is not None) else None
@@ -275,6 +309,8 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         source=f"{runs} ({source_kind})" if source_kind else str(runs),
         trials=_build_trials(rows, baseline),
         logs=_build_logs(rows),
+        hypothesis=_featured_hypothesis(specs, {str(p.trial_id) for p in trajectory}),
+        pending_trials=_pending_trial_rows(specs, {str(p.trial_id) for p in trajectory}),
     )
 
 
@@ -339,6 +375,76 @@ def _rows_from_trial_metrics(trials_dir: Path) -> list[_MetricsRow]:
             )
         )
     return out
+
+
+def _load_trial_specs(specs_dir: Path) -> list[dict]:
+    """Read pre-registered trial specs from ``trials/T*.json``.
+
+    These are the inputs the orchestrator consumes (hypothesis, predicted axis,
+    expected delta band, budget, sampler config) — real data about the
+    experiment design, even when no scored output exists yet.
+    """
+    if not specs_dir.exists():
+        return []
+    out: list[dict] = []
+    for path in sorted(specs_dir.glob("T*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict) and data.get("trial_id"):
+            out.append(data)
+    return out
+
+
+def _featured_hypothesis(specs: list[dict], scored_ids: set[str]) -> "Hypothesis | None":
+    """Pick the highest-numbered unscored spec to feature on the board."""
+    pending = [s for s in specs if s.get("trial_id") not in scored_ids]
+    if not pending:
+        return None
+    spec = pending[-1]  # specs are sorted by id; last == most recent
+    pred = spec.get("prediction") or {}
+    band = pred.get("expected_lddt_delta_band") or [0.0, 0.0]
+    lo, hi = (float(band[0]), float(band[1])) if len(band) >= 2 else (0.0, 0.0)
+    return Hypothesis(
+        trial_id=str(spec.get("trial_id", "")),
+        candidate=str(spec.get("candidate_id") or spec.get("agent_session_id") or "—"),
+        claim=str(spec.get("hypothesis", "")),
+        diagnostic_target=str(spec.get("diagnostic_target", "")),
+        move_family=str(spec.get("move_family", "")),
+        predicted_axis=str(pred.get("predicted_axis", "")),
+        predicted_direction=str(pred.get("predicted_direction", "")),
+        causal_component=str(pred.get("causal_component", "")),
+        expected_band_lo=lo,
+        expected_band_hi=hi,
+        budget=str(spec.get("budget", "")),
+        sampler_steps=spec.get("sampler_steps") if isinstance(spec.get("sampler_steps"), int) else None,
+        config_path=str(spec.get("config_path", "")),
+    )
+
+
+def _pending_trial_rows(specs: list[dict], scored_ids: set[str]) -> list[TrialRow]:
+    """Render unscored specs as PENDING rows for the Trials table."""
+    rows: list[TrialRow] = []
+    for spec in specs:
+        tid = str(spec.get("trial_id", ""))
+        if tid in scored_ids:
+            continue
+        pred = spec.get("prediction") or {}
+        rows.append(
+            TrialRow(
+                trial_id=tid,
+                move_family=str(spec.get("move_family", "")) or "—",
+                axis=str(pred.get("predicted_axis", "")) or "—",
+                score="—",
+                delta="—",
+                runtime="—",
+                status="PENDING",
+                tone="info",
+                cat="pending",
+            )
+        )
+    return rows
 
 
 def _read_baseline(path: Path) -> float | None:

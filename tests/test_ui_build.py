@@ -1,0 +1,189 @@
+"""Tests for the demo UI renderer (autoalphafold3.ui).
+
+Local and offline: no Modal, no GPU, no hidden validation. Builds from the
+illustrative sample and from a synthetic ledger, and checks that real-derived
+values reach the HTML.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from autoalphafold3.ui import load_state, sample_state
+from autoalphafold3.ui.build import build
+from autoalphafold3.ui.page import render_board, render_logs, render_trials
+
+
+def _traj_points(html: str) -> list[dict]:
+    marker = "window.TRAJ_POINTS = "
+    start = html.index(marker) + len(marker)
+    end = html.index(";</script>", start)
+    return json.loads(html[start:end])
+
+
+def test_sample_board_renders_key_values() -> None:
+    state = sample_state()
+    html = render_board(state)
+    for needle in ("0.343", "+0.018", "baseline 0.325", "CONFIRMED", "sampler", 'id="trajChart"', "Demo board"):
+        assert needle in html, needle
+    assert len(_traj_points(html)) == len(state.trajectory) == 20
+
+
+def test_ui_state_json_contract() -> None:
+    payload = sample_state().to_json()
+    assert payload["best_val_calpha_lddt"] == 0.343
+    assert payload["is_sample"] is True
+    assert payload["counts"]["confirmed"] == 1
+    assert len(payload["trajectory"]) == 20
+
+
+def test_load_state_from_real_ledger(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    rows = [
+        {
+            "trial_id": "T001", "status": "SCORED", "candidate_id": "c1",
+            "fold_cartographer": {"signature": "baseline"},
+            "metrics": {"best_val_calpha_lddt": 0.331, "scorer_version": "calpha_lddt_v1", "split": "public_val_small"},
+        },
+        {
+            "trial_id": "T002", "status": "KEEP", "candidate_id": "c2",
+            "fold_cartographer": {"signature": "geometry_loss"},
+            "metrics": {"best_val_calpha_lddt": 0.392},
+        },
+    ]
+    (runs / "ledger.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    (runs / "baseline").mkdir()
+    (runs / "baseline" / "metrics.json").write_text(json.dumps({"best_val_calpha_lddt": 0.325}), encoding="utf-8")
+
+    state = load_state(runs)
+    assert state.is_sample is False
+    assert state.best == 0.392
+    assert state.baseline == 0.325
+    assert state.counts["trials"] == 2
+    assert state.counts["confirmed"] == 1  # the KEEP row
+    assert [p.trial_id for p in state.trajectory] == ["T001", "T002"]
+    # No real falsification, discovery_ledger, or predictions → those sections hide.
+    assert state.gate is None
+    assert state.overlay is None
+    assert state.show_ledger is False
+
+    html = render_board(state)
+    assert "0.392" in html
+    assert "baseline 0.325" in html
+    assert "sample" not in html.lower() or "sampler" in html.lower()  # no 'sample' badge
+
+
+def test_no_ledger_falls_back_to_sample(tmp_path: Path) -> None:
+    state = load_state(tmp_path / "empty-runs")
+    assert state.is_sample is True
+    assert state.best == 0.343
+
+
+def test_real_falsification_populates_gate(tmp_path: Path) -> None:
+    """When a ledger row carries falsification evidence, the gate panel must
+    show real bars (gain_full / knock-out / placebo / seed mean) — not sample."""
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    row = {
+        "trial_id": "T012",
+        "status": "KEEP",
+        "candidate_id": "cand_31",
+        "fold_cartographer": {"signature": "distogram_good_lddt_flat"},
+        "metrics": {"best_val_calpha_lddt": 0.343, "scorer_version": "calpha_lddt_v1"},
+        "discovery": "CONFIRMED",
+        "falsification": {
+            "gain_full": 0.018,
+            "gain_knockout": 0.004,
+            "gain_placebo": 0.002,
+            "attributable_fraction": 0.74,
+            "axis_delta_observed": 0.05,
+            "axis_prediction_held": True,
+            "seed_mean": 0.016,
+            "seed_std": 0.004,
+            "verdict": "CONFIRMED",
+        },
+    }
+    (runs / "ledger.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    state = load_state(runs)
+    assert state.gate is not None
+    assert state.gate.verdict == "CONFIRMED"
+    assert state.gate.meta_trial == "T012"
+    # bar values came from the real falsification record
+    assert state.gate.bars[0].value == 0.018  # full
+    assert state.gate.bars[1].value == 0.004  # knock-out
+    assert state.gate.bars[2].value == 0.002  # placebo
+    assert state.gate.bars[3].value == 0.016  # seed mean
+
+
+def test_per_trial_metrics_fallback_when_no_ledger(tmp_path: Path) -> None:
+    """If runs/ledger.jsonl is missing, the UI should still surface real trials
+    from per-trial metrics.json files instead of silently falling back to the sample."""
+    runs = tmp_path / "runs"
+    (runs / "trials" / "T000").mkdir(parents=True)
+    (runs / "trials" / "T001").mkdir(parents=True)
+    (runs / "trials" / "T000" / "metrics.json").write_text(json.dumps({
+        "trial_id": "T000",
+        "status": "SCORED",
+        "candidate_id": "baseline_auto_tiny",
+        "fold_cartographer": {"signature": "toy_geometry_failed"},
+        "metrics": {"best_val_calpha_lddt": 0.0794, "scorer_version": "calpha_lddt_v1",
+                    "split": "public_val_small"},
+    }), encoding="utf-8")
+    (runs / "trials" / "T001" / "metrics.json").write_text(json.dumps({
+        "trial_id": "T001", "status": "SCORED", "candidate_id": "c1",
+        "fold_cartographer": {"signature": "geometry_loss"},
+        "metrics": {"best_val_calpha_lddt": 0.12},
+    }), encoding="utf-8")
+    # baseline file in the real AutoFoldResult-shape (metric nested under "metrics")
+    (runs / "baseline").mkdir()
+    (runs / "baseline" / "metrics.json").write_text(json.dumps({
+        "metrics": {"best_val_calpha_lddt": 0.08}}), encoding="utf-8")
+
+    state = load_state(runs)
+    assert state.is_sample is False
+    assert "per-trial metrics" in state.source
+    assert state.best == 0.12
+    assert state.baseline == 0.08
+    assert [p.trial_id for p in state.trajectory] == ["T000", "T001"]
+    assert state.counts["trials"] == 2
+
+
+def test_build_writes_outputs(tmp_path: Path) -> None:
+    out = build(tmp_path / "ui", sample=True)
+    payload = json.loads((out / "ui_state.json").read_text(encoding="utf-8"))
+    assert payload["best_val_calpha_lddt"] == 0.343
+    # all pages + design system
+    for name in ("index.html", "trials.html", "logs.html", "assets/modal.css"):
+        assert (out / name).exists(), name
+
+
+def test_trials_view_renders() -> None:
+    html = render_trials(sample_state())
+    for needle in ("Trials", 'id="trialsTable"', "sampler_step_scale", "diffusion_steps", 'data-filter="killed"', 'href="index.html"'):
+        assert needle in html, needle
+
+
+def test_logs_view_renders() -> None:
+    html = render_logs(sample_state())
+    for needle in ('id="logFeed"', "best_val_calpha_lddt 0.343", "sampler burst", 'id="logSearch"', 'href="logs.html"'):
+        assert needle in html, needle
+
+
+def test_real_ledger_populates_trials_and_logs(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    rows = [
+        {"trial_id": "T001", "status": "SCORED", "candidate_id": "c1",
+         "fold_cartographer": {"signature": "baseline"},
+         "metrics": {"best_val_calpha_lddt": 0.33}},
+        {"trial_id": "T002", "status": "KEEP", "candidate_id": "c2",
+         "fold_cartographer": {"signature": "good"},
+         "metrics": {"best_val_calpha_lddt": 0.39, "runtime_seconds": 492}},
+    ]
+    (runs / "ledger.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    state = load_state(runs)
+    assert [t.trial_id for t in state.trials] == ["T001", "T002"]
+    assert any(t.runtime == "8m 12s" for t in state.trials)  # 492s formatted
+    assert any(e.message.startswith("scored") for e in state.logs)

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fold Cartographer · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 04</div>
+      <h1 class="page-title">Fold Cartographer</h1>
+      <p class="page-purpose">Why this is folding-specific research, not scalar hill-climbing. Four orthogonal geometry axes turn failures into directional, falsifiable predictions.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <h2 class="block-title">Axis movement, best candidate vs baseline</h2>
+    <div class="block-sub">Each axis is a directional claim the agent can commit to in advance.</div>
+    <div class="diag-grid">
+      <div class="diag">
+        <div class="diag-name">Local geometry</div>
+        <div class="diag-row"><span class="diag-val num">0.56</span><span class="diag-delta warn num">+0.01</span></div>
+        <div class="diag-bar"><i class="amber" style="width:58%"></i></div>
+        <div class="diag-foot">local lDDT, roughly flat under the sampler</div>
+      </div>
+      <div class="diag">
+        <div class="diag-name">Long-range topology</div>
+        <div class="diag-row"><span class="diag-val num">0.39</span><span class="diag-delta warn num">±0.00</span></div>
+        <div class="diag-bar"><i class="amber" style="width:45%"></i></div>
+        <div class="diag-foot">unchanged · contact precision, seq separation ≥ 24</div>
+      </div>
+      <div class="diag">
+        <div class="diag-name">Distogram vs 3D gap</div>
+        <div class="diag-row"><span class="diag-val num">0.06</span><span class="diag-delta up num">−0.05</span></div>
+        <div class="diag-bar"><i style="width:70%"></i></div>
+        <div class="diag-foot">pair signal now realised in coordinates — the credited axis</div>
+      </div>
+      <div class="diag">
+        <div class="diag-name">Stability / compute</div>
+        <div class="diag-row"><span class="diag-val num">0.7×</span><span class="diag-delta up">faster</span></div>
+        <div class="diag-bar"><i style="width:55%"></i></div>
+        <div class="diag-foot">fewer steps · 0.7× runtime · no NaN / OOM / timeout</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Latest failure signature</h2>
+    <div class="kv">
+      <div class="kv-row"><div class="kv-k">Signature</div><div class="kv-v"><span class="tag">distogram_good_lddt_flat</span> &nbsp;contacts improve, realised 3D lDDT does not</div></div>
+      <div class="kv-row"><div class="kv-k">Chosen next target</div><div class="kv-v"><span class="mono" style="color:var(--green)">distogram_vs_3d</span> — close the gap between learned contacts and Cα geometry</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Context only — not routing targets</h2>
+    <div class="block-sub">Coarse buckets give context. They never replace the primary metric or act as optimization targets.</div>
+    <div class="cfg-grid">
+      <div class="cfg"><div class="cfg-k">len &lt; 120</div><div class="cfg-v num">0.35</div></div>
+      <div class="cfg"><div class="cfg-k">len 120–200</div><div class="cfg-v num">0.34</div></div>
+      <div class="cfg"><div class="cfg-k">len &gt; 200</div><div class="cfg-v num">0.31</div></div>
+      <div class="cfg"><div class="cfg-k">MSA shallow</div><div class="cfg-v num">0.30</div></div>
+      <div class="cfg"><div class="cfg-k">MSA mid</div><div class="cfg-v num">0.34</div></div>
+      <div class="cfg"><div class="cfg-k">MSA deep</div><div class="cfg-v num">0.36</div></div>
+    </div>
+    <div class="note">Fold Cartographer routes only on the four axes above. Length and MSA-depth buckets are <b>supporting context</b>, marked so they cannot be mistaken for objectives.</div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="03-hypothesis-card.html">← Hypothesis card</a> · <a href="05-falsification-gate.html">Falsification gate →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+</body>
+</html>

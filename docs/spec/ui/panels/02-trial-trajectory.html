@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trial Trajectory · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 02</div>
+      <h1 class="page-title">Trial Trajectory</h1>
+      <p class="page-purpose">Show the search as a population, not a single result. Hover any point for its candidate and score; click to select. Every candidate stays visible, kept or discarded.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <svg id="trajChart" class="chart" viewBox="0 0 720 330" role="img" style="max-width:920px"
+      aria-label="Scatter of validation C-alpha lDDT across 20 sampler candidates. Scores range either side of the 0.325 baseline; the best candidate reaches 0.343 and is confirmed. The rest are provisional; none were killed.">
+      <line class="grid-line" x1="60" y1="108" x2="700" y2="108"/>
+      <line class="grid-line" x1="60" y1="156" x2="700" y2="156"/>
+      <line class="grid-line" x1="60" y1="204" x2="700" y2="204"/>
+      <line class="grid-line" x1="60" y1="252" x2="700" y2="252"/>
+      <text class="ax-tick num" x="50" y="112" text-anchor="end">0.34</text>
+      <text class="ax-tick num" x="50" y="160" text-anchor="end">0.33</text>
+      <text class="ax-tick num" x="50" y="208" text-anchor="end">0.32</text>
+      <text class="ax-tick num" x="50" y="256" text-anchor="end">0.31</text>
+      <line class="ax-line" x1="60" y1="40" x2="60" y2="300"/>
+      <line class="ax-line" x1="60" y1="300" x2="700" y2="300"/>
+      <line class="base-line" x1="60" y1="180" x2="700" y2="180"/>
+      <text class="ax-tick num" x="696" y="173" text-anchor="end">baseline 0.325</text>
+      <polyline class="trace" points="60,199 94,214 127,175 161,151 195,223 228,122 262,190 296,142 330,209 363,113 397,233 431,94 464,194 498,127 532,218 565,166 599,204 633,137 666,228 700,185"/>
+      <rect class="dot-prov" x="55"  y="194" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="89"  y="209" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="122" y="170" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="156" y="146" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="190" y="218" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="223" y="117" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="257" y="185" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="291" y="137" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="325" y="204" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="358" y="108" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="392" y="228" width="10" height="10" rx="2"/>
+      <circle class="dot-confirmed" cx="431" cy="94" r="5.5"/>
+      <rect class="dot-prov" x="459" y="189" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="493" y="122" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="527" y="213" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="560" y="161" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="594" y="199" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="628" y="132" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="661" y="223" width="10" height="10" rx="2"/>
+      <rect class="dot-prov" x="695" y="180" width="10" height="10" rx="2"/>
+      <text class="ax-label num" x="60"  y="318" text-anchor="middle">T001</text>
+      <text class="ax-label" x="380" y="318" text-anchor="middle">candidate →</text>
+      <text class="ax-label num" x="700" y="318" text-anchor="middle">T020</text>
+    </svg>
+    <div class="legend">
+      <span class="lg-item"><i class="sq conf"></i> confirmed best</span>
+      <span class="lg-item"><i class="sq prov"></i> provisional candidate</span>
+      <span class="spacer"></span>
+      <span class="lg-note">above the baseline line is KEEP territory; below is DISCARD</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Selected trial <span class="mono" style="color:var(--ink-3)">T012</span> <span class="right"><span class="spill ok"><span class="pico">✓</span> CONFIRMED</span></span></h2>
+    <div class="block-sub">Each point opens its full record: hypothesis, target, intervention, score, cost, and postmortem.</div>
+    <div class="kv">
+      <div class="kv-row"><div class="kv-k">Move family</div><div class="kv-v mono">sampler_step_scale</div></div>
+      <div class="kv-row"><div class="kv-k">Diagnostic target</div><div class="kv-v mono">distogram_vs_3d</div></div>
+      <div class="kv-row"><div class="kv-k">Hypothesis</div><div class="kv-v">Fewer diffusion steps at a lower step scale reduce sampler noise, so the coordinate path realises the contacts the pair head already learned.</div></div>
+      <div class="kv-row"><div class="kv-k">best_val_calpha_lddt</div><div class="kv-v num" style="color:var(--green)">0.343 &nbsp;(+0.018)</div></div>
+      <div class="kv-row"><div class="kv-k">Runtime · peak GPU</div><div class="kv-v num">1m 38s · 38 GB</div></div>
+      <div class="kv-row"><div class="kv-k">Postmortem</div><div class="kv-v">Gap closed as predicted; gain survived knock-out, placebo, and a 3-seed rerun.</div></div>
+    </div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="../evidence-board.html">Open the full evidence board →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+<script src="../assets/board.js"></script>
+</body>
+</html>

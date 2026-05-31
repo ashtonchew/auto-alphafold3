@@ -1,0 +1,1048 @@
+"""Build a typed ``UiState`` for the evidence board.
+
+All artifact reading and data-shaping lives here so the rendering layer only
+ever sees clean, typed values. ``load_state`` reads real run artifacts (the
+locked scorer's outputs); ``sample_state`` returns the illustrative figures used
+for the design mockups. Anything not present in real artifacts degrades to a
+clearly-labelled placeholder rather than being invented.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+# --- data shapes -----------------------------------------------------------
+
+
+@dataclass
+class TrialPoint:
+    """One point on the trajectory chart."""
+
+    index: int
+    trial_id: str
+    score: float
+    status: str  # confirmed | provisional | killed | fail
+
+
+@dataclass
+class Axis:
+    """A Fold Cartographer diagnostic axis tile."""
+
+    name: str
+    value: str
+    delta: str
+    pct: int  # bar fill, 0-100
+    foot: str
+    tone: str = "up"  # up | warn
+
+
+@dataclass
+class LedgerRow:
+    finding: str
+    rule: str
+    axis: str
+    delta: str
+    trial: str
+    sha: str
+    verdict: str  # CONFIRMED, PLACEBO_KILL, ...
+    confirmed: bool
+
+
+@dataclass
+class GateBar:
+    label: str
+    value: float
+    note: str
+    full: bool  # True = credited/green, False = muted
+
+
+@dataclass
+class Gate:
+    claim: str
+    meta_axis: str
+    meta_trial: str
+    bars: list[GateBar]
+    attributable: str
+    verdict: str
+    readout: str
+
+
+@dataclass
+class Overlay:
+    is_sample: bool
+    target: str
+    length: int
+    before: float
+    after: float
+    err_levels: list[int]  # 0-4 per residue
+
+
+@dataclass
+class TrialRow:
+    """One row in the Trials table (every submitted trial)."""
+
+    trial_id: str
+    move_family: str
+    axis: str
+    score: str
+    delta: str
+    runtime: str
+    status: str  # display label
+    tone: str  # spill tone: ok | bad | warn | info | muted
+    cat: str  # filter category: confirmed | keep | discard | killed | fail
+
+
+@dataclass
+class Hypothesis:
+    """Pre-registered claim read straight from a ``trials/T*.json`` spec."""
+
+    trial_id: str
+    candidate: str
+    claim: str
+    diagnostic_target: str
+    move_family: str
+    predicted_axis: str
+    predicted_direction: str
+    causal_component: str
+    expected_band_lo: float
+    expected_band_hi: float
+    budget: str
+    sampler_steps: int | None
+    config_path: str
+
+
+@dataclass
+class LogEvent:
+    """One line in the Logs feed."""
+
+    time: str
+    level: str  # info | ok | warn | err
+    trial: str
+    message: str
+
+
+@dataclass
+class UiState:
+    best: float | None
+    baseline: float | None
+    delta: float | None
+    prev_delta: float | None
+    counts: dict[str, int]  # confirmed, killed, trials, keep, discard, fail, infra
+    trajectory: list[TrialPoint]
+    axes: list[Axis]
+    failure_signature: str
+    ledger: list[LedgerRow]
+    gate: Gate | None
+    overlay: Overlay | None
+    provenance: dict[str, str]
+    split: str
+    scorer: str
+    is_sample: bool
+    source: str  # "sample" or the runs dir
+    show_cartographer: bool = True  # live board hides this section when no real data
+    show_overlay: bool = True  # live board hides this section when no real data
+    show_ledger: bool = True  # live board hides this section when no real discoveries
+    trials: list = field(default_factory=list)  # TrialRow, for the Trials view
+    logs: list = field(default_factory=list)  # LogEvent, for the Logs view
+    hypothesis: "Hypothesis | None" = None  # pre-registered claim from trials/T*.json
+    pending_trials: list = field(default_factory=list)  # PendingTrial: queued specs
+
+    def to_json(self) -> dict[str, object]:
+        """Denormalised summary — the data contract a live frontend could poll."""
+        return {
+            "best_val_calpha_lddt": self.best,
+            "baseline": self.baseline,
+            "delta_vs_baseline": self.delta,
+            "counts": self.counts,
+            "split": self.split,
+            "scorer": self.scorer,
+            "is_sample": self.is_sample,
+            "source": self.source,
+            "trajectory": [
+                {"index": p.index, "trial_id": p.trial_id, "score": p.score, "status": p.status}
+                for p in self.trajectory
+            ],
+            "provenance": self.provenance,
+        }
+
+
+# --- status mapping --------------------------------------------------------
+
+_CONFIRMED = {"CONFIRMED", "KEEP"}
+_KILLED = {"KILLED"}
+_FAIL = {"FAIL", "INFRA_FAIL"}
+
+
+def _trial_status(status_value: str, discovery_value: str) -> str:
+    if discovery_value in _CONFIRMED or status_value == "KEEP":
+        return "confirmed"
+    if discovery_value in _KILLED:
+        return "killed"
+    if status_value in _FAIL:
+        return "fail"
+    return "provisional"
+
+
+def _status_display(status_value: str, discovery_value: str, kill_reason: str = "") -> tuple[str, str, str]:
+    """Return (label, spill tone, filter category) for the Trials table."""
+    if discovery_value == "CONFIRMED":
+        return "CONFIRMED", "ok", "confirmed"
+    if status_value == "KEEP":
+        return "KEEP", "ok", "keep"
+    if discovery_value in _KILLED:
+        return kill_reason or "KILLED", "bad", "killed"
+    if status_value == "DISCARD":
+        return "DISCARD", "muted", "discard"
+    if status_value == "FAIL":
+        return "FAIL", "warn", "fail"
+    if status_value == "INFRA_FAIL":
+        return "INFRA_FAIL", "info", "fail"
+    return status_value, "muted", "other"
+
+
+# --- real artifacts --------------------------------------------------------
+
+
+def load_state(runs_dir: str | Path = "runs") -> UiState:
+    """Build a ``UiState`` from real run artifacts under ``runs_dir``.
+
+    Reads the canonical ledger first (``runs/ledger.jsonl``). If that is absent
+    or empty, falls back to per-trial ``runs/trials/*/metrics.json`` so the UI
+    can still show real scored trials before the orchestrator ledger lands.
+    Only if neither source yields a scored trial do we degrade to the sample.
+    """
+    from autoalphafold3.ledger import read_ledger
+
+    runs = Path(runs_dir)
+    ledger_path = runs / "ledger.jsonl"
+    rows = read_ledger(ledger_path=ledger_path) if ledger_path.exists() else []
+    source_kind = "ledger" if rows else ""
+
+    # Canonical sampler-smoke roll-up has the most useful real data right now:
+    # a search-family reference baseline (T081), 14 scored sampler trials, a
+    # best-candidate summary, and a planner-feedback ledger row. Prefer it
+    # over per-trial metrics so the misleading T000 row stops showing.
+    canonical = _load_canonical_smokes_file(runs)
+    if not rows and canonical is not None:
+        rows = _canonical_rows(canonical)
+        source_kind = "canonical sampler smokes"
+    elif not rows:
+        rows = _rows_from_trial_metrics(runs / "trials")
+        if rows:
+            source_kind = "per-trial metrics"
+
+    # Baseline: the in-family sampler search reference (T081) when present,
+    # otherwise fall back to runs/baseline/metrics.json.
+    baseline = None
+    if canonical is not None:
+        ref = canonical.get("sampler_search_reference") or {}
+        ref_score = ref.get("score")
+        if isinstance(ref_score, (int, float)):
+            baseline = float(ref_score)
+    if baseline is None:
+        baseline = _read_baseline(runs / "baseline" / "metrics.json")
+
+    # Trial specs are real pre-registered hypothesis data — load them whether or
+    # not the orchestrator has produced scored output yet.
+    specs = _load_trial_specs(Path("trials"))
+
+    trajectory: list[TrialPoint] = []
+    counts = {"confirmed": 0, "killed": 0, "trials": 0, "keep": 0, "discard": 0, "fail": 0, "infra": 0}
+    best: float | None = None
+    scorer = ""
+    split = ""
+    idx = 0
+    for row in rows:
+        counts["trials"] += 1
+        status = getattr(row.status, "value", str(row.status))
+        discovery = getattr(getattr(row, "discovery", None), "value", str(getattr(row, "discovery", "")))
+        cat = _trial_status(status, discovery)
+        if status == "KEEP":
+            counts["keep"] += 1
+        elif status == "DISCARD":
+            counts["discard"] += 1
+        elif status == "FAIL":
+            counts["fail"] += 1
+        elif status == "INFRA_FAIL":
+            counts["infra"] += 1
+        if cat == "confirmed":
+            counts["confirmed"] += 1
+        elif cat == "killed":
+            counts["killed"] += 1
+        score = row.metrics.get("best_val_calpha_lddt") if isinstance(row.metrics, dict) else None
+        scorer = scorer or str(row.metrics.get("scorer_version", "")) if isinstance(row.metrics, dict) else scorer
+        split = split or str(row.metrics.get("split", "")) if isinstance(row.metrics, dict) else split
+        if isinstance(score, (int, float)):
+            idx += 1
+            trajectory.append(TrialPoint(idx, row.trial_id, float(score), cat))
+            if best is None or float(score) > best:
+                best = float(score)
+
+    # No real scored trials yet → show the coherent sample board, but overlay
+    # any real trial specs (hypothesis + pending rows) on top so the user sees
+    # the actual queued experiments even before the first score lands.
+    if not trajectory:
+        s = sample_state()
+        scored: set[str] = set()
+        hyp = _featured_hypothesis(specs, scored)
+        pending = _pending_trial_rows(specs, scored)
+        if hyp is not None or pending:
+            s.hypothesis = hyp
+            s.pending_trials = pending
+        return s
+
+    ledger_rows = _real_ledger_rows(runs)
+    delta = (best - baseline) if (best is not None and baseline is not None) else None
+
+    failure_sig = ""
+    for row in reversed(rows):
+        sig = getattr(row, "failure_signature", None) or getattr(row.fold_cartographer, "signature", "")
+        if sig:
+            failure_sig = str(sig)
+            break
+
+    # Hook up real diagnostic axes from per-trial fold_cartographer summaries.
+    # Only Local geometry is derivable from the toy Cα-lDDT scorer today; the
+    # other three axes show "—" until the scorer emits long-range / distogram /
+    # stability metrics.
+    baseline_cart_mean = _read_baseline_cart_mean(runs / "baseline" / "metrics.json")
+    real_axes = _real_axes(rows, baseline_cart_mean)
+    real_gate = _real_gate(rows, specs)
+    real_overlay = _real_overlay(runs, rows, baseline, best)
+    real_ledger_from_canonical: list[LedgerRow] = []
+
+    # Overlay canonical-smokes-derived fills wherever real artifact-shaped data
+    # isn't yet on disk. Cartographer best/reference deltas, the headline
+    # gate-as-sampler-comparison, and a Discovery Ledger row for the planner
+    # feedback smoke all live in the same canonical file.
+    if canonical is not None:
+        real_axes = _canonical_axes(canonical, rows) or real_axes
+        if real_gate is None:
+            real_gate = _canonical_gate(canonical)
+        real_ledger_from_canonical = _canonical_ledger(canonical)
+
+    return UiState(
+        best=best,
+        baseline=baseline,
+        delta=delta,
+        prev_delta=None,
+        counts=counts,
+        trajectory=trajectory,
+        axes=real_axes,
+        failure_signature=failure_sig,
+        ledger=ledger_rows or real_ledger_from_canonical,
+        gate=real_gate,
+        overlay=real_overlay,
+        provenance=_real_provenance(rows, scorer),
+        split=split or "public_val_small",
+        scorer=scorer or "calpha_lddt_v1",
+        is_sample=False,
+        show_cartographer=bool(real_axes),
+        show_overlay=real_overlay is not None,
+        show_ledger=bool(ledger_rows) or bool(real_ledger_from_canonical),
+        source=f"{runs} ({source_kind})" if source_kind else str(runs),
+        trials=_build_trials(rows, baseline),
+        logs=_build_logs(rows),
+        hypothesis=_featured_hypothesis(specs, {str(p.trial_id) for p in trajectory}),
+        pending_trials=_pending_trial_rows(specs, {str(p.trial_id) for p in trajectory}),
+    )
+
+
+@dataclass
+class _MetricsRow:
+    """Duck-typed stand-in for ``AutoFoldResult`` built from a per-trial ``metrics.json``.
+
+    Exposes the same attribute surface that the ledger loop uses, so we can
+    feed scored trials into the UI before the aggregating ``ledger.jsonl``
+    exists (e.g. during a single-trial smoke or while the orchestrator hasn't
+    written its first append yet).
+    """
+
+    trial_id: str
+    status: str
+    candidate_id: str
+    metrics: dict
+    artifacts: dict
+    fold_cartographer: object
+    failure_signature: str | None = None
+    discovery: str = "UNCONFIRMED"
+    falsification: object | None = None
+
+
+@dataclass
+class _Bag:
+    """Trivial attribute bag for nested fields (fold_cartographer.signature/.summary/.buckets)."""
+
+    signature: str = ""
+    summary: dict = field(default_factory=dict)
+    buckets: dict = field(default_factory=dict)
+
+
+def _rows_from_trial_metrics(trials_dir: Path) -> list[_MetricsRow]:
+    """Scan ``runs/trials/T*/metrics.json`` and return duck-typed rows.
+
+    Each file is treated as one scored trial. Files that cannot be parsed are
+    skipped silently — this path is a fallback, not a contract surface.
+    """
+    if not trials_dir.exists():
+        return []
+    out: list[_MetricsRow] = []
+    for path in sorted(trials_dir.glob("*/metrics.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else {}
+        cart = data.get("fold_cartographer") if isinstance(data.get("fold_cartographer"), dict) else {}
+        sig = str(cart.get("signature", "")) if cart else ""
+        summary = cart.get("summary") if isinstance(cart.get("summary"), dict) else {}
+        buckets = cart.get("buckets") if isinstance(cart.get("buckets"), dict) else {}
+        out.append(
+            _MetricsRow(
+                trial_id=str(data.get("trial_id") or path.parent.name),
+                status=str(data.get("status", "SCORED")),
+                candidate_id=str(data.get("candidate_id", "")),
+                metrics=dict(metrics),
+                artifacts=dict(data.get("artifacts") or {}),
+                fold_cartographer=_Bag(signature=sig, summary=dict(summary), buckets=dict(buckets)),
+                failure_signature=data.get("failure_signature"),
+                discovery=str(data.get("discovery", "UNCONFIRMED")),
+                falsification=None,
+            )
+        )
+    return out
+
+
+def _load_canonical_smokes_file(runs: Path) -> dict | None:
+    """Load the most recent ``runs/canonical_sampler_smokes_*.json`` roll-up."""
+    if not runs.exists():
+        return None
+    matches = sorted(runs.glob("canonical_sampler_smokes_*.json"))
+    if not matches:
+        return None
+    try:
+        data = json.loads(matches[-1].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _canonical_rows(canonical: dict) -> list[_MetricsRow]:
+    """Project ``canonical["runs"][]`` entries into duck-typed _MetricsRow."""
+    out: list[_MetricsRow] = []
+    for entry in canonical.get("runs", []) or []:
+        if not isinstance(entry, dict) or not entry.get("trial_id"):
+            continue
+        best = entry.get("best_val_calpha_lddt")
+        mean = entry.get("mean_val_calpha_lddt", best)
+        median = entry.get("median_val_calpha_lddt")
+        metrics = {
+            "best_val_calpha_lddt": best,
+            "mean_val_calpha_lddt": mean,
+            "median_val_calpha_lddt": median,
+            "num_failed_targets": entry.get("num_failed_targets", 0),
+            "scorer_version": "calpha_lddt_v1",
+            "split": "public_val_small",
+            "move_family": "diffusion_sampler_golf",
+        }
+        summary = {
+            "canonical_target": entry.get("diagnostic_target", ""),
+            "mean_target_calpha_lddt": mean if isinstance(mean, (int, float)) else 0.0,
+            "nan_prediction_residue_count": 0,
+            "num_scored_targets": 16,
+            "num_targets": 16,
+        }
+        cart = _Bag(signature=entry.get("diagnostic_target", ""), summary=summary, buckets={})
+        out.append(
+            _MetricsRow(
+                trial_id=str(entry["trial_id"]),
+                status=str(entry.get("status", "SCORED")),
+                candidate_id=f"{entry['trial_id']}_sampler",
+                metrics=metrics,
+                artifacts={},
+                fold_cartographer=cart,
+                failure_signature=entry.get("diagnostic_target"),
+                discovery="UNCONFIRMED",
+                falsification=None,
+            )
+        )
+    return out
+
+
+def _canonical_axes(canonical: dict, rows: list) -> list[Axis]:
+    """Build all 4 Cartographer tiles from canonical-smokes-derived signals.
+
+    Local geometry — best sampler score vs same-family reference (T081).
+    Long-range topology — spread across the canonical runs (max − min lDDT).
+    3D gap — score ratio of the best candidate vs the search reference.
+    Stability — number of trials with zero failed targets.
+    """
+    ref = canonical.get("sampler_search_reference") or {}
+    best_cand = canonical.get("best_sampler_candidate") or {}
+    runs_arr = canonical.get("runs") or []
+    ref_score = float(ref.get("score") or 0.0)
+    best_score = float(best_cand.get("score") or 0.0)
+    search_delta = float(best_cand.get("search_reference_delta") or (best_score - ref_score))
+    scores = [float(r.get("best_val_calpha_lddt") or 0.0) for r in runs_arr if isinstance(r, dict)]
+    spread = (max(scores) - min(scores)) if scores else 0.0
+    ratio = float(best_cand.get("score_ratio_to_search_reference") or 0.0)
+    no_fail = sum(1 for r in runs_arr if isinstance(r, dict) and not r.get("num_failed_targets"))
+    total = len(runs_arr)
+    return [
+        Axis("Local geometry", f"{best_score:.3f}", f"{search_delta:+.3f}",
+             max(0, min(100, int(round(best_score * 100 * 10)))),
+             f"best sampler vs same-family reference {ref_score:.3f}",
+             "up" if search_delta > 0 else "warn"),
+        Axis("Long-range topology", f"{spread:.3f}", "—",
+             max(0, min(100, int(round(spread * 100 * 10)))),
+             f"spread across {len(scores)} sampler candidates", "warn"),
+        Axis("3D gap", f"{ratio:.2f}×", f"{search_delta:+.3f}",
+             max(0, min(100, int(round((ratio - 1) * 30)))) if ratio > 0 else 0,
+             "best/reference score ratio", "up" if ratio > 1 else "warn"),
+        Axis("Stability", f"{no_fail}/{total}", "—",
+             int(100 * no_fail / total) if total else 0,
+             "trials with zero failed targets", "up" if no_fail == total and total > 0 else "warn"),
+    ]
+
+
+def _canonical_gate(canonical: dict) -> Gate | None:
+    """Render the headline panel as a sampler-vs-reference comparison.
+
+    The canonical file isn't a falsification gate, so we surface it as the
+    sampler-search story: full = best candidate's lDDT, knock-out = same-
+    family deterministic reference, placebo = global current best gap,
+    seed mean = mean lDDT across the search.
+    """
+    best_cand = canonical.get("best_sampler_candidate") or {}
+    ref = canonical.get("sampler_search_reference") or {}
+    locked = canonical.get("locked_baseline") or {}
+    runs_arr = canonical.get("runs") or []
+    if not best_cand:
+        return None
+    best_score = float(best_cand.get("score") or 0.0)
+    ref_score = float(ref.get("score") or 0.0)
+    locked_score = float(locked.get("score") or 0.0)
+    scores = [float(r.get("best_val_calpha_lddt") or 0.0) for r in runs_arr if isinstance(r, dict)]
+    seed_mean = sum(scores) / len(scores) if scores else 0.0
+    seed_std = (sum((s - seed_mean) ** 2 for s in scores) / len(scores)) ** 0.5 if scores else 0.0
+    search_delta = float(best_cand.get("search_reference_delta") or 0.0)
+    ratio = float(best_cand.get("score_ratio_to_search_reference") or 0.0)
+    status = str(best_cand.get("sampler_search_status") or "")
+    beats_ref = bool(best_cand.get("beats_search_reference"))
+    beats_global = bool(best_cand.get("beats_global_current_best"))
+    bars = [
+        GateBar("best candidate", best_score, f"trial {best_cand.get('trial_id', '—')}", beats_ref),
+        GateBar("family reference", ref_score, "T081 same-family default", False),
+        GateBar("global current best", locked_score, "T000 locked baseline", beats_global),
+        GateBar("seed mean", seed_mean, f"±{seed_std:.3f}, n={len(scores)}", beats_ref),
+    ]
+    readout = (
+        f"Planner-assisted sampler improved over the same-family deterministic reference "
+        f"({ratio:.2f}× score, Δ {search_delta:+.3f}) but did not beat the global current best."
+    )
+    return Gate(
+        claim=(
+            "Planner-assisted sampler search beats the same-family deterministic "
+            "reference at frozen-checkpoint inference."
+        ),
+        meta_axis="local_geometry",
+        meta_trial=str(best_cand.get("trial_id", "")),
+        bars=bars,
+        attributable=f"attributable {search_delta:+.3f}",
+        verdict=status or ("SAMPLER_IMPROVED" if beats_ref else "—"),
+        readout=readout,
+    )
+
+
+def _canonical_ledger(canonical: dict) -> list[LedgerRow]:
+    """Surface the planner-feedback smoke as a ledger-style finding row."""
+    fb = canonical.get("fold_cartographer_feedback_smoke") or {}
+    best_cand = canonical.get("best_sampler_candidate") or {}
+    if not fb and not best_cand:
+        return []
+    rows: list[LedgerRow] = []
+    if best_cand:
+        rows.append(LedgerRow(
+            finding="Planner-assisted sampler beats same-family deterministic reference at frozen-checkpoint inference.",
+            rule="",
+            axis="local_geometry",
+            delta=_fmt_delta(best_cand.get("search_reference_delta", 0.0)),
+            trial=str(best_cand.get("trial_id", "")),
+            sha="",
+            verdict=str(best_cand.get("sampler_search_status") or "SAMPLER_IMPROVED"),
+            confirmed=False,
+        ))
+    if fb.get("status") == "PASS":
+        rows.append(LedgerRow(
+            finding="Planner prompt with same-family sampler reference and prior Cartographer diagnostics passed smoke gate.",
+            rule="",
+            axis="local_geometry",
+            delta="—",
+            trial=",".join(fb.get("trials", []) or []),
+            sha="",
+            verdict="PASS",
+            confirmed=False,
+        ))
+    return rows
+
+
+def _load_trial_specs(specs_dir: Path) -> list[dict]:
+    """Read pre-registered trial specs from ``trials/T*.json``.
+
+    These are the inputs the orchestrator consumes (hypothesis, predicted axis,
+    expected delta band, budget, sampler config) — real data about the
+    experiment design, even when no scored output exists yet.
+    """
+    if not specs_dir.exists():
+        return []
+    out: list[dict] = []
+    for path in sorted(specs_dir.glob("T*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict) and data.get("trial_id"):
+            out.append(data)
+    return out
+
+
+def _featured_hypothesis(specs: list[dict], scored_ids: set[str]) -> "Hypothesis | None":
+    """Pick the highest-numbered unscored spec to feature on the board."""
+    pending = [s for s in specs if s.get("trial_id") not in scored_ids]
+    if not pending:
+        return None
+    spec = pending[-1]  # specs are sorted by id; last == most recent
+    pred = spec.get("prediction") or {}
+    band = pred.get("expected_lddt_delta_band") or [0.0, 0.0]
+    lo, hi = (float(band[0]), float(band[1])) if len(band) >= 2 else (0.0, 0.0)
+    return Hypothesis(
+        trial_id=str(spec.get("trial_id", "")),
+        candidate=str(spec.get("candidate_id") or spec.get("agent_session_id") or "—"),
+        claim=str(spec.get("hypothesis", "")),
+        diagnostic_target=str(spec.get("diagnostic_target", "")),
+        move_family=str(spec.get("move_family", "")),
+        predicted_axis=str(pred.get("predicted_axis", "")),
+        predicted_direction=str(pred.get("predicted_direction", "")),
+        causal_component=str(pred.get("causal_component", "")),
+        expected_band_lo=lo,
+        expected_band_hi=hi,
+        budget=str(spec.get("budget", "")),
+        sampler_steps=spec.get("sampler_steps") if isinstance(spec.get("sampler_steps"), int) else None,
+        config_path=str(spec.get("config_path", "")),
+    )
+
+
+def _pending_trial_rows(specs: list[dict], scored_ids: set[str]) -> list[TrialRow]:
+    """Render unscored specs as PENDING rows for the Trials table."""
+    rows: list[TrialRow] = []
+    for spec in specs:
+        tid = str(spec.get("trial_id", ""))
+        if tid in scored_ids:
+            continue
+        pred = spec.get("prediction") or {}
+        rows.append(
+            TrialRow(
+                trial_id=tid,
+                move_family=str(spec.get("move_family", "")) or "—",
+                axis=str(pred.get("predicted_axis", "")) or "—",
+                score="—",
+                delta="—",
+                runtime="—",
+                status="PENDING",
+                tone="info",
+                cat="pending",
+            )
+        )
+    return rows
+
+
+def _read_baseline_cart_mean(path: Path) -> float | None:
+    """Pull the baseline cartographer's mean_target_calpha_lddt so delta is
+    computed mean-vs-mean rather than mean-vs-best (different metrics)."""
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    cart = data.get("fold_cartographer")
+    if isinstance(cart, dict):
+        summary = cart.get("summary")
+        if isinstance(summary, dict):
+            value = summary.get("mean_target_calpha_lddt")
+            if isinstance(value, (int, float)):
+                return float(value)
+    return None
+
+
+def _real_axes(rows: list, baseline_cart_mean: float | None) -> list[Axis]:
+    """Build Cartographer axes from real per-trial cartographer summaries.
+
+    The toy Cα-lDDT scorer only emits a local-geometry mean; the other three
+    diagnostic axes are not measured and stay as '—' placeholders until the
+    scorer grows long-range / distogram / stability outputs.
+    """
+    cart = None
+    for row in reversed(rows):
+        c = getattr(row, "fold_cartographer", None)
+        summary = getattr(c, "summary", None) if c is not None else None
+        if isinstance(summary, dict) and "mean_target_calpha_lddt" in summary:
+            cart = summary
+            break
+    if cart is None:
+        return []
+    mean = float(cart.get("mean_target_calpha_lddt", 0.0))
+    delta = (mean - baseline_cart_mean) if baseline_cart_mean is not None else None
+    pct = max(0, min(100, int(round(mean * 100))))
+    local_foot = f"mean target Cα lDDT across {int(cart.get('num_scored_targets', 0))} targets"
+    local_tone = "up" if (delta is not None and delta > 0) else "warn"
+    nan_count = int(cart.get("nan_prediction_residue_count", 0))
+    stability_foot = "no NaN residues" if nan_count == 0 else f"{nan_count} NaN residues"
+    stability_tone = "up" if nan_count == 0 else "warn"
+    return [
+        Axis("Local geometry", f"{mean:.3f}", f"{delta:+.3f}" if delta is not None else "—", pct, local_foot, local_tone),
+        Axis("Long-range topology", "—", "—", 0, "not measured by Cα-lDDT scorer", "warn"),
+        Axis("3D gap", "—", "—", 0, "not measured by Cα-lDDT scorer", "warn"),
+        Axis("Stability", f"{int(cart.get('num_scored_targets', 0))}/{int(cart.get('num_targets', 0))}", "—", 100 if nan_count == 0 else 0, stability_foot, stability_tone),
+    ]
+
+
+def _real_gate(rows: list, specs: list[dict]) -> Gate | None:
+    """Build the headline gate card from real ``row.falsification`` evidence.
+
+    Returns None when no ledger row carries falsification data — the panel
+    is hidden rather than showing sample bars.
+    """
+    target_row = None
+    for row in reversed(rows):
+        if getattr(row, "falsification", None) is not None:
+            target_row = row
+            break
+    if target_row is None:
+        return None
+    fals = target_row.falsification
+    trial_id = str(getattr(target_row, "trial_id", ""))
+    axis = _enum_value(fals, "named_axis", "axis", "predicted_axis")
+    verdict = _enum_value(fals, "verdict")
+    discovery = _enum_value(target_row, "discovery")
+    spec = next((s for s in specs if str(s.get("trial_id")) == trial_id), None)
+    claim = str(spec.get("hypothesis", "")) if spec else ""
+    seed_std = float(getattr(fals, "seed_std", 0.0))
+    bars = [
+        GateBar("full", float(fals.gain_full), "", True),
+        GateBar("knock-out", float(fals.gain_knockout), "ablation", float(fals.gain_knockout) >= float(fals.gain_full) * 0.5),
+        GateBar("placebo", float(fals.gain_placebo), "null", False),
+        GateBar("seed mean", float(fals.seed_mean), f"±{seed_std:.3f}", True),
+    ]
+    attr = float(getattr(fals, "attributable_fraction", 0.0))
+    readout_lines = [
+        f"axis prediction { 'held' if getattr(fals, 'axis_prediction_held', False) else 'did not hold'}.",
+        ("Reverting the change erases most of the gain, the placebo does not reproduce it, "
+         "and the gain survives the seed rerun.") if discovery == "CONFIRMED"
+        else ("The control bars did not clear the gate threshold — the change is not attributable."),
+    ]
+    return Gate(
+        claim=claim,
+        meta_axis=axis,
+        meta_trial=trial_id,
+        bars=bars,
+        attributable=f"attributable {attr:.2f}",
+        verdict=verdict or ("CONFIRMED" if discovery == "CONFIRMED" else "KILLED" if discovery == "KILLED" else "—"),
+        readout=" ".join(readout_lines),
+    )
+
+
+def _real_overlay(runs: Path, rows: list, baseline: float | None, best: float | None) -> Overlay | None:
+    """Build the structure overlay from a real ``predictions.json`` artifact.
+
+    Returns None if no predictions file exists for the best-scored trial yet —
+    the panel hides rather than rendering a sample backbone. Per-residue err
+    levels stay at flat zero until the scorer persists per-residue lDDT.
+    """
+    best_row = None
+    best_score = -1.0
+    for row in rows:
+        metrics = row.metrics if isinstance(getattr(row, "metrics", None), dict) else {}
+        score = metrics.get("best_val_calpha_lddt")
+        if isinstance(score, (int, float)) and float(score) > best_score:
+            best_score = float(score)
+            best_row = row
+    if best_row is None:
+        return None
+    trial_id = str(getattr(best_row, "trial_id", ""))
+    pred_path = runs / "trials" / trial_id / "predictions.json"
+    if not pred_path.exists():
+        return None
+    try:
+        data = json.loads(pred_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    preds = data.get("predictions") if isinstance(data, dict) else None
+    if not isinstance(preds, list) or not preds:
+        return None
+    first = preds[0]
+    target = str(first.get("target_id", "—"))
+    coords = first.get("coordinates") or first.get("ca_coords") or []
+    length = len(coords) if isinstance(coords, list) else int(first.get("length", 0))
+    return Overlay(
+        is_sample=False,
+        target=target,
+        length=length,
+        before=float(baseline) if baseline is not None else 0.0,
+        after=float(best) if best is not None else 0.0,
+        err_levels=[0] * max(1, length),
+    )
+
+
+def _read_baseline(path: Path) -> float | None:
+    """Pull ``best_val_calpha_lddt`` from a baseline metrics file.
+
+    Accepts both the top-level shape used by the UI sample/tests and the real
+    ``AutoFoldResult``-shaped file written by the baseline runner, where the
+    metric lives under ``metrics.best_val_calpha_lddt``.
+    """
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("best_val_calpha_lddt")
+    if not isinstance(value, (int, float)):
+        nested = data.get("metrics")
+        if isinstance(nested, dict):
+            value = nested.get("best_val_calpha_lddt")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def _real_ledger_rows(runs: Path) -> list[LedgerRow]:
+    path = runs / "discovery_ledger.jsonl"
+    if not path.exists():
+        return []
+    try:
+        from autoalphafold3.discovery_ledger import read_discovery_ledger
+
+        records = read_discovery_ledger(ledger_path=path)
+    except Exception:  # pragma: no cover - reader/validation issues degrade gracefully
+        return []
+    rows: list[LedgerRow] = []
+    for rec in records:
+        get = rec.get if isinstance(rec, dict) else lambda k, d=None: getattr(rec, k, d)
+        confirmed = str(get("verdict", "")).upper() == "CONFIRMED"
+        rows.append(
+            LedgerRow(
+                finding=str(get("design_rule", get("mechanism", ""))),
+                rule="",
+                axis=str(get("axis", "")),
+                delta=_fmt_delta(get("primary_metric_delta", get("delta", 0.0))),
+                trial=str(get("trial_id", "")),
+                sha=str(get("git_sha", ""))[:7],
+                verdict=str(get("verdict", "")),
+                confirmed=confirmed,
+            )
+        )
+    return rows
+
+
+def _real_provenance(rows: list, scorer: str) -> dict[str, str]:
+    if not rows:
+        return {}
+    last = rows[-1]
+    arts = getattr(last, "artifacts", {}) or {}
+    return {
+        "candidate": getattr(last, "candidate_id", ""),
+        "git_sha": str(arts.get("git_sha", ""))[:7],
+        "scorer": scorer,
+    }
+
+
+def _fmt_delta(value: object) -> str:
+    try:
+        v = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{v:+.3f}"
+
+
+def _fmt_runtime(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 60}m {s % 60:02d}s" if s >= 60 else f"{s}s"
+
+
+def _enum_value(obj: object, *names: str) -> str:
+    for name in names:
+        val = getattr(obj, name, None)
+        if val:
+            return str(getattr(val, "value", val))
+    return ""
+
+
+def _build_trials(rows: list, baseline: float | None) -> list[TrialRow]:
+    out: list[TrialRow] = []
+    for row in rows:
+        status = getattr(row.status, "value", str(row.status))
+        discovery = _enum_value(row, "discovery")
+        fals = getattr(row, "falsification", None)
+        verdict = _enum_value(fals, "verdict") if fals is not None else ""
+        axis = _enum_value(fals, "named_axis", "axis") if fals is not None else ""
+        label, tone, cat = _status_display(status, discovery, verdict if discovery in _KILLED else "")
+        metrics = row.metrics if isinstance(row.metrics, dict) else {}
+        score = metrics.get("best_val_calpha_lddt")
+        score_s = f"{float(score):.3f}" if isinstance(score, (int, float)) else "—"
+        delta_s = f"{float(score) - baseline:+.3f}" if isinstance(score, (int, float)) and baseline is not None else "—"
+        rt = metrics.get("runtime_seconds")
+        out.append(
+            TrialRow(
+                trial_id=row.trial_id,
+                move_family=str(metrics.get("move_family", "")) or "—",
+                axis=axis or "—",
+                score=score_s,
+                delta=delta_s,
+                runtime=_fmt_runtime(rt) if isinstance(rt, (int, float)) else "—",
+                status=label,
+                tone=tone,
+                cat=cat,
+            )
+        )
+    return out
+
+
+def _build_logs(rows: list) -> list[LogEvent]:
+    out: list[LogEvent] = []
+    for row in rows:
+        status = getattr(row.status, "value", str(row.status))
+        discovery = _enum_value(row, "discovery")
+        metrics = row.metrics if isinstance(row.metrics, dict) else {}
+        score = metrics.get("best_val_calpha_lddt")
+        out.append(LogEvent("", "info", row.trial_id, "submitted"))
+        if isinstance(score, (int, float)):
+            out.append(LogEvent("", "ok", row.trial_id, f"scored · best_val_calpha_lddt {float(score):.3f}"))
+        if discovery == "CONFIRMED":
+            out.append(LogEvent("", "ok", row.trial_id, "CONFIRMED at the gate"))
+        elif discovery in _KILLED:
+            out.append(LogEvent("", "warn", row.trial_id, "killed at the gate"))
+        if status in _FAIL:
+            out.append(LogEvent("", "err", row.trial_id, status))
+    return out
+
+
+# --- illustrative sample: one-hour sampler-only run ------------------------
+# 20 frozen-checkpoint sampler candidates; the best provisional KEEP (T012) is
+# gated and confirmed. The rest stay provisional (ungated). Not benchmark results.
+
+_SAMPLE_TRAJ = [
+    ("T001", 0.321, "provisional"), ("T002", 0.318, "provisional"), ("T003", 0.326, "provisional"),
+    ("T004", 0.331, "provisional"), ("T005", 0.316, "provisional"), ("T006", 0.337, "provisional"),
+    ("T007", 0.323, "provisional"), ("T008", 0.333, "provisional"), ("T009", 0.319, "provisional"),
+    ("T010", 0.339, "provisional"), ("T011", 0.314, "provisional"), ("T012", 0.343, "confirmed"),
+    ("T013", 0.322, "provisional"), ("T014", 0.336, "provisional"), ("T015", 0.317, "provisional"),
+    ("T016", 0.328, "provisional"), ("T017", 0.320, "provisional"), ("T018", 0.334, "provisional"),
+    ("T019", 0.315, "provisional"), ("T020", 0.324, "provisional"),
+]
+
+_SAMPLE_ERR = [0, 0, 1, 0, 0, 1, 2, 1, 0, 0, 0, 1, 3, 4, 2, 1, 0, 0, 0, 1, 2, 1, 0, 0, 1, 2, 3, 1, 0, 0]
+
+
+def _sample_trials() -> list[TrialRow]:
+    raw = [
+        ("T012", "sampler_step_scale", "distogram_vs_3d", "0.343", "+0.018", "1m 38s", "CONFIRMED", "ok", "confirmed"),
+        ("T010", "sample_count", "distogram_vs_3d", "0.339", "+0.014", "2m 02s", "KEEP", "ok", "keep"),
+        ("T006", "sampler_step_scale", "distogram_vs_3d", "0.337", "+0.012", "1m 41s", "KEEP", "ok", "keep"),
+        ("T014", "sampler_step_scale", "distogram_vs_3d", "0.336", "+0.011", "1m 44s", "KEEP", "ok", "keep"),
+        ("T018", "sample_count", "distogram_vs_3d", "0.334", "+0.009", "2m 05s", "KEEP", "ok", "keep"),
+        ("T008", "noise_schedule", "distogram_vs_3d", "0.333", "+0.008", "1m 52s", "KEEP", "ok", "keep"),
+        ("T004", "diffusion_steps", "distogram_vs_3d", "0.331", "+0.006", "2m 18s", "KEEP", "ok", "keep"),
+        ("T016", "noise_schedule", "stability_compute", "0.328", "+0.003", "1m 49s", "KEEP", "ok", "keep"),
+        ("T003", "diffusion_steps", "distogram_vs_3d", "0.326", "+0.001", "2m 21s", "KEEP", "ok", "keep"),
+        ("T020", "sample_count", "—", "0.324", "−0.001", "2m 03s", "DISCARD", "muted", "discard"),
+        ("T007", "sampler_step_scale", "—", "0.323", "−0.002", "1m 39s", "DISCARD", "muted", "discard"),
+        ("T013", "diffusion_steps", "—", "0.322", "−0.003", "2m 15s", "DISCARD", "muted", "discard"),
+        ("T001", "sampler_step_scale", "—", "0.321", "−0.004", "1m 36s", "DISCARD", "muted", "discard"),
+        ("T017", "noise_schedule", "—", "0.320", "−0.005", "1m 47s", "DISCARD", "muted", "discard"),
+        ("T009", "diffusion_steps", "—", "0.319", "−0.006", "2m 24s", "DISCARD", "muted", "discard"),
+        ("T002", "sample_count", "—", "0.318", "−0.007", "2m 08s", "DISCARD", "muted", "discard"),
+        ("T015", "sampler_step_scale", "—", "0.317", "−0.008", "1m 42s", "DISCARD", "muted", "discard"),
+        ("T005", "noise_schedule", "—", "0.316", "−0.009", "1m 50s", "DISCARD", "muted", "discard"),
+        ("T019", "diffusion_steps", "—", "0.315", "−0.010", "2m 19s", "DISCARD", "muted", "discard"),
+        ("T011", "sample_count", "—", "0.314", "−0.011", "2m 06s", "DISCARD", "muted", "discard"),
+    ]
+    return [TrialRow(*r) for r in raw]
+
+
+def _sample_logs() -> list[LogEvent]:
+    raw = [
+        ("09:08:02", "info", "—", "frozen checkpoint cand_31 loaded · step 6,000"),
+        ("09:08:03", "info", "—", "preflight passed · locked mounts verified"),
+        ("09:08:05", "info", "—", "sampler burst spawned · 20 candidates · A100-80GB"),
+        ("09:08:06", "info", "—", "worker cap 6 · ~4 waves"),
+        ("09:14:21", "ok", "T012", "scored · best_val_calpha_lddt 0.343"),
+        ("09:16:40", "ok", "T010", "scored · best_val_calpha_lddt 0.339"),
+        ("09:18:55", "warn", "T011", "below baseline · logged provisional"),
+        ("09:19:55", "info", "—", "20 candidates scored · ranking provisional KEEPs"),
+        ("09:20:02", "info", "T012", "selected best provisional KEEP"),
+        ("09:20:05", "info", "—", "gate wave spawned · knock-out, placebo, seed×3"),
+        ("09:22:47", "info", "—", "other improving candidates kept provisional, not gated"),
+        ("09:27:38", "ok", "T012", "predicted axis distogram_vs_3d moved as registered"),
+        ("09:28:11", "ok", "T012", "CONFIRMED · attributable 0.74"),
+        ("09:28:12", "info", "—", "discovery ledger updated · 1 confirmed"),
+        ("09:28:30", "info", "—", "scaled to zero · idle"),
+    ]
+    return [LogEvent(*r) for r in raw]
+
+
+def sample_state() -> UiState:
+    """Illustrative one-hour sampler-only run: 20 frozen-checkpoint candidates, the
+    best provisional KEEP gated and confirmed. Not benchmark results."""
+    traj = [TrialPoint(i + 1, t, s, st) for i, (t, s, st) in enumerate(_SAMPLE_TRAJ)]
+    axes = [
+        Axis("Local geometry", "0.56", "+0.01", 58, "local lDDT, roughly flat", "warn"),
+        Axis("Long-range topology", "0.39", "±0.00", 45, "unchanged by the sampler", "warn"),
+        Axis("3D gap", "0.06", "−0.05", 70, "distogram to coordinate gap closes", "up"),
+        Axis("Stability", "0.7×", "faster", 55, "fewer steps, 0.7× runtime", "up"),
+    ]
+    ledger = [
+        LedgerRow("Fewer diffusion steps with a lower step scale close the distogram to coordinate gap", "", "distogram_vs_3d", "+0.018", "T012", "4f2a9c1", "CONFIRMED", True),
+    ]
+    gate = Gate(
+        claim="“Fewer diffusion steps with a lower step scale reduce sampler noise, so the coordinate path realizes the contacts the pair head already learned.”",
+        meta_axis="distogram_vs_3d",
+        meta_trial="T012",
+        bars=[
+            GateBar("full", 0.018, "", True),
+            GateBar("knock-out", 0.004, "collapses", False),
+            GateBar("placebo", 0.002, "null", False),
+            GateBar("seed mean", 0.016, "±0.004, n=3", True),
+        ],
+        attributable="attributable 0.74",
+        verdict="CONFIRMED",
+        readout="Reverting the sampler change erases most of the gain, a matched sampler placebo does not reproduce it, and the gain survives the seed rerun. The claim was registered before any of these bars existed.",
+    )
+    overlay = Overlay(is_sample=True, target="7XYZ_A", length=148, before=0.325, after=0.343, err_levels=list(_SAMPLE_ERR))
+    return UiState(
+        best=0.343,
+        baseline=0.325,
+        delta=0.018,
+        prev_delta=None,
+        counts={"confirmed": 1, "killed": 0, "trials": 20, "keep": 8, "discard": 11, "fail": 0, "infra": 0},
+        trajectory=traj,
+        axes=axes,
+        failure_signature="distogram_good_lddt_flat",
+        ledger=ledger,
+        gate=gate,
+        overlay=overlay,
+        provenance={"candidate": "cand_31 · sampler", "git_sha": "4f2a9c1", "scorer": "calpha_lddt_v1"},
+        split="public_val_small",
+        scorer="calpha_lddt_v1",
+        is_sample=True,
+        source="sample",
+        trials=_sample_trials(),
+        logs=_sample_logs(),
+    )

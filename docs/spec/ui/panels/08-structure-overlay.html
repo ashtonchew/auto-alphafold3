@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Structure Overlay · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 08</div>
+      <h1 class="page-title">Structure Overlay</h1>
+      <p class="page-purpose">Connect the scalar and diagnostic story to visible protein geometry. The audience sees the shape get closer to truth and the named axis improve in the same frame.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <div class="ov-grid">
+      <div>
+        <svg viewBox="0 0 520 160" role="img" width="100%" style="max-width:680px"
+          aria-label="Overlaid C-alpha backbone traces for true structure, baseline prediction, and best confirmed candidate. The best candidate tracks the true backbone more closely than the baseline.">
+          <path d="M16 116 C60 58, 96 58, 120 102 S176 146, 214 106 C250 70, 286 74, 318 112 S388 146, 430 92 C462 52, 492 66, 506 48"
+                fill="none" stroke="#dcdcdc" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M16 122 C58 70, 98 66, 124 108 S172 154, 210 118 C250 88, 290 88, 322 120 S386 152, 428 106 C460 72, 490 82, 506 62"
+                fill="none" stroke="#5896f3" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+          <path d="M16 117 C60 60, 96 60, 121 103 S176 147, 213 108 C250 73, 287 76, 319 113 S388 146, 430 94 C462 54, 492 67, 506 50"
+                fill="none" stroke="#7fee64" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+        <div class="ov-legend">
+          <span><i style="background:#dcdcdc"></i> true</span>
+          <span><i style="background:#5896f3"></i> baseline</span>
+          <span><i style="background:#7fee64"></i> best</span>
+        </div>
+      </div>
+      <div>
+        <div class="err-title">Per-residue Cα error, best candidate</div>
+        <div class="err-strip" aria-hidden="true">
+          <i class="e0"></i><i class="e0"></i><i class="e1"></i><i class="e0"></i><i class="e0"></i><i class="e1"></i><i class="e2"></i><i class="e1"></i><i class="e0"></i><i class="e0"></i><i class="e0"></i><i class="e1"></i><i class="e3"></i><i class="e4"></i><i class="e2"></i><i class="e1"></i><i class="e0"></i><i class="e0"></i><i class="e0"></i><i class="e1"></i><i class="e2"></i><i class="e1"></i><i class="e0"></i><i class="e0"></i><i class="e1"></i><i class="e2"></i><i class="e3"></i><i class="e1"></i><i class="e0"></i><i class="e0"></i>
+        </div>
+        <div class="err-scale"><span>low error, core</span><span>high, loops</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Selected target</h2>
+    <div class="block-sub">Chosen by a fixed rule, not cherry-picked.</div>
+    <div class="kv">
+      <div class="kv-row"><div class="kv-k">Target</div><div class="kv-v mono">7XYZ_A</div></div>
+      <div class="kv-row"><div class="kv-k">Length · MSA depth</div><div class="kv-v num">148 residues · mid bucket</div></div>
+      <div class="kv-row"><div class="kv-k">Before / after lDDT</div><div class="kv-v num" style="color:var(--green)">0.325 → 0.343</div></div>
+      <div class="kv-row"><div class="kv-k">Targeted axis</div><div class="kv-v"><span class="mono">distogram_vs_3d</span> moved as predicted (gap −0.05)</div></div>
+    </div>
+    <div class="note">Overlays render from real prediction artifacts. A clearly-labeled sample is used only when real predictions are not ready, never presented as benchmark evidence.</div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="../evidence-board.html">Open the full evidence board →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+</body>
+</html>

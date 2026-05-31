@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auto-AlphaFold3 · Demo UI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · high-fidelity mockups</div>
+      <h1 class="page-title">Auto-AlphaFold3 Demo UI</h1>
+      <p class="page-purpose">Modal-styled mockups of the demo surfaces from §3 of the demo UI plan. One combined evidence board for the stage, plus a focused panel for each surface. Illustrative only.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../demo-ui-plan.html">Read the demo UI plan →</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <h2 class="block-title">Stage views</h2>
+    <div class="block-sub">The live app surfaces — board, trials, and logs — generated from real run artifacts.</div>
+    <div class="gallery">
+      <a class="card feature" href="evidence-board.html">
+        <div class="card-ref">§2 · combined</div>
+        <div class="card-name">Evidence Board</div>
+        <div class="card-desc">The full dashboard: hero metric, interactive trajectory, Fold Cartographer, Discovery Ledger table, falsification bars, and structure overlay.</div>
+      </a>
+      <a class="card" href="trials.html">
+        <div class="card-ref">view · trials</div>
+        <div class="card-name">Trials</div>
+        <div class="card-desc">Every submitted trial in a filterable table — confirmed, kept, discarded, killed, and failed.</div>
+      </a>
+      <a class="card" href="logs.html">
+        <div class="card-ref">view · logs</div>
+        <div class="card-name">Logs</div>
+        <div class="card-desc">Timestamped orchestrator and trial events, searchable.</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Surfaces</h2>
+    <div class="block-sub">A focused mockup for each of the nine §3 surfaces.</div>
+    <div class="gallery">
+      <a class="card" href="panels/01-overview.html"><div class="card-ref">§3 · 01</div><div class="card-name">Run Overview</div><div class="card-desc">Score, baseline, status counts, provenance, and Modal asset readiness in one screen.</div></a>
+      <a class="card" href="panels/02-trial-trajectory.html"><div class="card-ref">§3 · 02</div><div class="card-name">Trial Trajectory</div><div class="card-desc">Interactive score-over-trials chart with a selected-trial detail record.</div></a>
+      <a class="card" href="panels/03-hypothesis-card.html"><div class="card-ref">§3 · 03</div><div class="card-name">Hypothesis Card</div><div class="card-desc">The pre-registered, falsifiable claim, written before the run.</div></a>
+      <a class="card" href="panels/04-fold-cartographer.html"><div class="card-ref">§3 · 04</div><div class="card-name">Fold Cartographer</div><div class="card-desc">Four orthogonal geometry axes plus context-only buckets.</div></a>
+      <a class="card" href="panels/05-falsification-gate.html"><div class="card-ref">§3 · 05</div><div class="card-name">Falsification Gate</div><div class="card-desc">Knock-out, placebo, and seed controls turn a score into a tested mechanism.</div></a>
+      <a class="card" href="panels/06-discovery-ledger.html"><div class="card-ref">§3 · 06</div><div class="card-name">Discovery Ledger</div><div class="card-desc">Confirmed mechanisms and provisional KEEPs, with provenance.</div></a>
+      <a class="card" href="panels/07-modal-execution.html"><div class="card-ref">§3 · 07</div><div class="card-name">Modal Execution</div><div class="card-desc">Execution mode, container burst, volume-mount policy, and cost.</div></a>
+      <a class="card" href="panels/08-structure-overlay.html"><div class="card-ref">§3 · 08</div><div class="card-name">Structure Overlay</div><div class="card-desc">Predicted vs true Cα backbone with a per-residue error map.</div></a>
+      <a class="card" href="panels/09-sampler-burst.html"><div class="card-ref">§3 · 09</div><div class="card-name">Sampler Burst</div><div class="card-desc">Frozen-checkpoint fan-out, label-free selection, and one locked score.</div></a>
+    </div>
+  </div>
+
+  <footer class="page-foot">
+    <span>Auto-AlphaFold3 · demo UI mockups · shared Modal design system in <span class="mono">assets/modal.css</span></span>
+    <span>Illustrative mockups. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+</body>
+</html>

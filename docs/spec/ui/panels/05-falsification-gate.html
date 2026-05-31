@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Falsification Gate · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 05</div>
+      <h1 class="page-title">Falsification Gate</h1>
+      <p class="page-purpose">Demonstrate that mechanism claims are tested, not asserted. The orchestrator runs controls the agent does not author; only survivors become discoveries.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <div class="block-title">Candidate claim · trial <span class="mono" style="color:var(--ink-3)">T012</span> <span class="right"><span class="badge">CONFIRMED</span></span></div>
+    <p class="claim">“Fewer diffusion steps with a lower step scale reduce sampler noise, so the coordinate path realizes the contacts the pair head already learned.”</p>
+    <div class="claim-meta">pre-registered axis <span class="mono">distogram_vs_3d</span> · predicted gap ↓ · band +0.02 to +0.05</div>
+    <svg class="bars" viewBox="0 0 520 188" role="img"
+      aria-label="Four control bars. Full gain plus 0.018; knock-out collapses to plus 0.004; placebo flat at plus 0.002; seed mean plus 0.016 with small spread.">
+      <line class="ax-line" x1="40" y1="150" x2="510" y2="150"/>
+      <rect class="bar-full" x="58"  y="30"  width="74" height="120"/>
+      <text class="bar-val num" x="95"  y="22"  text-anchor="middle">+0.018</text>
+      <text class="bar-lbl" x="95"  y="168" text-anchor="middle">full</text>
+      <rect class="bar-mute" x="178" y="123" width="74" height="27"/>
+      <text class="bar-val num" x="215" y="115" text-anchor="middle">+0.004</text>
+      <text class="bar-lbl" x="215" y="168" text-anchor="middle">knock-out</text>
+      <text class="bar-note" x="215" y="182" text-anchor="middle">collapses</text>
+      <rect class="bar-mute" x="298" y="137" width="74" height="13"/>
+      <text class="bar-val num" x="335" y="129" text-anchor="middle">+0.002</text>
+      <text class="bar-lbl" x="335" y="168" text-anchor="middle">placebo</text>
+      <text class="bar-note" x="335" y="182" text-anchor="middle">null</text>
+      <rect class="bar-full" x="418" y="43"  width="74" height="107"/>
+      <line x1="455" y1="33" x2="455" y2="53" stroke="#e8e8e8" stroke-width="1.3"/>
+      <line x1="447" y1="33" x2="463" y2="33" stroke="#e8e8e8" stroke-width="1.3"/>
+      <line x1="447" y1="53" x2="463" y2="53" stroke="#e8e8e8" stroke-width="1.3"/>
+      <text class="bar-val num" x="455" y="22"  text-anchor="middle">+0.016</text>
+      <text class="bar-lbl" x="455" y="168" text-anchor="middle">seed mean</text>
+      <text class="bar-note num" x="455" y="182" text-anchor="middle">±0.004, n=3</text>
+    </svg>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Verdict numbers</h2>
+    <table class="dtable">
+      <thead><tr><th>Control</th><th>What it tests</th><th class="r">Δ lDDT</th><th class="r">Outcome</th></tr></thead>
+      <tbody>
+        <tr><td>Candidate (full)</td><td>the credited sampler change, intact</td><td class="r c-d num">+0.018</td><td class="r"><span class="spill ok">credited</span></td></tr>
+        <tr><td>Knock-out</td><td>revert to 24 steps / step scale 1.0</td><td class="r c-d num">+0.004</td><td class="r"><span class="spill ok">gain collapses</span></td></tr>
+        <tr><td>Placebo</td><td>matched-magnitude unrelated sampler change</td><td class="r c-d muted num">+0.002</td><td class="r"><span class="spill ok">null</span></td></tr>
+        <tr><td>Seed rerun</td><td>same config, new seeds (n=3)</td><td class="r c-d num">+0.016</td><td class="r"><span class="spill ok">±0.004, survives</span></td></tr>
+        <tr><td>Predicted-axis check</td><td>did distogram_vs_3d move as named?</td><td class="r c-d num">−0.05 gap</td><td class="r"><span class="spill ok">as predicted</span></td></tr>
+      </tbody>
+    </table>
+    <div class="readout"><span class="mono">attributable 0.74</span>. Removing the credited component erases most of the gain, an unrelated change of matched size does nothing, and the gain survives a seed rerun. <b style="color:var(--ink-2)">Verdict: CONFIRMED.</b></div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="06-discovery-ledger.html">Confirmed mechanisms flow to the Discovery Ledger →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+</body>
+</html>

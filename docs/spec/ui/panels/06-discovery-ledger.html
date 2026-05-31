@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Discovery Ledger · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 06</div>
+      <h1 class="page-title">Discovery Ledger</h1>
+      <p class="page-purpose">Reusable research findings, confirmed-only. In the one-hour sampler run the gate runs on the single best provisional KEEP; every other improving candidate stays provisional.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <div class="chips" style="margin-bottom:18px">
+      <span class="chip"><span class="dot green"></span><span class="v num">1</span><span class="k">confirmed mechanism</span></span>
+      <span class="chip"><span class="v num">8</span><span class="k">provisional KEEP</span></span>
+      <span class="chip"><span class="v num">20</span><span class="k">candidates</span></span>
+    </div>
+    <table class="dtable">
+      <thead>
+        <tr><th>Mechanism · design rule</th><th>Axis</th><th class="r">Δ lDDT</th><th class="r">Trial · SHA</th><th class="r">Verdict</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Fewer diffusion steps with a lower step scale close the distogram→coordinate gap<br><span style="color:var(--ink-faint);font-size:12.5px">At inference, drop to 12 steps and step scale 0.8 to cut sampler noise.</span></td>
+          <td class="c-axis">distogram_vs_3d</td>
+          <td class="r c-d num">+0.018</td>
+          <td class="r c-mono">T012 · 4f2a9c1</td>
+          <td class="r"><span class="spill ok"><span class="pico">✓</span> CONFIRMED</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="led-cap">Confirmed-only: the gate runs on the best provisional KEEP (T012). Eight candidates improved over baseline but stayed provisional — logged in Trials, not promoted. 1 confirmed of 20 candidates.</div>
+
+    <div class="section">
+      <h2 class="block-title">Provisional KEEPs, not gated</h2>
+      <div class="block-sub">Improved over baseline this run, but the gate runs only on the single best candidate.</div>
+      <table class="dtable">
+        <thead><tr><th>Sampler config</th><th>Axis</th><th class="r">Δ lDDT</th><th class="r">Trial</th><th class="r">Status</th></tr></thead>
+        <tbody>
+          <tr><td>Higher stochastic sample count (64)</td><td class="c-axis">distogram_vs_3d</td><td class="r c-d num">+0.014</td><td class="r c-mono">T010</td><td class="r"><span class="spill muted">PROVISIONAL</span></td></tr>
+          <tr><td>Lower step scale (0.9), 18 steps</td><td class="c-axis">distogram_vs_3d</td><td class="r c-d num">+0.012</td><td class="r c-mono">T006</td><td class="r"><span class="spill muted">PROVISIONAL</span></td></tr>
+          <tr><td>Cosine noise schedule</td><td class="c-axis">distogram_vs_3d</td><td class="r c-d num">+0.008</td><td class="r c-mono">T008</td><td class="r"><span class="spill muted">PROVISIONAL</span></td></tr>
+          <tr><td>Fewer diffusion steps (18), default scale</td><td class="c-axis">distogram_vs_3d</td><td class="r c-d num">+0.006</td><td class="r c-mono">T004</td><td class="r"><span class="spill muted">PROVISIONAL</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="../evidence-board.html">Open the full evidence board →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+</body>
+</html>

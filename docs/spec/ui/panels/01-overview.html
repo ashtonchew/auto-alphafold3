@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Run Overview · Auto-AlphaFold3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/modal.css">
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="page-eyebrow">Demo UI plan · §3 surface 01</div>
+      <h1 class="page-title">Run Overview</h1>
+      <p class="page-purpose">Orient the audience in one screen: where the run stands, what is confirmed, and that the benchmark is locked and reproducible.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <a class="back-link" href="../index.html">← All panels</a>
+      <span class="illus">Illustrative</span>
+    </div>
+  </header>
+
+  <div class="section first">
+    <div class="stats">
+      <div class="stat"><div class="label">Best validation Cα lDDT</div><div class="value num">0.343</div><div class="sub num">best candidate cand_31 · sampler</div></div>
+      <div class="stat"><div class="label">Baseline</div><div class="value num">0.325</div><div class="sub">NanoFold tiny, no-template</div></div>
+      <div class="stat"><div class="label">Δ vs baseline</div><div class="value green num">+0.018</div><div class="sub num">best provisional KEEP, gated</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Candidate outcomes</h2>
+    <div class="block-sub">Every sampler candidate, by status. The gate runs only on the best provisional KEEP.</div>
+    <div class="chips">
+      <span class="chip"><span class="dot green"></span><span class="v num">1</span><span class="k">CONFIRMED</span></span>
+      <span class="chip"><span class="v num">8</span><span class="k">provisional KEEP</span></span>
+      <span class="chip"><span class="v num">11</span><span class="k">DISCARD</span></span>
+      <span class="chip"><span class="v num">20</span><span class="k">candidates</span></span>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Run state &amp; provenance</h2>
+    <div class="block-sub">Every result carries the stamps needed to reproduce it.</div>
+    <div class="kv">
+      <div class="kv-row"><div class="kv-k">Active split</div><div class="kv-v mono">public_val_small</div></div>
+      <div class="kv-row"><div class="kv-k">Scorer version</div><div class="kv-v mono">calpha_lddt_v1</div></div>
+      <div class="kv-row"><div class="kv-k">Best candidate · git SHA</div><div class="kv-v mono">cand_31 · 4f2a9c1</div></div>
+      <div class="kv-row"><div class="kv-k">Parent commit</div><div class="kv-v mono">0ff6da7</div></div>
+      <div class="kv-row"><div class="kv-k">Feature hash</div><div class="kv-v mono">sha256:9b1f…c0a4</div></div>
+      <div class="kv-row"><div class="kv-k">Manifest hashes</div><div class="kv-v mono">train 7c2e…1a / val a91d…3f</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="block-title">Modal asset readiness</h2>
+    <div class="block-sub">Search starts only when the locked benchmark surface is present and intact.</div>
+    <div class="chips">
+      <span class="chip"><span class="dot green"></span><span class="k">data Volume</span><span class="v">ready</span></span>
+      <span class="chip"><span class="dot green"></span><span class="k">locked Volume</span><span class="v">ready</span></span>
+      <span class="chip"><span class="dot green"></span><span class="k">scorer-only boundary</span><span class="v">intact</span></span>
+      <span class="chip"><span class="dot green"></span><span class="k">baseline ledger</span><span class="v">frozen</span></span>
+    </div>
+    <div class="note green">The agent cannot mount locked validation labels or edit Modal resource caps. Scoring happens only through scorer-only functions, so the headline number can be trusted.</div>
+  </div>
+
+  <footer class="page-foot">
+    <span><a href="../evidence-board.html">Open the full evidence board →</a></span>
+    <span>Illustrative mockup. Values are placeholders, not benchmark results.</span>
+  </footer>
+</div>
+</body>
+</html>

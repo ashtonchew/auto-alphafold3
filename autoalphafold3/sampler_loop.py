@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from autoalphafold3.baseline_readiness import current_best_from_baseline_and_ledger
 from autoalphafold3.ledger import LEDGER_WRITER_ROLE, append_ledger
 from autoalphafold3.llm_policy import DEFAULT_LLM_MODEL, AgentSearchPhase, default_llm_phase_policy
-from autoalphafold3.orchestrator import decide_stage_one_result, submit_trial
+from autoalphafold3.orchestrator import DEFAULT_KEEP_DELTA, decide_stage_one_result, submit_trial
 from autoalphafold3.schema import AutoFoldResult, AutoFoldTrial, FoldCartographerReport, PRIMARY_METRIC, TrialStatus
 
 APPROVAL_TEXT = "I_APPROVE_AUTONOMOUS_SAMPLER_LOOP"
@@ -118,7 +118,8 @@ class SamplerPlanner(Protocol):
         trial_id: str,
         candidate_index: int,
         prior_decisions: list[dict[str, object]],
-        current_best: dict[str, object],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
     ) -> SamplerCandidatePlan:
         """Plan the next sampler candidate from observed loop state."""
 
@@ -138,6 +139,8 @@ class SamplerLoopResult:
     stopped_reason: str
     wrote_files: list[str]
     starts_search: bool
+    global_current_best: dict[str, object]
+    search_reference: dict[str, object]
     writes_discovery_ledger: bool = False
 
     def to_dict(self) -> dict[str, object]:
@@ -160,6 +163,7 @@ def run_incremental_sampler_loop(
     failure_streak_limit: int = 2,
     planner: str = "deterministic",
     model: str = DEFAULT_LLM_MODEL,
+    search_reference_trial_id: str | None = None,
     client: SamplerLoopClient | None = None,
     planner_client: SamplerPlanner | None = None,
 ) -> SamplerLoopResult:
@@ -200,7 +204,12 @@ def run_incremental_sampler_loop(
     next_id = _trial_number(start_trial_id or _next_trial_id(seed["trial_id"]))
     loop_client = client or ModalSamplerLoopClient(repo_root=root, ledger_path=ledger_path)
     active_planner = planner_client or _build_planner(planner, repo_root=root, baseline_dir=baseline_dir, ledger_path=ledger_path, model=model)
-    current_best = _current_best_context(root=root, baseline_dir=baseline_dir, ledger_path=ledger_path)
+    global_current_best = _current_best_context(root=root, baseline_dir=baseline_dir, ledger_path=ledger_path)
+    search_reference = _search_reference_context(
+        root=root,
+        ledger_path=ledger_path,
+        trial_id=search_reference_trial_id,
+    )
 
     for index in range(max_candidates):
         trial_id = f"T{next_id + index:03d}"
@@ -210,7 +219,8 @@ def run_incremental_sampler_loop(
                 trial_id=trial_id,
                 candidate_index=index,
                 prior_decisions=decisions,
-                current_best=current_best,
+                global_current_best=global_current_best,
+                search_reference=search_reference,
             )
         except Exception as exc:  # noqa: BLE001 - invalid autonomous plans must stop before submit.
             raise SamplerLoopError(f"planner failed for {trial_id}: {exc}") from exc
@@ -238,6 +248,8 @@ def run_incremental_sampler_loop(
                     "sampler_num_samples": trial.get("sampler_num_samples"),
                     "sampler_selection_policy": trial.get("sampler_selection_policy"),
                     "reason": "dry-run generated candidate only",
+                    "global_current_best": global_current_best,
+                    "search_reference": search_reference,
                 }
             )
             continue
@@ -273,6 +285,16 @@ def run_incremental_sampler_loop(
                 writer_role=LEDGER_WRITER_ROLE,
             )
             score = _score(scored)
+            if search_reference.get("status") != "available" and (
+                search_reference_trial_id is None or scored.trial_id == search_reference_trial_id
+            ):
+                search_reference = _search_reference_from_result(scored)
+            comparisons = _candidate_comparisons(
+                score=score,
+                global_current_best=global_current_best,
+                search_reference=search_reference,
+                global_keep=decision.status == TrialStatus.KEEP,
+            )
             scored_trials.append(trial_id)
             decisions.append(
                 {
@@ -291,12 +313,13 @@ def run_incremental_sampler_loop(
                     "worker_status": manifest.get("status"),
                     "num_failed_targets": scored.metrics.get("num_failed_targets"),
                     "fold_cartographer": _compact_fold_cartographer(scored.fold_cartographer),
+                    **comparisons,
                 }
             )
             if score is not None and (best_score is None or score > best_score):
                 best_score = score
                 best_trial_id = trial_id
-            current_best = _current_best_context(root=root, baseline_dir=baseline_dir, ledger_path=ledger_path)
+            global_current_best = _current_best_context(root=root, baseline_dir=baseline_dir, ledger_path=ledger_path)
             failure_streak = 0
         except Exception as exc:  # noqa: BLE001 - loop must stop quickly on repeated live failures.
             failure_streak += 1
@@ -315,6 +338,8 @@ def run_incremental_sampler_loop(
                     "sampler_schedule_shape": trial.get("sampler_schedule_shape"),
                     "sampler_num_samples": trial.get("sampler_num_samples"),
                     "sampler_selection_policy": trial.get("sampler_selection_policy"),
+                    "global_current_best": global_current_best,
+                    "search_reference": search_reference,
                 }
             )
             if failure_streak >= failure_streak_limit:
@@ -333,6 +358,8 @@ def run_incremental_sampler_loop(
         stopped_reason=stopped_reason,
         wrote_files=wrote_files,
         starts_search=mode == "modal",
+        global_current_best=global_current_best,
+        search_reference=search_reference,
     )
 
 
@@ -382,7 +409,8 @@ class DeterministicSamplerPlanner:
         trial_id: str,
         candidate_index: int,
         prior_decisions: list[dict[str, object]],
-        current_best: dict[str, object],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
     ) -> SamplerCandidatePlan:
         sampler_steps = _next_sampler_steps(candidate_index, prior_decisions)
         noise_scale, step_scale, schedule_shape, num_samples, selection_policy = _deterministic_sampler_knobs(
@@ -409,7 +437,11 @@ class DeterministicSamplerPlanner:
             sampler_num_samples=num_samples,
             sampler_selection_policy=selection_policy,
             seed=candidate_index,
-            rationale=f"Current best is {current_best.get('score')}; prior decisions count is {len(prior_decisions)}.",
+            rationale=(
+                f"Global best is {global_current_best.get('score')}; "
+                f"search reference is {search_reference.get('score')}; "
+                f"prior decisions count is {len(prior_decisions)}."
+            ),
         )
 
 
@@ -427,7 +459,8 @@ class OpenAISamplerPlanner:
         trial_id: str,
         candidate_index: int,
         prior_decisions: list[dict[str, object]],
-        current_best: dict[str, object],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
     ) -> SamplerCandidatePlan:
         try:
             from openai import OpenAI
@@ -443,7 +476,8 @@ class OpenAISamplerPlanner:
                     trial_id=trial_id,
                     candidate_index=candidate_index,
                     prior_decisions=prior_decisions,
-                    current_best=current_best,
+                    global_current_best=global_current_best,
+                    search_reference=search_reference,
                     model=self.model,
                 )
             raise
@@ -453,7 +487,8 @@ class OpenAISamplerPlanner:
             trial_id=trial_id,
             candidate_index=candidate_index,
             prior_decisions=prior_decisions,
-            current_best=current_best,
+            global_current_best=global_current_best,
+            search_reference=search_reference,
         )
         kwargs = self.policy.to_responses_create_kwargs()
         try:
@@ -481,7 +516,8 @@ class OpenAISamplerPlanner:
                     trial_id=trial_id,
                     candidate_index=candidate_index,
                     prior_decisions=prior_decisions,
-                    current_best=current_best,
+                    global_current_best=global_current_best,
+                    search_reference=search_reference,
                     model=self.model,
                 )
             raise
@@ -608,6 +644,91 @@ def _current_best_context(*, root: Path, baseline_dir: str | Path, ledger_path: 
     }
 
 
+def _search_reference_context(
+    *,
+    root: Path,
+    ledger_path: str | Path,
+    trial_id: str | None = None,
+) -> dict[str, object]:
+    ledger = root / ledger_path
+    if not ledger.exists():
+        return {
+            "status": "unavailable",
+            "reason": "ledger_missing",
+            "interpretation": "same-family sampler comparison unavailable; global KEEP remains unchanged",
+        }
+    rows: list[AutoFoldResult] = []
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = AutoFoldResult.model_validate(json.loads(line))
+        except Exception:
+            continue
+        if row.status not in {TrialStatus.SCORED, TrialStatus.DISCARD, TrialStatus.KEEP}:
+            continue
+        score = _score(row)
+        if score is None:
+            continue
+        if trial_id is not None and row.trial_id != trial_id:
+            continue
+        if trial_id is None and not str(row.candidate_id).endswith("_sampler"):
+            continue
+        rows.append(row)
+        if trial_id is not None:
+            break
+    if not rows:
+        return {
+            "status": "unavailable",
+            "trial_id": trial_id,
+            "reason": "sampler_reference_not_found",
+            "interpretation": "same-family sampler comparison unavailable; global KEEP remains unchanged",
+        }
+    reference = rows[0]
+    return _search_reference_from_result(reference)
+
+
+def _search_reference_from_result(reference: AutoFoldResult) -> dict[str, object]:
+    return {
+        "status": "available",
+        "trial_id": reference.trial_id,
+        "candidate_id": reference.candidate_id,
+        "score": _score(reference),
+        "fold_cartographer": _compact_fold_cartographer(reference.fold_cartographer),
+        "interpretation": "same-family sampler reference; not a global discovery baseline",
+    }
+
+
+def _candidate_comparisons(
+    *,
+    score: float | None,
+    global_current_best: dict[str, object],
+    search_reference: dict[str, object],
+    global_keep: bool,
+) -> dict[str, object]:
+    global_score = _maybe_float(global_current_best.get("score"))
+    reference_score = _maybe_float(search_reference.get("score"))
+    global_delta = None if score is None or global_score is None else score - global_score
+    reference_delta = None if score is None or reference_score is None else score - reference_score
+    beats_reference = reference_delta is not None and reference_delta > 0
+    return {
+        "global_delta": global_delta,
+        "search_reference_delta": reference_delta,
+        "beats_search_reference": beats_reference,
+        "beats_global_current_best": global_keep,
+        "sampler_search_status": "SAMPLER_IMPROVED" if beats_reference else "SAMPLER_NOT_IMPROVED",
+        "global_current_best": global_current_best,
+        "search_reference": search_reference,
+        "keep_threshold_delta": DEFAULT_KEEP_DELTA,
+    }
+
+
+def _maybe_float(value: object) -> float | None:
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
 def _compact_fold_cartographer(report: FoldCartographerReport) -> dict[str, object]:
     summary = dict(report.summary)
     compact_summary = {
@@ -658,13 +779,15 @@ def _planner_prompt(
     trial_id: str,
     candidate_index: int,
     prior_decisions: list[dict[str, object]],
-    current_best: dict[str, object],
+    global_current_best: dict[str, object],
+    search_reference: dict[str, object],
 ) -> str:
     payload = {
         "task": "Plan the next single sampler-only candidate. Do not plan a batch.",
         "trial_id": trial_id,
         "candidate_index": candidate_index,
-        "current_best": current_best,
+        "global_current_best": global_current_best,
+        "search_reference": search_reference,
         "seed_trial": {
             "trial_kind": seed_trial.get("trial_kind"),
             "move_family": seed_trial.get("move_family"),
@@ -723,7 +846,8 @@ def _plan_with_modal_harness_secret(
     trial_id: str,
     candidate_index: int,
     prior_decisions: list[dict[str, object]],
-    current_best: dict[str, object],
+    global_current_best: dict[str, object],
+    search_reference: dict[str, object],
     model: str,
 ) -> SamplerCandidatePlan:
     try:
@@ -738,7 +862,8 @@ def _plan_with_modal_harness_secret(
         "trial_id": trial_id,
         "candidate_index": candidate_index,
         "prior_decisions": prior_decisions[-20:],
-        "current_best": current_best,
+        "global_current_best": global_current_best,
+        "search_reference": search_reference,
         "model": model,
     }
     orchestrator = modal.Cls.from_name(APP_NAME, TRUSTED_ORCHESTRATOR_CLASS)()

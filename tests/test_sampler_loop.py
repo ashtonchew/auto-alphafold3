@@ -117,7 +117,8 @@ class ScoreAwarePlanner:
         trial_id: str,
         candidate_index: int,
         prior_decisions: list[dict[str, object]],
-        current_best: dict[str, object],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
     ) -> SamplerCandidatePlan:
         latest_score = prior_decisions[-1].get("score") if prior_decisions else None
         self.observed_scores.append(float(latest_score) if isinstance(latest_score, int | float) else None)
@@ -139,7 +140,10 @@ class ScoreAwarePlanner:
             sampler_num_samples=1,
             sampler_selection_policy="first",
             seed=10 + candidate_index,
-            rationale=f"latest_score={latest_score}; current_best={current_best.get('score')}",
+            rationale=(
+                f"latest_score={latest_score}; global_best={global_current_best.get('score')}; "
+                f"search_reference={search_reference.get('score')}"
+            ),
         )
 
 
@@ -151,7 +155,8 @@ class InvalidPlanner:
         trial_id: str,
         candidate_index: int,
         prior_decisions: list[dict[str, object]],
-        current_best: dict[str, object],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
     ) -> SamplerCandidatePlan:
         return SamplerCandidatePlan(
             diagnostic_target="local_geometry_weak",
@@ -242,9 +247,38 @@ def test_sampler_loop_modal_scores_and_records_stage_one(tmp_path: Path) -> None
     assert result.best_trial_id == "T031"
     assert result.decisions[0]["status"] == "DISCARD"
     assert result.decisions[1]["status"] == "KEEP"
+    assert result.decisions[0]["beats_global_current_best"] is False
+    assert result.decisions[1]["beats_global_current_best"] is True
     ledger = (tmp_path / "runs/ledger.jsonl").read_text(encoding="utf-8")
     assert '"status": "SCORED"' in ledger
     assert '"status": "KEEP"' in ledger
+
+
+def test_sampler_loop_reports_search_reference_separately_from_global_keep(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=2,
+        start_trial_id="T080",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=FakeSamplerClient(scores=[0.1, 0.2]),
+        search_reference_trial_id="T080",
+    )
+
+    assert result.search_reference["trial_id"] == "T080"
+    assert result.search_reference["score"] == 0.1
+    assert result.decisions[0]["status"] == "DISCARD"
+    assert result.decisions[0]["sampler_search_status"] == "SAMPLER_NOT_IMPROVED"
+    assert result.decisions[0]["search_reference_delta"] == 0.0
+    assert result.decisions[1]["status"] == "DISCARD"
+    assert result.decisions[1]["beats_global_current_best"] is False
+    assert result.decisions[1]["beats_search_reference"] is True
+    assert result.decisions[1]["sampler_search_status"] == "SAMPLER_IMPROVED"
+    assert result.decisions[1]["search_reference_delta"] == pytest.approx(0.1)
+    assert result.decisions[1]["global_delta"] == pytest.approx(-0.22)
 
 
 def test_sampler_loop_stops_on_repeated_infra_failures(tmp_path: Path) -> None:

@@ -70,6 +70,15 @@ Cartographer block in `prior_decisions`: `signature`, `canonical_target`,
 This makes the loop Fold Cartographer-driven without passing validation labels,
 raw scorer internals, or bulky per-target artifacts into the planner.
 
+The loop also keeps two comparisons separate:
+
+- `global_current_best`: the locked baseline/ledger best. Only this comparison
+  can produce stage-one `KEEP` and trigger the Falsification Gate.
+- `search_reference`: a same-family sampler reference, usually the first
+  default sampler run from the same frozen checkpoint. This comparison can
+  report `SAMPLER_IMPROVED`, but it is not a discovery claim and never writes
+  the Discovery Ledger.
+
 The deterministic planner remains available for reproducible dry-runs and
 tests. The LLM planner plugs into the same boundary and may only choose
 sampler-only frozen-checkpoint settings:
@@ -102,6 +111,7 @@ python -m autoalphafold3.agent autonomous-sampler-loop \
   --poll-interval-s 2 \
   --per-candidate-timeout-s 180 \
   --failure-streak-limit 2 \
+  --search-reference-trial-id T081 \
   --approve I_APPROVE_AUTONOMOUS_SAMPLER_LOOP
 ```
 
@@ -265,3 +275,44 @@ this smoke from the prior best `0.008722378043985426` to `0.02098351201866366`,
 but it still did not clear the locked baseline score `0.07941230438543605`.
 Therefore no provisional `KEEP`, Falsification Gate run, or Discovery Ledger
 write occurred.
+
+Interpreted against a same-family sampler reference, the best expanded sampler
+candidate was materially better: default sampler reference `T081` scored
+`0.008276756926787072`, while `T088` scored `0.02098351201866366`. That is a
+`0.012706755091876588` sampler-reference delta, about `2.54x` the default
+sampler score. This is reported as sampler-family progress only; global
+discovery status remains `DISCARD`.
+
+## 2026-05-30 Fold Cartographer Feedback Smoke
+
+After separating `global_current_best` from the same-family `search_reference`
+and adding Fold Cartographer diagnostics to planner feedback, a three-candidate
+GPT-5.4 mini loop passed:
+
+```bash
+python -m autoalphafold3.agent autonomous-sampler-loop \
+  --seed-trial trials/T012.json \
+  --max-candidates 3 \
+  --start-trial-id T092 \
+  --mode modal \
+  --planner llm \
+  --model gpt-5.4-mini \
+  --poll-interval-s 2 \
+  --per-candidate-timeout-s 300 \
+  --failure-streak-limit 1 \
+  --search-reference-trial-id T081 \
+  --approve I_APPROVE_AUTONOMOUS_SAMPLER_LOOP
+```
+
+Result: `T092`, `T093`, and `T094` all reached `SAMPLER_PREDICTED`, scored
+with `num_failed_targets=0`, and were recorded as global `DISCARD` while also
+reporting `SAMPLER_IMPROVED` against the same-family `T081` sampler reference.
+The best candidate in this verification run was `T094` with
+`best_val_calpha_lddt=0.014790689139951244`, `global_delta=-0.0646216152454848`,
+and `search_reference_delta=0.006513932213164172`.
+
+Fold Cartographer feedback was present in each decision and therefore available
+to the next planner turn. The observed signature stayed `toy_geometry_failed`,
+the canonical target stayed `local_geometry_weak`, and mean target C-alpha lDDT
+moved from `0.008694094947111403` on `T092` to `0.013783696655218005` on
+`T093` and `0.014178717028126628` on `T094`.

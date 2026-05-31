@@ -52,7 +52,7 @@ class SamplerCandidatePlan(BaseModel):
     diagnostic_target: str = Field(min_length=1)
     hypothesis: str = Field(min_length=20)
     intervention: str = Field(min_length=1)
-    predicted_direction: str = Field(pattern="^(up|down|flat)$")
+    predicted_direction: str = Field(pattern="^(up|down)$")
     expected_lddt_delta_band: list[float] = Field(min_length=2, max_length=2)
     sampler_steps: int = Field(ge=1, le=12)
     sampler_noise_scale: float = Field(ge=0.25, le=2.0)
@@ -75,6 +75,8 @@ class SamplerCandidatePlan(BaseModel):
         low, high = self.expected_lddt_delta_band
         if low > high:
             raise ValueError("expected_lddt_delta_band must be ordered")
+        if low < 0 or high < 0:
+            raise ValueError("expected_lddt_delta_band must be non-negative")
         text = f"{self.hypothesis} {self.intervention} {self.rationale}".lower()
         forbidden = (
             "change scorer",

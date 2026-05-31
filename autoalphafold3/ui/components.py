@@ -62,10 +62,15 @@ def trajectory_chart(points: list, baseline: float | None) -> tuple[str, str]:
     ``board.js`` can attach hover/click to the same coordinates."""
     scores = [p.score for p in points] + ([baseline] if baseline is not None else [])
     smin, smax = (min(scores), max(scores)) if scores else (0.30, 0.42)
-    lo = math.floor((smin - 0.005) / 0.04) * 0.04
-    hi = math.ceil((smax + 0.005) / 0.04) * 0.04
-    if hi - lo < 0.12:
-        hi = lo + 0.12
+    # Auto-pick a tick step so the Y axis fits the data range tightly.
+    raw_span = max(smax - smin, 0.001)
+    for step in (0.002, 0.005, 0.01, 0.02, 0.04, 0.05, 0.1):
+        if raw_span / step <= 5:
+            break
+    lo = math.floor((smin - step * 0.25) / step) * step
+    hi = math.ceil((smax + step * 0.25) / step) * step
+    if hi - lo < step * 3:
+        hi = lo + step * 3
     span = hi - lo
 
     def y(s: float) -> float:
@@ -77,13 +82,14 @@ def trajectory_chart(points: list, baseline: float | None) -> tuple[str, str]:
         return 60 + (i / (n - 1) * 640 if n > 1 else 0)
 
     parts: list[str] = []
-    n_ticks = max(3, round(span / 0.04))  # clean 0.04-step ticks
+    n_ticks = max(3, round(span / step))
+    tick_fmt = ".3f" if step < 0.01 else (".3f" if step < 0.04 else ".2f")
     for k in range(n_ticks + 1):
-        val = lo + k * 0.04
+        val = lo + k * step
         yy = y(val)
         if 0 < k < n_ticks:
             parts.append(f'<line class="grid-line" x1="60" y1="{yy:.0f}" x2="700" y2="{yy:.0f}"/>')
-        parts.append(f'<text class="ax-tick num" x="50" y="{yy + 4:.0f}" text-anchor="end">{val:.2f}</text>')
+        parts.append(f'<text class="ax-tick num" x="50" y="{yy + 4:.0f}" text-anchor="end">{val:{tick_fmt}}</text>')
     parts.append('<line class="ax-line" x1="60" y1="40" x2="60" y2="300"/>')
     parts.append('<line class="ax-line" x1="60" y1="300" x2="700" y2="300"/>')
     if baseline is not None:

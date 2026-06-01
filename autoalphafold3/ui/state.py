@@ -129,6 +129,7 @@ class AutoresearchCandidate:
 
     trial_id: str
     status: str
+    planning_status: str
     candidate_id: str
     matched_budget_delta: str
     global_baseline_delta: str
@@ -205,6 +206,7 @@ class UiState:
                         {
                             "trial_id": c.trial_id,
                             "status": c.status,
+                            "planning_status": c.planning_status,
                             "candidate_id": c.candidate_id,
                             "matched_budget_delta": c.matched_budget_delta,
                             "global_baseline_delta": c.global_baseline_delta,
@@ -381,6 +383,10 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
             real_gate = _canonical_gate(canonical)
         real_ledger_from_canonical = _canonical_ledger(canonical)
 
+    autoresearch_trials = _autoresearch_trial_rows(autoresearch_runs)
+    autoresearch_logs = _autoresearch_logs(autoresearch_runs)
+    _add_trial_counts(counts, autoresearch_trials)
+
     return UiState(
         best=best,
         baseline=baseline,
@@ -401,8 +407,8 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         show_overlay=real_overlay is not None,
         show_ledger=bool(ledger_rows) or bool(real_ledger_from_canonical),
         source=f"{runs} ({source_kind})" if source_kind else str(runs),
-        trials=_build_trials(rows, baseline),
-        logs=_build_logs(rows),
+        trials=_build_trials(rows, baseline) + autoresearch_trials,
+        logs=_build_logs(rows) + autoresearch_logs,
         hypothesis=_featured_hypothesis(specs, {str(p.trial_id) for p in trajectory}),
         pending_trials=_pending_trial_rows(specs, {str(p.trial_id) for p in trajectory}),
         autoresearch_runs=autoresearch_runs,
@@ -456,7 +462,7 @@ def _autoresearch_trial_rows(runs: list[AutoresearchRun]) -> list[TrialRow]:
     rows: list[TrialRow] = []
     for run in runs:
         for candidate in run.candidates:
-            status, tone, cat = _autoresearch_status(candidate.status, candidate.provisional_keep)
+            status, tone, cat = _autoresearch_status(candidate.status, candidate.planning_status, candidate.provisional_keep)
             rows.append(
                 TrialRow(
                     trial_id=candidate.trial_id,
@@ -478,20 +484,35 @@ def _autoresearch_logs(runs: list[AutoresearchRun]) -> list[LogEvent]:
     for run in runs:
         events.append(LogEvent("", "info", "—", f"autoresearch run {run.run_id} loaded · planner {run.planner} · mode {run.mode}"))
         for candidate in run.candidates:
-            events.append(LogEvent("", "info", candidate.trial_id, f"{candidate.status} · matched Δ {candidate.matched_budget_delta} · global Δ {candidate.global_baseline_delta}"))
+            status, _, _ = _autoresearch_status(candidate.status, candidate.planning_status, candidate.provisional_keep)
+            events.append(LogEvent("", "info", candidate.trial_id, f"{status} · matched Δ {candidate.matched_budget_delta} · global Δ {candidate.global_baseline_delta}"))
     return events
 
 
-def _autoresearch_status(status: str, provisional_keep: bool) -> tuple[str, str, str]:
+def _autoresearch_status(status: str, planning_status: str, provisional_keep: bool) -> tuple[str, str, str]:
     if status == "KEEP" or provisional_keep:
         return "PROVISIONAL KEEP", "ok", "keep"
     if status == "DISCARD":
         return "DISCARD", "muted", "discard"
     if status in {"FAIL", "INFRA_FAIL"}:
         return status, "warn" if status == "FAIL" else "info", "fail"
-    if status == "PLANNED":
+    if status == "PLANNED" or (status == "DRAFT" and planning_status == "PLANNED"):
         return "PLANNED", "info", "pending"
     return status or "UNKNOWN", "muted", "other"
+
+
+def _add_trial_counts(counts: dict[str, int], rows: list[TrialRow]) -> None:
+    counts["trials"] += len(rows)
+    for row in rows:
+        if row.cat == "keep":
+            counts["keep"] += 1
+        elif row.cat == "discard":
+            counts["discard"] += 1
+        elif row.cat == "fail":
+            if row.status == "INFRA_FAIL":
+                counts["infra"] += 1
+            else:
+                counts["fail"] += 1
 
 
 @dataclass
@@ -570,15 +591,24 @@ def _load_autoresearch_runs(root: Path) -> list[AutoresearchRun]:
     if not root.exists():
         return []
     out: list[AutoresearchRun] = []
-    for summary_path in sorted(root.glob("*/summary.json")):
-        run_dir = summary_path.parent
+    root_resolved = root.resolve()
+    for run_dir in sorted(root.iterdir()):
+        if not run_dir.is_dir() or run_dir.is_symlink():
+            continue
+        try:
+            run_dir.resolve().relative_to(root_resolved)
+        except (OSError, ValueError):
+            continue
+        summary_path = run_dir / "summary.json"
+        if summary_path.is_symlink() or not summary_path.exists():
+            continue
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         if not isinstance(summary, dict):
             continue
-        manifest = _read_json_object(run_dir / "run_manifest.json")
+        manifest = _read_json_object(run_dir / "run_manifest.json", allow_symlink=False)
         candidates = []
         for item in summary.get("candidates", []) or []:
             if not isinstance(item, dict):
@@ -587,10 +617,11 @@ def _load_autoresearch_runs(root: Path) -> list[AutoresearchRun]:
                 AutoresearchCandidate(
                     trial_id=str(item.get("trial_id", "")),
                     status=str(item.get("status", "")),
+                    planning_status=str(item.get("planning_status", "")),
                     candidate_id=str(item.get("candidate_id", "")),
                     matched_budget_delta=_fmt_optional_delta(item.get("matched_budget_delta")),
                     global_baseline_delta=_fmt_optional_delta(item.get("global_baseline_delta")),
-                    provisional_keep=bool(item.get("provisional_keep", False)),
+                    provisional_keep=item.get("provisional_keep") is True,
                     decision_path=_rel_to(run_dir.parent.parent, item.get("decision_path")),
                     postmortem_path=_rel_to(run_dir.parent.parent, item.get("postmortem_path")),
                 )
@@ -602,15 +633,17 @@ def _load_autoresearch_runs(root: Path) -> list[AutoresearchRun]:
                 candidate_count=len(candidates),
                 planner=str(manifest.get("planner", "unknown")),
                 mode=str(manifest.get("mode", "unknown")),
-                official_benchmark_result=bool(summary.get("official_benchmark_result") or manifest.get("official_benchmark_result")),
+                official_benchmark_result=False,
                 candidates=candidates,
             )
         )
     return out
 
 
-def _read_json_object(path: Path) -> dict:
+def _read_json_object(path: Path, *, allow_symlink: bool = True) -> dict:
     if not path.exists():
+        return {}
+    if not allow_symlink and path.is_symlink():
         return {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))

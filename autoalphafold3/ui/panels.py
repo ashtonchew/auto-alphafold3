@@ -51,10 +51,11 @@ def autoresearch_section(s: UiState) -> str:
     rows = ""
     for run in s.autoresearch_runs:
         for c in run.candidates:
-            tone = "ok" if c.provisional_keep else ("info" if c.status == "PLANNED" else "muted")
+            is_planned = c.status == "PLANNED" or (c.status == "DRAFT" and c.planning_status == "PLANNED")
+            tone = "ok" if c.provisional_keep else ("info" if is_planned else "muted")
             if c.status in {"FAIL", "INFRA_FAIL"}:
                 tone = "warn"
-            status = "PROVISIONAL KEEP" if c.provisional_keep else c.status
+            status = "PROVISIONAL KEEP" if c.provisional_keep else ("PLANNED" if is_planned else c.status)
             rows += (
                 f"<tr><td>{esc(run.run_id)}</td>"
                 f'<td class="c-mono">{esc(c.trial_id)}</td>'
@@ -272,9 +273,9 @@ def trials_table(s: UiState) -> str:
         f'{esc(label)}<span class="n">{count(cat)}</span></button>'
         for cat, label in _FILTERS
     )
-    scored = s.counts.get("trials", len(s.trials))
-    pending = len(s.pending_trials)
-    total = scored + pending
+    total = len(all_trials)
+    scored = sum(1 for t in all_trials if t.score != "—")
+    pending = sum(1 for t in all_trials if t.cat == "pending")
     parts = []
     if scored:
         parts.append(f"{scored} scored")

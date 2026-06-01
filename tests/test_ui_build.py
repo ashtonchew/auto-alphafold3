@@ -214,10 +214,11 @@ def test_load_state_from_autoresearch_summary_without_fake_scores(tmp_path: Path
                 "candidates": [
                     {
                         "trial_id": "T120",
-                        "status": "PLANNED",
+                        "status": "DRAFT",
+                        "planning_status": "PLANNED",
                         "candidate_id": "T120",
-                        "decision_path": str(run / "candidates/T120/decision.json"),
-                        "postmortem_path": str(run / "candidates/T120/postmortem.md"),
+                        "decision_path": None,
+                        "postmortem_path": None,
                         "matched_budget_delta": None,
                         "global_baseline_delta": None,
                         "provisional_keep": False,
@@ -248,6 +249,8 @@ def test_load_state_from_autoresearch_summary_without_fake_scores(tmp_path: Path
     assert state.show_ledger is False
     assert state.autoresearch_runs[0].run_id == "ui-smoke"
     assert [t.trial_id for t in state.trials] == ["T120", "T121"]
+    assert state.trials[0].status == "PLANNED"
+    assert state.trials[0].cat == "pending"
     assert any(t.status == "PROVISIONAL KEEP" for t in state.trials)
 
     html = render_board(state)
@@ -275,10 +278,11 @@ def test_build_outputs_autoresearch_ui_state(tmp_path: Path) -> None:
                 "candidates": [
                     {
                         "trial_id": "T200",
-                        "status": "PLANNED",
+                        "status": "DRAFT",
+                        "planning_status": "PLANNED",
                         "candidate_id": "T200",
-                        "decision_path": str(run / "candidates/T200/decision.json"),
-                        "postmortem_path": str(run / "candidates/T200/postmortem.md"),
+                        "decision_path": None,
+                        "postmortem_path": None,
                         "matched_budget_delta": None,
                         "global_baseline_delta": None,
                         "provisional_keep": False,
@@ -294,5 +298,148 @@ def test_build_outputs_autoresearch_ui_state(tmp_path: Path) -> None:
     assert payload["is_sample"] is False
     assert payload["best_val_calpha_lddt"] is None
     assert payload["autoresearch_runs"][0]["run_id"] == "build-smoke"
+    assert payload["autoresearch_runs"][0]["official_benchmark_result"] is False
+    assert payload["autoresearch_runs"][0]["candidates"][0]["status"] == "DRAFT"
+    assert payload["autoresearch_runs"][0]["candidates"][0]["planning_status"] == "PLANNED"
     assert "build-smoke" in (out / "index.html").read_text(encoding="utf-8")
     assert "T200" in (out / "trials.html").read_text(encoding="utf-8")
+
+
+def test_autoresearch_rows_append_to_scored_trials_and_logs(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    (runs / "ledger.jsonl").write_text(
+        json.dumps(
+            {
+                "trial_id": "T001",
+                "status": "KEEP",
+                "candidate_id": "scored",
+                "fold_cartographer": {"signature": "good"},
+                "metrics": {"best_val_calpha_lddt": 0.39},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run = runs / "autoresearch" / "mixed"
+    run.mkdir(parents=True)
+    (run / "run_manifest.json").write_text(
+        json.dumps({"run_id": "mixed", "planner": "deterministic", "mode": "dry-run"}),
+        encoding="utf-8",
+    )
+    (run / "summary.json").write_text(
+        json.dumps(
+            {
+                "run_id": "mixed",
+                "candidates": [
+                    {
+                        "trial_id": "T130",
+                        "status": "DRAFT",
+                        "planning_status": "PLANNED",
+                        "candidate_id": "T130",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = load_state(runs)
+    assert state.best == 0.39
+    assert [t.trial_id for t in state.trials] == ["T001", "T130"]
+    assert state.counts["trials"] == 2
+    assert state.counts["keep"] == 1
+    assert any(event.trial == "T130" and event.message.startswith("PLANNED") for event in state.logs)
+    assert '<span class="v num">2</span><span class="k">candidates</span>' in render_board(state)
+    assert "4 trials (1 scored, 3 pending)." in render_trials(state)
+
+
+def test_autoresearch_summary_rejects_symlinked_runs(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "run_manifest.json").write_text(json.dumps({"run_id": "outside"}), encoding="utf-8")
+    (outside / "summary.json").write_text(
+        json.dumps({"run_id": "outside", "candidates": [{"trial_id": "T999", "status": "KEEP"}]}),
+        encoding="utf-8",
+    )
+    autoresearch = runs / "autoresearch"
+    autoresearch.mkdir(parents=True)
+    (autoresearch / "linked").symlink_to(outside, target_is_directory=True)
+
+    state = load_state(runs)
+    assert not state.autoresearch_runs
+    assert all(t.trial_id != "T999" for t in state.trials)
+
+
+def test_autoresearch_summary_ignores_symlinked_manifest(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    run = runs / "autoresearch" / "local-run"
+    run.mkdir(parents=True)
+    outside = tmp_path / "outside-manifest.json"
+    outside.write_text(json.dumps({"planner": "leaked", "mode": "external"}), encoding="utf-8")
+    (run / "run_manifest.json").symlink_to(outside)
+    (run / "summary.json").write_text(
+        json.dumps({"run_id": "local-run", "candidates": [{"trial_id": "T220", "status": "DRAFT", "planning_status": "PLANNED"}]}),
+        encoding="utf-8",
+    )
+
+    state = load_state(runs)
+    assert state.autoresearch_runs[0].planner == "unknown"
+    assert state.autoresearch_runs[0].mode == "unknown"
+    assert "leaked" not in render_board(state)
+
+
+def test_autoresearch_summary_cannot_promote_official_claims(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    run = runs / "autoresearch" / "bad-authority"
+    run.mkdir(parents=True)
+    (run / "run_manifest.json").write_text(
+        json.dumps({"run_id": "bad-authority", "planner": "llm", "mode": "dry-run", "official_benchmark_result": True}),
+        encoding="utf-8",
+    )
+    (run / "summary.json").write_text(
+        json.dumps(
+            {
+                "run_id": "bad-authority",
+                "official_benchmark_result": True,
+                "candidates": [{"trial_id": "T210", "status": "DRAFT", "planning_status": "PLANNED"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = load_state(runs)
+    assert state.autoresearch_runs[0].official_benchmark_result is False
+    assert state.to_json()["autoresearch_runs"][0]["official_benchmark_result"] is False
+    assert "Official benchmark result: false" in render_board(state)
+
+
+def test_autoresearch_summary_escapes_rendered_fields(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    run = runs / "autoresearch" / "xss"
+    run.mkdir(parents=True)
+    (run / "run_manifest.json").write_text(
+        json.dumps({"run_id": "xss", "planner": "<script>alert(1)</script>", "mode": "dry-run"}),
+        encoding="utf-8",
+    )
+    (run / "summary.json").write_text(
+        json.dumps(
+            {
+                "run_id": "xss",
+                "candidates": [
+                    {
+                        "trial_id": "<img src=x onerror=alert(1)>",
+                        "status": "<script>alert(2)</script>",
+                        "candidate_id": "bad",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    html = render_board(load_state(runs))
+    assert "<script>alert" not in html
+    assert "<img src=x" not in html
+    assert "&lt;script&gt;alert" in html

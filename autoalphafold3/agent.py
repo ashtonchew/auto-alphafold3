@@ -8,6 +8,7 @@ from pathlib import Path
 
 from autoalphafold3.orchestrator import poll_trial, submit_trial
 from autoalphafold3.autoresearch_loop import AutoresearchLoopError, run_autoresearch_loop
+from autoalphafold3.autoresearch_candidates import CandidateArtifactError
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
 from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
 from autoalphafold3.checkpoint_runner import CheckpointRunError, run_one_batch_checkpoint
@@ -304,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_plan=args.candidate_plan,
                 approval=args.approve,
             )
-        except AutoresearchLoopError as exc:
+        except (AutoresearchLoopError, CandidateArtifactError, OSError, ValueError) as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))

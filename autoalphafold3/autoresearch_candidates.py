@@ -2,20 +2,35 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import re
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from autoalphafold3.runner import validate_trial_id
-from autoalphafold3.schema import PRIMARY_METRIC, SCORER_VERSION
+from autoalphafold3.schema import PRIMARY_METRIC, SCORER_VERSION, TrialStatus
 
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 RUN_MANIFEST_SCHEMA = "autoaf3.autoresearch_run_manifest.v1"
 CANDIDATE_MANIFEST_SCHEMA = "autoaf3.autoresearch_candidate_manifest.v1"
 DECISION_SCHEMA = "autoaf3.autoresearch_decision.v1"
+DECISION_STATUSES = {
+    TrialStatus.KEEP.value,
+    TrialStatus.DISCARD.value,
+    TrialStatus.FAIL.value,
+    TrialStatus.INFRA_FAIL.value,
+}
+FORBIDDEN_TRUE_EVIDENCE_FLAGS = {
+    "official_benchmark_result",
+    "writes_baseline",
+    "writes_ledger",
+    "writes_discovery_ledger",
+    "starts_search",
+}
 
 
 class CandidateArtifactError(RuntimeError):
@@ -30,6 +45,7 @@ class CandidateEnvelope:
     trial_id: str
     root: Path
     candidate_dir: Path
+    candidate_id: str
 
     @property
     def hypothesis_path(self) -> Path:
@@ -107,6 +123,8 @@ def create_run_manifest(
 
     root = run_root(repo_root, run_id)
     _require_safe_run_root(root, run_id)
+    if (root / "run_manifest.json").exists():
+        raise CandidateArtifactError(f"run manifest already exists: {root / 'run_manifest.json'}")
     root.mkdir(parents=True, exist_ok=True)
     (root / "candidates").mkdir(exist_ok=True)
     manifest = {
@@ -159,28 +177,40 @@ def create_candidate_envelope(
     """Create one candidate artifact envelope with preregistered inputs."""
 
     checked_trial_id = validate_trial_id(trial_id)
+    if trial.get("trial_id") != checked_trial_id:
+        raise CandidateArtifactError(f"trial payload trial_id must match envelope trial_id: {checked_trial_id}")
     root = run_root(repo_root, run_id)
     if not (root / "run_manifest.json").exists():
         raise CandidateArtifactError(f"run manifest is missing: {root / 'run_manifest.json'}")
     candidate_dir = root / "candidates" / checked_trial_id
-    _require_empty_dir(candidate_dir)
-    candidate_dir.mkdir(parents=True)
+    temp_candidate_dir = root / "candidates" / f".{checked_trial_id}.{uuid.uuid4().hex}.tmp"
+    _require_missing_dir(candidate_dir)
+    _require_missing_dir(temp_candidate_dir)
+    temp_candidate_dir.mkdir(parents=True)
     envelope = CandidateEnvelope(
         run_id=validate_run_id(run_id),
         trial_id=checked_trial_id,
         root=root,
         candidate_dir=candidate_dir,
+        candidate_id=str(trial.get("candidate_id", checked_trial_id)),
     )
-    envelope.hypothesis_path.write_text(_require_text(hypothesis, "hypothesis"), encoding="utf-8")
-    envelope.patch_path.write_text(patch_text, encoding="utf-8")
-    _atomic_write_json(envelope.trial_path, trial)
+    temp_envelope = CandidateEnvelope(
+        run_id=envelope.run_id,
+        trial_id=envelope.trial_id,
+        root=envelope.root,
+        candidate_dir=temp_candidate_dir,
+        candidate_id=envelope.candidate_id,
+    )
+    _atomic_write_text(temp_envelope.hypothesis_path, _require_text(hypothesis, "hypothesis"))
+    _atomic_write_text(temp_envelope.patch_path, patch_text)
+    _atomic_write_json(temp_envelope.trial_path, trial)
     if config is not None:
-        _atomic_write_json(envelope.config_path, config)
+        _atomic_write_json(temp_envelope.config_path, config)
     manifest = {
         "schema_version": CANDIDATE_MANIFEST_SCHEMA,
         "run_id": envelope.run_id,
         "trial_id": envelope.trial_id,
-        "candidate_id": str(trial.get("candidate_id", envelope.trial_id)),
+        "candidate_id": envelope.candidate_id,
         "artifact_dir": str(envelope.candidate_dir),
         "trial_artifact_dir": str(Path("runs") / "trials" / envelope.trial_id),
         "primary_metric": PRIMARY_METRIC,
@@ -191,7 +221,8 @@ def create_candidate_envelope(
         "writes_discovery_ledger": False,
         "artifacts": _candidate_artifact_paths(envelope),
     }
-    _atomic_write_json(envelope.manifest_path, manifest)
+    _atomic_write_json(temp_envelope.manifest_path, manifest)
+    temp_candidate_dir.rename(candidate_dir)
     _update_run_candidate_count(root)
     return envelope
 
@@ -216,6 +247,7 @@ def write_candidate_evidence(
         (envelope.error_report_path, error_report),
     ):
         if payload is not None:
+            _refuse_authority_claims(payload, path.name)
             _atomic_write_json(path, payload)
             wrote.append(str(path))
     return wrote
@@ -232,11 +264,13 @@ def write_candidate_decision(
 ) -> dict[str, object]:
     """Write decision and postmortem evidence, then update summary/results."""
 
+    if status not in DECISION_STATUSES:
+        raise CandidateArtifactError(f"invalid candidate decision status: {status}")
     decision = {
         "schema_version": DECISION_SCHEMA,
         "run_id": envelope.run_id,
         "trial_id": envelope.trial_id,
-        "candidate_id": envelope.trial_id,
+        "candidate_id": envelope.candidate_id,
         "status": status,
         "primary_metric": PRIMARY_METRIC,
         "matched_budget_delta": matched_budget_delta,
@@ -251,9 +285,8 @@ def write_candidate_decision(
         "artifacts": _candidate_artifact_paths(envelope),
     }
     _atomic_write_json(envelope.decision_path, decision)
-    envelope.postmortem_path.write_text(_require_text(postmortem, "postmortem"), encoding="utf-8")
-    _append_results_row(envelope, decision)
-    _update_summary(envelope, decision)
+    _atomic_write_text(envelope.postmortem_path, _require_text(postmortem, "postmortem"))
+    _update_summary_and_results(envelope, decision)
     return decision
 
 
@@ -280,9 +313,9 @@ def _require_safe_run_root(root: Path, run_id: str) -> None:
         raise CandidateArtifactError(f"autoresearch artifacts must not use locked/generated run roots: {root}")
 
 
-def _require_empty_dir(path: Path) -> None:
-    if path.exists() and any(path.iterdir()):
-        raise CandidateArtifactError(f"candidate artifact directory is not empty: {path}")
+def _require_missing_dir(path: Path) -> None:
+    if path.exists():
+        raise CandidateArtifactError(f"candidate artifact directory already exists: {path}")
 
 
 def _require_text(value: str, label: str) -> str:
@@ -294,30 +327,43 @@ def _require_text(value: str, label: str) -> str:
 def _update_run_candidate_count(root: Path) -> None:
     manifest_path = root / "run_manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    payload["candidate_count"] = len(list((root / "candidates").iterdir()))
+    payload["candidate_count"] = len([path for path in (root / "candidates").iterdir() if not path.name.startswith(".")])
     _atomic_write_json(manifest_path, payload)
 
 
-def _append_results_row(envelope: CandidateEnvelope, decision: dict[str, object]) -> None:
-    with (envelope.root / "results.tsv").open("a", encoding="utf-8") as handle:
-        handle.write(
-            "\t".join(
+def _write_results(envelope: CandidateEnvelope, candidates: list[dict[str, object]]) -> None:
+    tmp = (envelope.root / "results.tsv").with_suffix(".tsv.tmp")
+    with tmp.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
+        writer.writerow(
+            [
+                "trial_id",
+                "candidate_id",
+                "status",
+                "primary_metric",
+                "matched_budget_delta",
+                "global_baseline_delta",
+                "provisional_keep",
+                "decision_path",
+            ]
+        )
+        for candidate in candidates:
+            writer.writerow(
                 [
-                    envelope.trial_id,
-                    str(decision["candidate_id"]),
-                    str(decision["status"]),
-                    str(decision["primary_metric"]),
-                    "" if decision["matched_budget_delta"] is None else str(decision["matched_budget_delta"]),
-                    "" if decision["global_baseline_delta"] is None else str(decision["global_baseline_delta"]),
-                    str(decision["provisional_keep"]).lower(),
-                    str(envelope.decision_path),
+                    candidate["trial_id"],
+                    candidate["candidate_id"],
+                    candidate["status"],
+                    PRIMARY_METRIC,
+                    "" if candidate["matched_budget_delta"] is None else candidate["matched_budget_delta"],
+                    "" if candidate["global_baseline_delta"] is None else candidate["global_baseline_delta"],
+                    str(candidate["provisional_keep"]).lower(),
+                    candidate["decision_path"],
                 ]
             )
-            + "\n"
-        )
+    tmp.replace(envelope.root / "results.tsv")
 
 
-def _update_summary(envelope: CandidateEnvelope, decision: dict[str, object]) -> None:
+def _update_summary_and_results(envelope: CandidateEnvelope, decision: dict[str, object]) -> None:
     summary_path = envelope.root / "summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     candidates = [item for item in summary.get("candidates", []) if item.get("trial_id") != envelope.trial_id]
@@ -333,6 +379,7 @@ def _update_summary(envelope: CandidateEnvelope, decision: dict[str, object]) ->
             "provisional_keep": decision["provisional_keep"],
         }
     )
+    _write_results(envelope, candidates)
     summary["candidates"] = candidates
     _atomic_write_json(summary_path, summary)
 
@@ -341,6 +388,25 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, allow_nan=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _refuse_authority_claims(payload: object, label: str) -> None:
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if key in FORBIDDEN_TRUE_EVIDENCE_FLAGS and value is not False:
+                raise CandidateArtifactError(f"{label} cannot claim {key}={value!r}")
+            if key == "live_modal_execution" and value is not False:
+                raise CandidateArtifactError(f"{label} cannot claim live_modal_execution={value!r}")
+            _refuse_authority_claims(value, label)
+    elif isinstance(payload, list):
+        for item in payload:
+            _refuse_authority_claims(item, label)
 
 
 def _current_branch(repo_root: str | Path) -> str:

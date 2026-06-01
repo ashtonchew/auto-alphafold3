@@ -7,8 +7,11 @@ import json
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from autoalphafold3.llm_policy import DEFAULT_LLM_MODEL, AgentSearchPhase, default_llm_phase_policy
 from autoalphafold3.patch_policy import PatchPolicyError, validate_patch_scope
 from autoalphafold3.autoresearch_candidates import (
     create_candidate_envelope,
@@ -45,6 +48,54 @@ class AutoresearchLoopError(RuntimeError):
     """Raised when autoresearch planning cannot proceed safely."""
 
 
+class AutoresearchPlanner(Protocol):
+    """Injected planner seam for tests and future harness-owned LLM calls."""
+
+    def plan(
+        self,
+        *,
+        run_id: str,
+        trial_id: str,
+        candidate_index: int,
+        model: str,
+        policy: dict[str, dict[str, object]],
+        base_commit: str,
+    ) -> "AutoresearchCandidatePlan":
+        """Return one structured autoresearch candidate."""
+
+
+class AutoresearchCandidatePlan(BaseModel):
+    """Strict LLM/recorded plan for exactly one autoresearch candidate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hypothesis: str = Field(min_length=20)
+    trial: dict[str, object]
+    changed_paths: list[str] = Field(min_length=1)
+    config: dict[str, object] | None = None
+    patch_text: str = ""
+    rationale: str = Field(min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_multi_candidate_shape(cls, value: object) -> object:
+        if isinstance(value, dict) and "candidates" in value:
+            raise ValueError("LLM autoresearch planner must return exactly one candidate")
+        return value
+
+    @model_validator(mode="after")
+    def validate_one_move_contract(self) -> "AutoresearchCandidatePlan":
+        if not isinstance(self.trial.get("trial_id"), str):
+            raise ValueError("LLM candidate trial must include trial_id")
+        if not isinstance(self.trial.get("move_family"), str):
+            raise ValueError("LLM candidate trial must include one move_family")
+        if not isinstance(self.trial.get("diagnostic_target"), str):
+            raise ValueError("LLM candidate trial must include one diagnostic_target")
+        if self.config is not None and self.config.get("max_templates", 0) != 0:
+            raise ValueError("LLM candidate config must preserve max_templates=0")
+        return self
+
+
 @dataclass(frozen=True)
 class AutoresearchLoopResult:
     """JSON-friendly autoresearch planning result."""
@@ -58,6 +109,7 @@ class AutoresearchLoopResult:
     candidate_dirs: list[str]
     decisions: list[dict[str, object]]
     wrote_files: list[str]
+    llm_policy: dict[str, dict[str, object]] | None
     starts_search: bool
     writes_ledger: bool
     writes_discovery_ledger: bool
@@ -77,12 +129,14 @@ def run_autoresearch_loop(
     max_candidates: int = 6,
     candidate_plan: str | Path | None = None,
     approval: str | None = None,
+    model: str = DEFAULT_LLM_MODEL,
+    planner_client: AutoresearchPlanner | None = None,
 ) -> AutoresearchLoopResult:
     """Plan manual or deterministic autoresearch candidates without live execution."""
 
     if mode not in {"dry-run", "modal"}:
         raise AutoresearchLoopError(f"unsupported autoresearch mode: {mode}")
-    if planner not in {"manual", "deterministic"}:
+    if planner not in {"manual", "deterministic", "llm"}:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
     if mode == "modal":
         if approval != APPROVAL_TEXT:
@@ -91,10 +145,18 @@ def run_autoresearch_loop(
 
     root = Path(repo_root)
     base_commit = _git_head(root)
-    planned = (
-        _manual_candidates(root=root, candidate_plan=candidate_plan)
-        if planner == "manual"
-        else _deterministic_candidates(start_trial_id=start_trial_id, max_candidates=max_candidates, base_commit=base_commit)
+    llm_policy = _llm_policy_specs(model) if planner == "llm" else None
+    planned = _planned_candidates(
+        root=root,
+        planner=planner,
+        run_id=run_id,
+        start_trial_id=start_trial_id,
+        max_candidates=max_candidates,
+        candidate_plan=candidate_plan,
+        base_commit=base_commit,
+        model=model,
+        llm_policy=llm_policy,
+        planner_client=planner_client,
     )
     for candidate in planned:
         trial = AutoFoldTrial.model_validate(candidate["trial"])
@@ -162,11 +224,44 @@ def run_autoresearch_loop(
         candidate_dirs=candidate_dirs,
         decisions=decisions,
         wrote_files=wrote_files,
+        llm_policy=llm_policy,
         starts_search=False,
         writes_ledger=False,
         writes_discovery_ledger=False,
         pending_live_action=f"modal mode requires --approve {APPROVAL_TEXT}",
     )
+
+
+def _planned_candidates(
+    *,
+    root: Path,
+    planner: str,
+    run_id: str,
+    start_trial_id: str,
+    max_candidates: int,
+    candidate_plan: str | Path | None,
+    base_commit: str,
+    model: str,
+    llm_policy: dict[str, dict[str, object]] | None,
+    planner_client: AutoresearchPlanner | None,
+) -> list[dict[str, object]]:
+    if planner == "manual":
+        return _manual_candidates(root=root, candidate_plan=candidate_plan)
+    if planner == "deterministic":
+        return _deterministic_candidates(start_trial_id=start_trial_id, max_candidates=max_candidates, base_commit=base_commit)
+    if planner == "llm":
+        return _llm_candidates(
+            root=root,
+            run_id=run_id,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            candidate_plan=candidate_plan,
+            base_commit=base_commit,
+            model=model,
+            llm_policy=llm_policy or {},
+            planner_client=planner_client,
+        )
+    raise AutoresearchLoopError(f"unsupported autoresearch planner: {planner}")
 
 
 def _deterministic_candidates(*, start_trial_id: str, max_candidates: int, base_commit: str) -> list[dict[str, object]]:
@@ -210,13 +305,7 @@ def _deterministic_candidates(*, start_trial_id: str, max_candidates: int, base_
 def _manual_candidates(*, root: Path, candidate_plan: str | Path | None) -> list[dict[str, object]]:
     if candidate_plan is None:
         raise AutoresearchLoopError("manual planner requires --candidate-plan")
-    path = Path(candidate_plan)
-    if path.is_absolute() or ".." in path.parts:
-        raise AutoresearchLoopError("manual candidate plan must be a repo-relative path without traversal")
-    path = root / path
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise AutoresearchLoopError("manual candidate plan must be a JSON object")
+    payload = _read_candidate_plan(root=root, candidate_plan=candidate_plan)
     candidates = payload.get("candidates", [payload])
     if not isinstance(candidates, list) or not candidates:
         raise AutoresearchLoopError("manual candidate plan must contain at least one candidate")
@@ -241,6 +330,83 @@ def _manual_candidates(*, root: Path, candidate_plan: str | Path | None) -> list
             }
         )
     return checked
+
+
+def _llm_candidates(
+    *,
+    root: Path,
+    run_id: str,
+    start_trial_id: str,
+    max_candidates: int,
+    candidate_plan: str | Path | None,
+    base_commit: str,
+    model: str,
+    llm_policy: dict[str, dict[str, object]],
+    planner_client: AutoresearchPlanner | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("LLM autoresearch planner authors exactly one candidate per run")
+    if planner_client is None and candidate_plan is None:
+        raise AutoresearchLoopError("LLM autoresearch CLI planning requires --candidate-plan recorded output; live LLM planning is not enabled")
+    if planner_client is not None:
+        try:
+            raw_plan = planner_client.plan(
+                run_id=run_id,
+                trial_id=start_trial_id,
+                candidate_index=0,
+                model=model,
+                policy=llm_policy,
+                base_commit=base_commit,
+            )
+        except Exception as exc:  # noqa: BLE001 - planner failures must stop before artifacts.
+            raise AutoresearchLoopError(f"LLM autoresearch planner failed: {exc}") from exc
+    else:
+        raw_plan = _read_candidate_plan(root=root, candidate_plan=candidate_plan)
+    try:
+        plan = AutoresearchCandidatePlan.model_validate(raw_plan)
+        AutoFoldTrial.model_validate(plan.trial)
+        validate_patch_scope(plan.changed_paths, repo_root=root, allow_empty=True)
+    except (ValueError, PatchPolicyError) as exc:
+        raise AutoresearchLoopError(f"invalid LLM autoresearch plan: {exc}") from exc
+    if plan.config is not None:
+        _refuse_plan_authority_claims(plan.config, "LLM config")
+        _refuse_template_config(plan.config)
+    _refuse_unsafe_patch_text(root=root, patch_text=plan.patch_text)
+    return [
+        {
+            "hypothesis": plan.hypothesis,
+            "trial": plan.trial,
+            "config": plan.config,
+            "patch_text": plan.patch_text,
+        }
+    ]
+
+
+def _read_candidate_plan(*, root: Path, candidate_plan: str | Path | None) -> dict[str, object]:
+    if candidate_plan is None:
+        raise AutoresearchLoopError("candidate plan path is required")
+    path = Path(candidate_plan)
+    if path.is_absolute() or ".." in path.parts:
+        raise AutoresearchLoopError("candidate plan must be a repo-relative path without traversal")
+    path = root / path
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("candidate plan must be a JSON object")
+    return payload
+
+
+def _llm_policy_specs(model: str) -> dict[str, dict[str, object]]:
+    policies = {
+        AgentSearchPhase.HYPOTHESIS_GENERATION: default_llm_phase_policy(
+            AgentSearchPhase.HYPOTHESIS_GENERATION,
+            model=model,
+        ),
+        AgentSearchPhase.PATCH_PLANNING: default_llm_phase_policy(
+            AgentSearchPhase.PATCH_PLANNING,
+            model=model,
+        ),
+    }
+    return {phase.value: policy.to_responses_create_kwargs() for phase, policy in policies.items()}
 
 
 def _trial_payload(

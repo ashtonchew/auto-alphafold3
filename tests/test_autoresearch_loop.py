@@ -7,9 +7,66 @@ from pathlib import Path
 
 import pytest
 
-from autoalphafold3.autoresearch_loop import APPROVAL_TEXT, AutoresearchLoopError, run_autoresearch_loop
+from autoalphafold3.autoresearch_loop import (
+    APPROVAL_TEXT,
+    AutoresearchCandidatePlan,
+    AutoresearchLoopError,
+    run_autoresearch_loop,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+class FakeLLMPlanner:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+        self.calls: list[dict[str, object]] = []
+
+    def plan(self, **kwargs: object) -> AutoresearchCandidatePlan:
+        self.calls.append(kwargs)
+        return AutoresearchCandidatePlan.model_validate(self.payload)
+
+
+def _llm_candidate_payload(*, changed_paths: list[str] | None = None) -> dict[str, object]:
+    trial_id = "T120"
+    return {
+        "hypothesis": "LLM planner tests one local geometry loss candidate without starting live search.",
+        "rationale": "Exercise the strict one-candidate planning seam with patch policy before artifacts.",
+        "changed_paths": changed_paths if changed_paths is not None else ["configs/experiments/llm_geometry.json"],
+        "trial": {
+            "trial_id": trial_id,
+            "parent_commit": "abc1234",
+            "agent_session_id": "pytest-llm",
+            "trial_kind": "training",
+            "hypothesis": "LLM planner tests one local geometry loss candidate without starting live search.",
+            "move_family": "geometry_loss",
+            "diagnostic_target": "local_geometry_weak",
+            "prediction": {
+                "causal_component": "local_calpha_geometry_loss",
+                "predicted_axis": "local_geometry",
+                "predicted_direction": "up",
+                "expected_lddt_delta_band": [0.001, 0.01],
+            },
+            "patch_path": None,
+            "config_path": "configs/experiments/llm_geometry.json",
+            "budget": "smoke",
+            "seed": 0,
+            "n_res": 32,
+            "max_steps": 10,
+            "max_wall_minutes": 5,
+            "manifest_hashes": {},
+            "scorer_version": "calpha_lddt_v1",
+            "primary_metric": "best_val_calpha_lddt",
+            "param_cap": 176514,
+            "gpu_memory_cap": 80.0,
+            "cost_cap": 2.0,
+            "timeout_cap": 300,
+            "artifact_dir": f"runs/trials/{trial_id}",
+            "checkpoint_path": None,
+        },
+        "config": {"config_path": "configs/experiments/llm_geometry.json", "max_templates": 0},
+        "patch_text": "diff --git a/configs/experiments/llm_geometry.json b/configs/experiments/llm_geometry.json\n",
+    }
 
 
 def test_deterministic_autoresearch_ladder_plans_t120_to_t125(tmp_path: Path) -> None:
@@ -504,3 +561,147 @@ def test_autoresearch_loop_cli_duplicate_run_is_structured_json(tmp_path: Path) 
     payload = json.loads(result.stdout)
     assert payload["status"] == "FAIL"
     assert "already exists" in payload["error"]
+
+
+def test_llm_autoresearch_planner_accepts_exactly_one_candidate(tmp_path: Path) -> None:
+    fake = FakeLLMPlanner(_llm_candidate_payload())
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="llm-one",
+        mode="dry-run",
+        planner="llm",
+        max_candidates=1,
+        planner_client=fake,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T120"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    assert result.llm_policy is not None
+    assert result.llm_policy["hypothesis_generation"]["tools"] == [{"type": "web_search", "search_context_size": "medium"}]
+    assert result.llm_policy["patch_planning"]["tools"] == []
+    assert fake.calls[0]["policy"] == result.llm_policy
+    candidate_dir = tmp_path / "runs/autoresearch/llm-one/candidates/T120"
+    assert (candidate_dir / "trial.json").exists()
+    summary = json.loads((tmp_path / "runs/autoresearch/llm-one/summary.json").read_text(encoding="utf-8"))
+    assert summary["candidates"][0]["status"] == "DRAFT"
+    assert not (candidate_dir / "decision.json").exists()
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/baseline").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_llm_autoresearch_rejects_multi_candidate_shape_before_writing(tmp_path: Path) -> None:
+    candidate_plan = tmp_path / "configs/experiments/multi.json"
+    candidate_plan.parent.mkdir(parents=True)
+    candidate_plan.write_text(
+        json.dumps({"candidates": [_llm_candidate_payload(), _llm_candidate_payload()]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AutoresearchLoopError, match="exactly one"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-multi",
+            mode="dry-run",
+            planner="llm",
+            max_candidates=1,
+            candidate_plan="configs/experiments/multi.json",
+        )
+
+    assert not (tmp_path / "runs/autoresearch/llm-multi").exists()
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+
+
+def test_llm_autoresearch_refuses_locked_surface_before_artifacts(tmp_path: Path) -> None:
+    fake = FakeLLMPlanner(_llm_candidate_payload(changed_paths=["autoalphafold3/scorer/calpha_lddt.py"]))
+
+    with pytest.raises(AutoresearchLoopError, match="locked during search"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-locked",
+            mode="dry-run",
+            planner="llm",
+            max_candidates=1,
+            planner_client=fake,
+        )
+
+    assert not (tmp_path / "runs/autoresearch/llm-locked").exists()
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/baseline").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_llm_autoresearch_cli_requires_recorded_plan(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "autoalphafold3.agent",
+            "autoresearch-loop",
+            "--repo-root",
+            str(tmp_path),
+            "--run-id",
+            "cli-llm-missing",
+            "--mode",
+            "dry-run",
+            "--planner",
+            "llm",
+            "--max-candidates",
+            "1",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "FAIL"
+    assert "requires --candidate-plan" in payload["error"]
+    assert not (tmp_path / "runs/autoresearch/cli-llm-missing").exists()
+
+
+def test_llm_autoresearch_cli_consumes_recorded_plan(tmp_path: Path) -> None:
+    candidate_plan = tmp_path / "configs/experiments/recorded-llm.json"
+    candidate_plan.parent.mkdir(parents=True)
+    candidate_plan.write_text(json.dumps(_llm_candidate_payload()), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "autoalphafold3.agent",
+            "autoresearch-loop",
+            "--repo-root",
+            str(tmp_path),
+            "--run-id",
+            "cli-llm-recorded",
+            "--mode",
+            "dry-run",
+            "--planner",
+            "llm",
+            "--max-candidates",
+            "1",
+            "--candidate-plan",
+            "configs/experiments/recorded-llm.json",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "PLANNED"
+    assert payload["planner"] == "llm"
+    assert payload["generated_trials"] == ["T120"]
+    assert payload["llm_policy"]["patch_planning"]["tools"] == []
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()

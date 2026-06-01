@@ -34,3 +34,17 @@
   reported 41 passed.
 - Full local validation passed:
   `python3 -m pytest -p no:cacheprovider` reported 300 passed, 1 skipped.
+
+## 2026-06-01 PR 3
+
+- Added config-driven NanoFold loss weights with defaults matching the prior
+  hard-coded total loss.
+- Added differentiable local C-alpha pair-distance loss in the approved
+  NanoFold training surface.
+- Added `configs/experiments/local_calpha_geometry_smoke.json` for bounded
+  fixture smoke experiments with nonzero geometry-loss weight.
+- Targeted validation passed:
+  `python3 -m pytest -p no:cacheprovider tests/test_nanofold_geometry_loss.py tests/test_short_training.py tests/test_checkpoint_training.py tests/test_nanofold_adapter.py -q`
+  reported 48 passed.
+- Full local validation passed:
+  `python3 -m pytest -p no:cacheprovider` reported 310 passed, 1 skipped.

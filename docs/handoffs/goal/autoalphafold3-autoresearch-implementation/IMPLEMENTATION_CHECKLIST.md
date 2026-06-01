@@ -14,10 +14,10 @@
 - [x] Short-training runner rejects non-empty output directories.
 - [x] Fixture-backed 2-3 step short-training test passes.
 - [x] Local scaffold mode cannot stamp official benchmark evidence.
-- [ ] Config-driven NanoFold loss weights implemented.
-- [ ] Defaults preserve current loss behavior when new weights are zero.
-- [ ] Differentiable local C-alpha geometry loss implemented.
-- [ ] Local C-alpha geometry loss has finite-value and masking tests.
+- [x] Config-driven NanoFold loss weights implemented.
+- [x] Defaults preserve current loss behavior when new weights are zero.
+- [x] Differentiable local C-alpha geometry loss implemented.
+- [x] Local C-alpha geometry loss has finite-value and masking tests.
 - [ ] Candidate artifact envelope implemented.
 - [ ] Candidate patch snapshots implemented.
 - [ ] Safe git keep/revert wrapper implemented.

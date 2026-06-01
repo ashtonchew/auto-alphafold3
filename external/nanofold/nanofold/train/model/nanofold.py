@@ -48,11 +48,17 @@ class Nanofold(nn.Module):
         num_diffusion_transformer_heads,
         fourier_embedding_size,
         num_distogram_bins,
+        diffusion_loss_weight=4.0,
+        distogram_loss_weight=0.03,
+        local_calpha_geometry_loss_weight=0.0,
     ):
         super().__init__()
 
         self.use_grad_checkpoint = use_grad_checkpoint
         self.num_recycle = num_recycle
+        self.diffusion_loss_weight = diffusion_loss_weight
+        self.distogram_loss_weight = distogram_loss_weight
+        self.local_calpha_geometry_loss_weight = local_calpha_geometry_loss_weight
         self.nanofold_input = torch.compile(
             NanofoldInput(
                 single_embedding_size,
@@ -163,6 +169,12 @@ class Nanofold(nn.Module):
             "num_diffusion_transformer_heads": config["num_diffusion_transformer_heads"],
             "fourier_embedding_size": config["fourier_embedding_size"],
             "num_distogram_bins": config["num_distogram_bins"],
+            "diffusion_loss_weight": config.get("diffusion_loss_weight", 4.0),
+            "distogram_loss_weight": config.get(
+                "distogram_loss_weight",
+                config.get("dist_loss_weight", 0.03),
+            ),
+            "local_calpha_geometry_loss_weight": config.get("local_calpha_geometry_loss_weight", 0.0),
         }
 
     @classmethod
@@ -176,8 +188,12 @@ class Nanofold(nn.Module):
             )
         return module(*args)
 
-    def get_total_loss(self, diffusion_loss, dist_loss):
-        return 4 * diffusion_loss + 0.03 * dist_loss
+    def get_total_loss(self, diffusion_loss, dist_loss, local_calpha_geometry_loss):
+        return (
+            self.diffusion_loss_weight * diffusion_loss
+            + self.distogram_loss_weight * dist_loss
+            + self.local_calpha_geometry_loss_weight * local_calpha_geometry_loss
+        )
 
     def forward(self, features):
         num_recycle = (
@@ -207,5 +223,9 @@ class Nanofold(nn.Module):
         return {
             **diffusion_losses,
             "dist_loss": dist_loss,
-            "total_loss": self.get_total_loss(diffusion_losses["diffusion_loss"], dist_loss),
+            "total_loss": self.get_total_loss(
+                diffusion_losses["diffusion_loss"],
+                dist_loss,
+                diffusion_losses["local_calpha_geometry_loss"],
+            ),
         }

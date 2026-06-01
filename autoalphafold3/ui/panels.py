@@ -47,6 +47,38 @@ def metric_band(s: UiState) -> str:
     )
 
 
+def autoresearch_section(s: UiState) -> str:
+    rows = ""
+    for run in s.autoresearch_runs:
+        for c in run.candidates:
+            tone = "ok" if c.provisional_keep else ("info" if c.status == "PLANNED" else "muted")
+            if c.status in {"FAIL", "INFRA_FAIL"}:
+                tone = "warn"
+            status = "PROVISIONAL KEEP" if c.provisional_keep else c.status
+            rows += (
+                f"<tr><td>{esc(run.run_id)}</td>"
+                f'<td class="c-mono">{esc(c.trial_id)}</td>'
+                f"<td>{esc(run.planner)}</td>"
+                f'<td class="r c-d muted num">{esc(c.matched_budget_delta)}</td>'
+                f'<td class="r c-d muted num">{esc(c.global_baseline_delta)}</td>'
+                f'<td class="r">{status_pill(status, tone)}</td></tr>'
+            )
+    official = any(run.official_benchmark_result for run in s.autoresearch_runs)
+    note = (
+        "Official benchmark result: false. These rows are autoresearch planning/evidence artifacts, "
+        "not canonical scorer ledger entries or Discovery Ledger records."
+        if not official
+        else "Official benchmark flag present; verify scorer-owned evidence before making claims."
+    )
+    return (
+        '<h2 class="block-title">Autoresearch evidence</h2>'
+        f'<div class="block-sub">{esc(note)}</div>'
+        '<table class="dtable"><thead><tr><th>Run</th><th>Trial</th><th>Planner</th>'
+        '<th class="r">Matched Δ</th><th class="r">Global Δ</th><th class="r">Status</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
 def trajectory_section(s: UiState) -> tuple[str, str]:
     svg, traj_json = components.trajectory_chart(s.trajectory, s.baseline)
     killed = s.counts.get("killed", 0)

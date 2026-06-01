@@ -187,3 +187,112 @@ def test_real_ledger_populates_trials_and_logs(tmp_path: Path) -> None:
     assert [t.trial_id for t in state.trials] == ["T001", "T002"]
     assert any(t.runtime == "8m 12s" for t in state.trials)  # 492s formatted
     assert any(e.message.startswith("scored") for e in state.logs)
+
+
+def test_load_state_from_autoresearch_summary_without_fake_scores(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    run = runs / "autoresearch" / "ui-smoke"
+    run.mkdir(parents=True)
+    (run / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.autoresearch_run_manifest.v1",
+                "run_id": "ui-smoke",
+                "planner": "deterministic",
+                "mode": "dry-run",
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run / "summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.autoresearch_summary.v1",
+                "run_id": "ui-smoke",
+                "official_benchmark_result": False,
+                "candidates": [
+                    {
+                        "trial_id": "T120",
+                        "status": "PLANNED",
+                        "candidate_id": "T120",
+                        "decision_path": str(run / "candidates/T120/decision.json"),
+                        "postmortem_path": str(run / "candidates/T120/postmortem.md"),
+                        "matched_budget_delta": None,
+                        "global_baseline_delta": None,
+                        "provisional_keep": False,
+                    },
+                    {
+                        "trial_id": "T121",
+                        "status": "KEEP",
+                        "candidate_id": "T121",
+                        "decision_path": str(run / "candidates/T121/decision.json"),
+                        "postmortem_path": str(run / "candidates/T121/postmortem.md"),
+                        "matched_budget_delta": 0.004,
+                        "global_baseline_delta": None,
+                        "provisional_keep": True,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run / "results.tsv").write_text("trial_id\tcandidate_id\tstatus\nT120\tT120\tPLANNED\n", encoding="utf-8")
+
+    state = load_state(runs)
+    assert state.is_sample is False
+    assert state.best is None
+    assert state.baseline is None
+    assert state.counts["trials"] == 2
+    assert state.counts["keep"] == 1
+    assert state.show_ledger is False
+    assert state.autoresearch_runs[0].run_id == "ui-smoke"
+    assert [t.trial_id for t in state.trials] == ["T120", "T121"]
+    assert any(t.status == "PROVISIONAL KEEP" for t in state.trials)
+
+    html = render_board(state)
+    assert "Autoresearch evidence" in html
+    assert "Official benchmark result: false" in html
+    assert "T120" in html and "T121" in html
+    assert "0.343" not in html
+    assert "baseline 0.325" not in html
+    assert '<h2 class="block-title">Discovery Ledger</h2>' not in html
+
+
+def test_build_outputs_autoresearch_ui_state(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    run = runs / "autoresearch" / "build-smoke"
+    run.mkdir(parents=True)
+    (run / "run_manifest.json").write_text(
+        json.dumps({"run_id": "build-smoke", "planner": "llm", "mode": "dry-run", "official_benchmark_result": False}),
+        encoding="utf-8",
+    )
+    (run / "summary.json").write_text(
+        json.dumps(
+            {
+                "run_id": "build-smoke",
+                "official_benchmark_result": False,
+                "candidates": [
+                    {
+                        "trial_id": "T200",
+                        "status": "PLANNED",
+                        "candidate_id": "T200",
+                        "decision_path": str(run / "candidates/T200/decision.json"),
+                        "postmortem_path": str(run / "candidates/T200/postmortem.md"),
+                        "matched_budget_delta": None,
+                        "global_baseline_delta": None,
+                        "provisional_keep": False,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = build(tmp_path / "ui", runs_dir=runs)
+    payload = json.loads((out / "ui_state.json").read_text(encoding="utf-8"))
+    assert payload["is_sample"] is False
+    assert payload["best_val_calpha_lddt"] is None
+    assert payload["autoresearch_runs"][0]["run_id"] == "build-smoke"
+    assert "build-smoke" in (out / "index.html").read_text(encoding="utf-8")
+    assert "T200" in (out / "trials.html").read_text(encoding="utf-8")

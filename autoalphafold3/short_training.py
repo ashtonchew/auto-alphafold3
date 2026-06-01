@@ -5,10 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import sys
 import time
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from autoalphafold3.config_contract import validate_config_file
 from autoalphafold3.nanofold_adapter import NANOFOLD_PATH, load_nanofold_config
@@ -21,10 +24,10 @@ TRAINING_LOG_SCHEMA = "autoaf3.training_log.v1"
 DEFAULT_SHORT_TRAINING_MANIFEST = "short_training_manifest.json"
 DEFAULT_LOSS_HISTORY = "loss_history.json"
 DEFAULT_CHECKPOINT = "checkpoint.pt"
+APPROVAL_TEXT = "I_APPROVE_SHORT_TRAINING_TRIAL"
 MAX_STEPS_BY_BUDGET = {
     "smoke": 10,
     "trial": 250,
-    "debug": 250,
     "dry_run": 0,
 }
 
@@ -65,6 +68,7 @@ def short_training_payload(
         "artifact_dir": artifact_dir,
         "max_templates": 0,
         "local_only": local_only,
+        "short_training_approval": APPROVAL_TEXT,
     }
 
 
@@ -83,10 +87,14 @@ def run_short_nanofold_training(
     root = Path(repo_root)
     trial_id = validate_trial_id(str(payload.get("trial_id", "")))
     candidate_id = str(payload.get("candidate_id", trial_id))
+    if payload.get("trial_kind") != "training":
+        raise ShortTrainingError("short training requires trial_kind=training")
     max_steps = _require_positive_int(payload.get("max_steps"), name="max_steps")
     seed = _require_nonnegative_int(payload.get("seed", 0), name="seed")
     if payload.get("max_templates") != 0:
         raise ShortTrainingError("short training must preserve max_templates=0")
+    if payload.get("short_training_approval") != APPROVAL_TEXT:
+        raise ShortTrainingError(f"short training requires approval {APPROVAL_TEXT}")
     budget = str(payload.get("budget", ""))
     _require_budget_cap(max_steps=max_steps, budget=budget)
 
@@ -106,15 +114,18 @@ def run_short_nanofold_training(
 
     relative_features_path = Path(str(payload.get("features_path", "")))
     _reject_unsafe_relative_path(relative_features_path, label="features_path")
+    _reject_unsafe_path(Path(features_dir), label="features_dir")
     feature_file = Path(features_dir) / relative_features_path
     if not feature_file.exists():
         raise ShortTrainingError(f"short training feature file is missing: {feature_file}")
+    feature_sha256 = _sha256_file(feature_file)
 
     _ensure_nanofold_import_path(root)
     from nanofold.train.chain_dataset import ChainDataset
     from nanofold.train.trainer import Trainer
 
     torch.manual_seed(seed)
+    np.random.seed(seed)
     train, _held_out = ChainDataset.construct_datasets(
         feature_file,
         config["train_split"],
@@ -175,6 +186,7 @@ def run_short_nanofold_training(
         "seed": seed,
         "config_path": config_path,
         "features_path": str(feature_file),
+        "feature_sha256": feature_sha256,
         "checkpoint_path": str(checkpoint_path),
         "checkpoint_sha256": checkpoint_sha256,
         "checkpoint_size_bytes": checkpoint_path.stat().st_size,
@@ -253,15 +265,38 @@ def validate_short_training_manifest(payload: object) -> dict[str, object]:
     steps = _require_positive_int(payload.get("training_steps"), name="training_steps")
     if payload.get("max_steps") != steps:
         raise ShortTrainingError("short training manifest max_steps must match training_steps")
-    checkpoint_path = payload.get("checkpoint_path")
-    if (
-        not isinstance(checkpoint_path, str)
-        or "runs/trials" not in checkpoint_path
-        or not checkpoint_path.endswith("/checkpoint.pt")
-    ):
-        raise ShortTrainingError("short training checkpoint_path must be trial-scoped and end in checkpoint.pt")
+    trial_id = str(payload["trial_id"])
+    budget = str(payload.get("budget", ""))
+    _require_budget_cap(max_steps=steps, budget=budget)
+    feature_sha256 = payload.get("feature_sha256")
+    if not isinstance(feature_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", feature_sha256) is None:
+        raise ShortTrainingError("short training manifest missing feature_sha256")
+    _require_trial_artifact_path(
+        payload.get("checkpoint_path"),
+        trial_id=trial_id,
+        filename="checkpoint.pt",
+        label="checkpoint_path",
+    )
+    _require_trial_artifact_path(
+        payload.get("loss_history_path"),
+        trial_id=trial_id,
+        filename=DEFAULT_LOSS_HISTORY,
+        label="loss_history_path",
+    )
+    _require_trial_artifact_path(
+        payload.get("training_log_path"),
+        trial_id=trial_id,
+        filename="training_log.json",
+        label="training_log_path",
+    )
+    _require_trial_artifact_path(
+        payload.get("artifact_manifest_path"),
+        trial_id=trial_id,
+        filename="artifact_manifest.json",
+        label="artifact_manifest_path",
+    )
     sha = payload.get("checkpoint_sha256")
-    if not isinstance(sha, str) or len(sha) != 64:
+    if not isinstance(sha, str) or re.fullmatch(r"[0-9a-f]{64}", sha) is None:
         raise ShortTrainingError("short training manifest missing checkpoint_sha256")
     final_losses = payload.get("final_losses")
     if not isinstance(final_losses, dict) or "total_loss" not in final_losses:
@@ -321,24 +356,52 @@ def _ensure_nanofold_import_path(repo_root: Path) -> None:
 
 def _require_trial_output_dir(path: Path, trial_id: str) -> None:
     expected_suffix = Path("runs") / "trials" / trial_id
-    as_posix = path.as_posix()
+    if ".." in path.parts:
+        raise ShortTrainingError(f"short training output must not contain parent traversal: {path}")
+    normalized = path.resolve(strict=False)
+    as_posix = normalized.as_posix()
     if "runs/baseline" in as_posix:
         raise ShortTrainingError("short training must not write runs/baseline")
-    if path.name != trial_id or "runs/trials" not in as_posix:
+    if "runs/trials" not in as_posix:
         raise ShortTrainingError(f"short training output must be trial-scoped under runs/trials/{trial_id}: {path}")
-    if path.exists() and any(path.iterdir()):
+    if normalized.name != trial_id:
+        raise ShortTrainingError(f"short training output must be trial-scoped under runs/trials/{trial_id}: {path}")
+    if normalized.exists() and any(normalized.iterdir()):
         raise ShortTrainingError(f"short training output already exists and is not empty: {path}")
-    if not as_posix.endswith(expected_suffix.as_posix()) and f"runs/trials/{trial_id}" not in as_posix:
+    if not as_posix.endswith(expected_suffix.as_posix()):
         raise ShortTrainingError(f"short training output must end in runs/trials/{trial_id}: {path}")
 
 
 def _reject_unsafe_relative_path(path: Path, *, label: str) -> None:
     if not path.parts or path.is_absolute() or ".." in path.parts:
         raise ShortTrainingError(f"short training {label} must be a safe relative path: {path}")
+    _reject_forbidden_path_fragments(path, label=label)
+
+
+def _reject_unsafe_path(path: Path, *, label: str) -> None:
+    if not path.parts or ".." in path.parts:
+        raise ShortTrainingError(f"short training {label} must not contain parent traversal: {path}")
+    _reject_forbidden_path_fragments(path, label=label)
+
+
+def _reject_forbidden_path_fragments(path: Path, *, label: str) -> None:
     as_posix = path.as_posix()
     forbidden_fragments = ("autoalphafold3-locked", "locked", "labels", "public_val_labels", "runs/baseline")
     if any(fragment in as_posix for fragment in forbidden_fragments):
         raise ShortTrainingError(f"short training {label} references a forbidden path: {path}")
+
+
+def _require_trial_artifact_path(value: object, *, trial_id: str, filename: str, label: str) -> None:
+    if not isinstance(value, str):
+        raise ShortTrainingError(f"short training manifest missing {label}")
+    path = Path(value)
+    _reject_unsafe_path(path, label=label)
+    parts = path.parts
+    expected_tail = ("runs", "trials", trial_id, filename)
+    if tuple(parts[-4:]) != expected_tail:
+        raise ShortTrainingError(
+            f"short training manifest {label} must end in runs/trials/{trial_id}/{filename}: {value}"
+        )
 
 
 def _require_positive_int(value: object, *, name: str) -> int:

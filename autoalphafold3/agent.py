@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     short_training_parser.add_argument("--trial", required=True)
     short_training_parser.add_argument("--source-dir", default=None)
     short_training_parser.add_argument("--features-dir", default="data/toy/nanofold_fixture")
-    short_training_parser.add_argument("--features-path", default="tiny_features.arrow")
+    short_training_parser.add_argument("--features-path", default=None)
     short_training_parser.add_argument("--mode", choices=("dry-run", "local-fixture", "modal"), default="dry-run")
     short_training_parser.add_argument("--modal-env", default=None)
     short_training_parser.add_argument("--approve", default=None)

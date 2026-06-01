@@ -7,10 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from autoalphafold3.modal_app import APP_NAME, validate_execution_payload
+from autoalphafold3.modal_app import APP_NAME, FEATURES_MOUNT, validate_execution_payload
 from autoalphafold3.runner import validate_trial_id
-from autoalphafold3.schema import AutoFoldTrial
+from autoalphafold3.schema import AutoFoldTrial, TrialKind
 from autoalphafold3.short_training import (
+    APPROVAL_TEXT,
     DEFAULT_SHORT_TRAINING_MANIFEST,
     ShortTrainingError,
     run_short_nanofold_training,
@@ -18,7 +19,8 @@ from autoalphafold3.short_training import (
     validate_short_training_manifest,
 )
 
-APPROVAL_TEXT = "I_APPROVE_SHORT_TRAINING_TRIAL"
+DEFAULT_LOCAL_FEATURES_PATH = "tiny_features.arrow"
+DEFAULT_MODAL_FEATURES_PATH = "nanofold_event_small_no_templates.arrow"
 
 
 class ShortTrainingRunError(RuntimeError):
@@ -62,7 +64,7 @@ def run_short_training(
     repo_root: str | Path = ".",
     source_dir: str | Path | None = None,
     features_dir: str | Path = "data/toy/nanofold_fixture",
-    features_path: str = "tiny_features.arrow",
+    features_path: str | None = None,
     approval: str | None = None,
     mode: str = "dry-run",
     modal_env: str | None = None,
@@ -73,13 +75,15 @@ def run_short_training(
     root = Path(repo_root)
     trial = _load_trial(root / trial_path)
     checked_trial_id = validate_trial_id(trial.trial_id)
-    source = root / (source_dir or Path("runs/trials") / checked_trial_id)
+    source = _resolve_repo_path(root, source_dir or Path("runs/trials") / checked_trial_id)
     _require_trial_source_dir(source, checked_trial_id, dry_run=mode == "dry-run")
+    selected_features_path = _select_features_path(mode=mode, features_path=features_path)
+    selected_features_dir = FEATURES_MOUNT if mode == "modal" and features_dir == "data/toy/nanofold_fixture" else features_dir
     plan = short_training_run_plan(
         trial=trial,
         source_dir=source,
-        features_dir=features_dir,
-        features_path=features_path,
+        features_dir=selected_features_dir,
+        features_path=selected_features_path,
     )
     if mode == "dry-run":
         return ShortTrainingRunResult(
@@ -90,12 +94,12 @@ def run_short_training(
             wrote_files=[],
             plan=plan,
         )
-    payload = _payload_from_trial(trial, features_path=features_path, local_only=mode == "local-fixture")
+    payload = _payload_from_trial(trial, features_path=selected_features_path, local_only=mode == "local-fixture")
     if mode == "local-fixture":
         try:
             manifest = run_short_nanofold_training(
                 payload,
-                features_dir=root / features_dir,
+                features_dir=_resolve_repo_path(root, features_dir),
                 output_dir=source,
                 repo_root=root,
                 local_only=True,
@@ -117,7 +121,7 @@ def run_short_training(
         raise ShortTrainingRunError(f"short-training Modal run requires --approve {APPROVAL_TEXT}")
     client = modal_client if modal_client is not None else DeployedModalShortTrainingClient(environment_name=modal_env)
     validate_execution_payload(payload, role="trial")
-    manifest = _require_short_training_manifest(client.run_short_training(payload))
+    manifest = _require_short_training_manifest(client.run_short_training(payload), payload=payload)
     source.mkdir(parents=True, exist_ok=True)
     manifest_path = source / DEFAULT_SHORT_TRAINING_MANIFEST
     _atomic_write_json(manifest_path, manifest)
@@ -198,6 +202,8 @@ def _payload_from_trial(
     features_path: str,
     local_only: bool,
 ) -> dict[str, object]:
+    if trial.trial_kind != TrialKind.TRAINING:
+        raise ShortTrainingRunError("short-training trials must have trial_kind=training")
     if trial.max_steps is None:
         raise ShortTrainingRunError("short-training trials require max_steps")
     return short_training_payload(
@@ -213,21 +219,68 @@ def _payload_from_trial(
     )
 
 
-def _require_short_training_manifest(payload: dict[str, object]) -> dict[str, object]:
+def _require_short_training_manifest(
+    manifest: dict[str, object],
+    *,
+    payload: dict[str, object],
+) -> dict[str, object]:
     try:
-        return validate_short_training_manifest(payload)
+        checked = validate_short_training_manifest(manifest)
     except ShortTrainingError as exc:
         raise ShortTrainingRunError(str(exc)) from exc
+    expected = {
+        "trial_id": payload["trial_id"],
+        "candidate_id": payload["candidate_id"],
+        "budget": payload["budget"],
+        "training_steps": payload["max_steps"],
+        "max_steps": payload["max_steps"],
+        "seed": payload["seed"],
+        "config_path": payload["config_path"],
+        "features_path": payload["features_path"],
+    }
+    for key, value in expected.items():
+        if checked.get(key) != value:
+            raise ShortTrainingRunError(
+                f"short-training Modal manifest {key}={checked.get(key)!r} does not match submitted {value!r}"
+            )
+    return checked
 
 
 def _require_trial_source_dir(path: Path, trial_id: str, *, dry_run: bool) -> None:
-    as_posix = path.as_posix()
+    if ".." in path.parts:
+        raise ShortTrainingRunError(f"short-training output must not contain parent traversal: {path}")
+    normalized = path.resolve(strict=False)
+    as_posix = normalized.as_posix()
     if "runs/baseline" in as_posix:
         raise ShortTrainingRunError("short training must not write runs/baseline")
-    if path.name != trial_id or "runs/trials" not in as_posix:
+    if "runs/trials" not in as_posix:
         raise ShortTrainingRunError(f"short-training output must be under runs/trials/{trial_id}: {path}")
-    if not dry_run and path.exists() and any(path.iterdir()):
+    if normalized.name != trial_id:
+        raise ShortTrainingRunError(f"short-training output must be under runs/trials/{trial_id}: {path}")
+    expected_suffix = (Path("runs") / "trials" / trial_id).as_posix()
+    if not as_posix.endswith(expected_suffix):
+        raise ShortTrainingRunError(f"short-training output must end in runs/trials/{trial_id}: {path}")
+    if not dry_run and normalized.exists() and any(normalized.iterdir()):
         raise ShortTrainingRunError(f"short-training output already exists and is not empty: {path}")
+
+
+def _resolve_repo_path(root: Path, value: str | Path) -> Path:
+    path = Path(value)
+    resolved_root = root.resolve(strict=False)
+    resolved = path.resolve(strict=False) if path.is_absolute() else (resolved_root / path).resolve(strict=False)
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ShortTrainingRunError(f"short-training path must stay under repo root: {value}") from exc
+    return resolved
+
+
+def _select_features_path(*, mode: str, features_path: str | None) -> str:
+    if features_path is not None:
+        return features_path
+    if mode == "modal":
+        return DEFAULT_MODAL_FEATURES_PATH
+    return DEFAULT_LOCAL_FEATURES_PATH
 
 
 def _short_training_wrote_files(source: Path) -> list[str]:

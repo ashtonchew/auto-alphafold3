@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from autoalphafold3.local_fixtures import APPROVAL_TOKEN, materialize_local_nanofold_fixture
+from autoalphafold3.runner import run_fixed_budget_trial
 from autoalphafold3.short_training import (
     DEFAULT_SHORT_TRAINING_MANIFEST,
     ShortTrainingError,
@@ -85,7 +86,8 @@ def manifest_payload() -> dict[str, object]:
         "max_templates": 0,
         "seed": 0,
         "config_path": "configs/nanofold_dev_cpu_smoke.json",
-        "features_path": "/mnt/autoalphafold3/features/tiny_features.arrow",
+        "features_path": "nanofold_event_small_no_templates.arrow",
+        "feature_sha256": SHA,
         "checkpoint_path": "/mnt/autoalphafold3/runs/trials/T120/checkpoint.pt",
         "checkpoint_sha256": SHA,
         "checkpoint_size_bytes": 1234,
@@ -191,6 +193,26 @@ def test_short_training_refuses_locked_feature_paths(tmp_path: Path) -> None:
         )
 
 
+def test_short_training_refuses_locked_features_dir(tmp_path: Path) -> None:
+    payload = short_training_payload(
+        trial_id="T120",
+        candidate_id="T120",
+        config_path="configs/nanofold_dev_cpu_smoke.json",
+        features_path="tiny_features.arrow",
+        max_steps=1,
+        budget="smoke",
+        seed=0,
+    )
+
+    with pytest.raises(ShortTrainingError, match="features_dir"):
+        run_short_nanofold_training(
+            payload,
+            features_dir=tmp_path / "autoalphafold3-locked/labels",
+            output_dir=tmp_path / "runs/trials/T120",
+            repo_root=REPO_ROOT,
+        )
+
+
 def test_short_training_refuses_non_trial_output_dir(tmp_path: Path) -> None:
     payload = short_training_payload(
         trial_id="T120",
@@ -207,6 +229,26 @@ def test_short_training_refuses_non_trial_output_dir(tmp_path: Path) -> None:
             payload,
             features_dir=tmp_path,
             output_dir=tmp_path / "runs/not-trials/T120",
+            repo_root=REPO_ROOT,
+        )
+
+
+def test_short_training_refuses_traversal_output_dir(tmp_path: Path) -> None:
+    payload = short_training_payload(
+        trial_id="T120",
+        candidate_id="T120",
+        config_path="configs/nanofold_dev_cpu_smoke.json",
+        features_path="tiny_features.arrow",
+        max_steps=1,
+        budget="smoke",
+        seed=0,
+    )
+
+    with pytest.raises(ShortTrainingError, match="parent traversal"):
+        run_short_nanofold_training(
+            payload,
+            features_dir=tmp_path,
+            output_dir=tmp_path / "runs/trials/T120/../../baseline/T120",
             repo_root=REPO_ROOT,
         )
 
@@ -254,6 +296,51 @@ def test_short_training_refuses_steps_above_budget(tmp_path: Path) -> None:
         )
 
 
+def test_run_fixed_budget_short_training_requires_embedded_approval(tmp_path: Path) -> None:
+    payload = {
+        "trial_id": "T120",
+        "candidate_id": "T120",
+        "runner_mode": "short_training",
+        "trial_kind": "training",
+        "budget": "smoke",
+        "config_path": "configs/nanofold_dev_cpu_smoke.json",
+        "features_path": "tiny_features.arrow",
+        "max_steps": 1,
+        "seed": 0,
+        "max_templates": 0,
+    }
+
+    with pytest.raises(ShortTrainingError, match="requires approval"):
+        run_fixed_budget_trial(
+            payload,
+            features_dir=tmp_path,
+            output_dir=tmp_path / "runs/trials/T120",
+        )
+
+
+def test_run_fixed_budget_short_training_requires_training_kind(tmp_path: Path) -> None:
+    payload = {
+        "trial_id": "T120",
+        "candidate_id": "T120",
+        "runner_mode": "short_training",
+        "trial_kind": "debug",
+        "budget": "smoke",
+        "config_path": "configs/nanofold_dev_cpu_smoke.json",
+        "features_path": "tiny_features.arrow",
+        "max_steps": 1,
+        "seed": 0,
+        "max_templates": 0,
+        "short_training_approval": APPROVAL_TEXT,
+    }
+
+    with pytest.raises(ShortTrainingError, match="trial_kind=training"):
+        run_fixed_budget_trial(
+            payload,
+            features_dir=tmp_path,
+            output_dir=tmp_path / "runs/trials/T120",
+        )
+
+
 def test_fixture_backed_short_training_writes_honest_artifacts(tmp_path: Path) -> None:
     pytest.importorskip("torch")
     materialize_local_nanofold_fixture(
@@ -285,6 +372,8 @@ def test_fixture_backed_short_training_writes_honest_artifacts(tmp_path: Path) -
     assert manifest["real_training_performed"] is True
     assert manifest["training_steps"] == 2
     assert manifest["max_templates"] == 0
+    assert isinstance(manifest["feature_sha256"], str)
+    assert len(manifest["feature_sha256"]) == 64
     assert (output / "checkpoint.pt").exists()
     assert (output / DEFAULT_SHORT_TRAINING_MANIFEST).exists()
     assert (output / "loss_history.json").exists()
@@ -317,6 +406,7 @@ def test_run_short_training_dry_run_writes_nothing(tmp_path: Path) -> None:
 def test_run_short_training_requires_exact_approval(tmp_path: Path) -> None:
     trial = tmp_path / "trials/T120.json"
     write_trial(trial)
+    client = FakeModalShortTrainingClient(manifest_payload())
 
     with pytest.raises(ShortTrainingRunError, match=APPROVAL_TEXT):
         run_short_training(
@@ -324,6 +414,37 @@ def test_run_short_training_requires_exact_approval(tmp_path: Path) -> None:
             repo_root=tmp_path,
             mode="modal",
             approval="yes",
+            modal_client=client,
+        )
+    assert client.payload is None
+
+
+def test_run_short_training_refuses_traversal_source_dir(tmp_path: Path) -> None:
+    trial = tmp_path / "trials/T120.json"
+    write_trial(trial)
+
+    with pytest.raises(ShortTrainingRunError, match="baseline|parent traversal"):
+        run_short_training(
+            trial_path=trial.relative_to(tmp_path),
+            repo_root=tmp_path,
+            source_dir="runs/trials/T120/../../baseline/T120",
+            mode="dry-run",
+        )
+
+
+def test_run_short_training_refuses_non_training_trial_kind(tmp_path: Path) -> None:
+    trial = tmp_path / "trials/T120.json"
+    payload = trial_payload()
+    payload["trial_kind"] = "debug"
+    payload["budget"] = "debug"
+    write_trial(trial, payload)
+
+    with pytest.raises(ShortTrainingRunError, match="trial_kind=training"):
+        run_short_training(
+            trial_path=trial.relative_to(tmp_path),
+            repo_root=tmp_path,
+            mode="modal",
+            approval=APPROVAL_TEXT,
             modal_client=FakeModalShortTrainingClient(manifest_payload()),
         )
 
@@ -345,6 +466,8 @@ def test_run_short_training_records_returned_modal_manifest_only(tmp_path: Path)
     assert result.status == "PASS"
     assert result.wrote_files == [str(manifest_path)]
     assert client.payload is not None
+    assert client.payload["short_training_approval"] == APPROVAL_TEXT
+    assert client.payload["features_path"] == "nanofold_event_small_no_templates.arrow"
     assert client.payload["max_templates"] == 0
     assert json.loads(manifest_path.read_text(encoding="utf-8"))["checkpoint_sha256"] == SHA
     assert not (tmp_path / "runs/baseline").exists()
@@ -366,6 +489,62 @@ def test_run_short_training_rejects_bad_returned_modal_manifest(tmp_path: Path) 
             approval=APPROVAL_TEXT,
             modal_client=FakeModalShortTrainingClient(bad),
         )
+
+
+def test_run_short_training_rejects_mismatched_modal_manifest_identity(tmp_path: Path) -> None:
+    trial = tmp_path / "trials/T120.json"
+    write_trial(trial)
+    bad = manifest_payload()
+    bad["trial_id"] = "T999"
+
+    with pytest.raises(ShortTrainingRunError, match="trial_id|checkpoint_path"):
+        run_short_training(
+            trial_path=trial.relative_to(tmp_path),
+            repo_root=tmp_path,
+            mode="modal",
+            approval=APPROVAL_TEXT,
+            modal_client=FakeModalShortTrainingClient(bad),
+        )
+
+
+def test_run_short_training_rejects_mismatched_modal_manifest_features_path(tmp_path: Path) -> None:
+    trial = tmp_path / "trials/T120.json"
+    write_trial(trial)
+    bad = manifest_payload()
+    bad["features_path"] = "/mnt/autoalphafold3/features/wrong.arrow"
+
+    with pytest.raises(ShortTrainingRunError, match="features_path"):
+        run_short_training(
+            trial_path=trial.relative_to(tmp_path),
+            repo_root=tmp_path,
+            mode="modal",
+            approval=APPROVAL_TEXT,
+            modal_client=FakeModalShortTrainingClient(bad),
+        )
+
+
+def test_validate_short_training_manifest_rejects_mismatched_artifact_paths() -> None:
+    bad = manifest_payload()
+    bad["checkpoint_path"] = "/mnt/autoalphafold3/runs/trials/T999/checkpoint.pt"
+
+    with pytest.raises(ShortTrainingError, match="checkpoint_path"):
+        validate_short_training_manifest(bad)
+
+
+def test_validate_short_training_manifest_rejects_non_hex_sha() -> None:
+    bad = manifest_payload()
+    bad["checkpoint_sha256"] = "z" * 64
+
+    with pytest.raises(ShortTrainingError, match="checkpoint_sha256"):
+        validate_short_training_manifest(bad)
+
+
+def test_validate_short_training_manifest_rejects_non_hex_feature_sha() -> None:
+    bad = manifest_payload()
+    bad["feature_sha256"] = "z" * 64
+
+    with pytest.raises(ShortTrainingError, match="feature_sha256"):
+        validate_short_training_manifest(bad)
 
 
 def test_run_short_training_cli_dry_run_is_structured_json(tmp_path: Path) -> None:

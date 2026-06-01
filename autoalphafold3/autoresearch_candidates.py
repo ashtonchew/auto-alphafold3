@@ -261,6 +261,7 @@ def write_candidate_decision(
     global_baseline_delta: float | None,
     reason: str,
     postmortem: str,
+    keep_threshold_delta: float | None = None,
 ) -> dict[str, object]:
     """Write decision and postmortem evidence, then update summary/results."""
 
@@ -275,7 +276,7 @@ def write_candidate_decision(
         "primary_metric": PRIMARY_METRIC,
         "matched_budget_delta": matched_budget_delta,
         "global_baseline_delta": global_baseline_delta,
-        "keep_threshold_delta": None,
+        "keep_threshold_delta": keep_threshold_delta,
         "reason": _require_text(reason, "reason"),
         "provisional_keep": status == "KEEP",
         "discovery_status": "UNCONFIRMED",

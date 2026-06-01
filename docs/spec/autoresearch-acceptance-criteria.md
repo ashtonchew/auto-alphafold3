@@ -17,10 +17,16 @@ This checklist summarizes the implementation gates from
 
 - Short-training manifests validate schema, paths, budget, and
   `max_templates=0`.
+- `TrialRunner.run(...)` remains the official training entrypoint.
 - Runner writes only trial-scoped artifacts.
 - Local fixture artifacts cannot look like official benchmark evidence.
 - Training workers do not mount locked labels.
+- Training artifacts do not write `runs/baseline/**`, the canonical ledger, or
+  Discovery Ledger records.
 - Scorer-only workers remain the locked-label boundary.
+- Modal resources are not escalated dynamically with `.with_options(...)`.
+- Worker handoffs commit and reload Modal Volume state before cross-container
+  reads.
 
 ## NanoFold Search Surface
 
@@ -41,8 +47,16 @@ This checklist summarizes the implementation gates from
 
 - Manual mode can consume a prepared candidate.
 - Deterministic mode plans the T120-T125 ladder without an LLM.
+- `run-short-training --mode modal` refuses absent or wrong approval tokens.
+- `autoresearch-loop --mode modal` refuses absent or wrong approval tokens.
+- Live-action refusal tests prove no Modal submission, canonical ledger write,
+  Discovery Ledger write, or run artifact promotion occurs.
+- Repeated candidate failures hit explicit stop rules instead of raising Modal
+  resources or brute-forcing retries.
 - Stage-one `KEEP` remains provisional.
 - Discovery Ledger writes require confirmed Falsification Gate evidence.
+- Canonical ledger, results TSV, and run summary writes are serialized through
+  one writer boundary.
 - LLM mode cannot bypass patch policy or emit multi-move candidates.
 - Web search is limited to hypothesis generation, not patch planning.
 

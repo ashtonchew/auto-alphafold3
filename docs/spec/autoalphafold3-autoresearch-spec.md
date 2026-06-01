@@ -288,6 +288,8 @@ must:
 
 - mount `autoalphafold3-data` read-only
 - mount `autoalphafold3-locked` read-only
+- reload `autoalphafold3-data` before reading prediction artifacts written by a
+  different worker container
 - read trial prediction artifacts
 - compute `calpha_lddt_v1`
 - return `best_val_calpha_lddt` as the primary metric
@@ -306,6 +308,11 @@ The orchestrator must:
 - treat every `KEEP` as provisional until Falsification Gate confirmation
 - write canonical ledger rows during event search
 - write Discovery Ledger records only for confirmed mechanisms
+- serialize canonical ledger, results TSV, and run-summary writes through one
+  writer boundary so concurrent Modal completions cannot interleave or corrupt
+  audit artifacts
+- reload committed Volume state before reading artifacts produced by worker
+  containers
 
 ## Autoresearch Loop
 
@@ -335,6 +342,17 @@ One candidate iteration is:
 The agent should not continue from a crash by silently changing the benchmark,
 data, or infrastructure. It may fix trivial bugs inside the candidate patch and
 rerun within the same candidate only when the idea remains the same.
+
+Stuck-loop limits:
+
+- retry a failed candidate at most once for a trivial candidate-local bug
+- stop a move family after three candidate-level `FAIL` results
+- stop or downgrade the family after two OOM, NaN, timeout, or failed-target
+  failures in the same budget tier
+- treat repeated Falsification Gate kills for the same mechanism family as a
+  hypothesis failure, not as permission to keep sampling variants
+- never raise Modal GPU type, timeout, retry, warm-pool, Volume, or
+  `max_containers` settings from the autoresearch loop
 
 ## Candidate Planner Modes
 

@@ -41,7 +41,7 @@ the accepted `autoresearch-spec` tip:
 
 ```text
 /goal
-Implement the SimplexFold/Karpathy-style autoresearch loop for the NanoFold-style AlphaFold3-lite system described in docs/spec/autoalphafold3-autoresearch-spec.md and docs/handoffs/goal/autoalphafold3-autoresearch-implementation-goal-mode-prompt.md. First fetch latest main and PR #50, verify branch ownership and clean worktree status, read AGENTS.md, README.md, docs/framing.md, program.md, autoalphafold3/benchmark_contract.md, autoalphafold3/editable_surface.md, docs/runbooks/, docs/spec/autoalphafold3-autoresearch-spec.md, and invoke the repo-local modal-docs skill before Modal-related work. Create docs/handoffs/goal/autoalphafold3-autoresearch-implementation/{GOAL.md,PLAN.md,IMPLEMENTATION_CHECKLIST.md,EXPERIMENTS.md,EXPERIMENT_NOTES.md}. Use local Codex worktrees and open feature-sized stacked PRs. Before each feature PR, use parallel read-only subagents to ground the implementation in docs/spec/tests/NanoFold internals/Modal contracts, record the best-practice approach in PLAN.md, then implement autonomously. Build the bounded short-training runner, minimal NanoFold loss/config support, candidate artifact manager, safe git keep/revert wrapper, deterministic autoresearch ladder, LLM planner mode, and UI evidence integration. Preserve locked benchmark, scorer, validation-label, Modal-resource, baseline, and ledger boundaries. Do not fabricate benchmark/data artifacts, fake Modal runs, fake baseline metrics, fake gate verdicts, fake discovery records, or unapproved live search results. Done only when all implementation PRs are open or merged, the checklist is complete except exact PENDING_HUMAN_LIVE_ACTION items, local tests pass, fixture-backed short training produces honest artifacts, deterministic ladder works in dry-run/planning mode, and any live Modal/search action remains gated by explicit human approval.
+Implement the SimplexFold/Karpathy-style autoresearch loop for the NanoFold-style AlphaFold3-lite system described in docs/spec/autoalphafold3-autoresearch-spec.md and docs/handoffs/goal/autoalphafold3-autoresearch-implementation-goal-mode-prompt.md. First inspect branch ownership, worktree status, worktrees, and PR #50 state; fetch remote refs only after the active worktree is known safe. Read AGENTS.md, README.md, docs/framing.md, program.md, autoalphafold3/benchmark_contract.md, autoalphafold3/editable_surface.md, docs/runbooks/, docs/spec/autoalphafold3-autoresearch-spec.md, and invoke the repo-local modal-docs skill before Modal-related work. Create docs/handoffs/goal/autoalphafold3-autoresearch-implementation/{GOAL.md,PLAN.md,IMPLEMENTATION_CHECKLIST.md,EXPERIMENTS.md,EXPERIMENT_NOTES.md}. Use local Codex worktrees and open feature-sized stacked PRs. Before each feature PR, use parallel read-only subagents to ground the implementation in docs/spec/tests/NanoFold internals/Modal contracts, record the best-practice approach in PLAN.md, then implement autonomously. Build the bounded short-training runner, minimal NanoFold loss/config support, candidate artifact manager, safe git keep/revert wrapper, deterministic autoresearch ladder, LLM planner mode, and UI evidence integration. Preserve locked benchmark, scorer, validation-label, Modal-resource, baseline, and ledger boundaries. Do not fabricate benchmark/data artifacts, fake Modal runs, fake baseline metrics, fake gate verdicts, fake discovery records, or unapproved live search results. Done only when all implementation PRs are open or merged, the checklist is complete except exact PENDING_HUMAN_LIVE_ACTION items, local tests pass, fixture-backed short training produces honest artifacts, deterministic ladder works in dry-run/planning mode, and any live Modal/search action remains gated by explicit human approval.
 ```
 
 ## Full Goal Contract
@@ -70,12 +70,11 @@ explicit human-approved actions.
 
 ### Required First Steps
 
-1. Fetch and inspect current repo state:
+1. Inspect current repo state before changing branches:
 
    ```bash
-   git fetch origin
-   git checkout main
-   git pull --ff-only
+   git status --short --branch
+   git worktree list
    gh pr view 50 --json number,title,state,headRefName,baseRefName,commits,files
    ```
 
@@ -87,7 +86,17 @@ explicit human-approved actions.
    - No unrelated user work will be staged, reverted, or force-pushed.
    - If ownership or base selection is unclear, stop for human direction.
 
-3. Read, in order:
+3. Fetch remote refs after the worktree and branch owner are known:
+
+   ```bash
+   git fetch origin
+   ```
+
+   Prefer a fresh worktree from the accepted base ref or SHA over switching an
+   occupied worktree. Do not run `git checkout`, `git pull`, or branch cleanup
+   until the status check proves it will not disturb user work.
+
+4. Read, in order:
 
    - `AGENTS.md`
    - `README.md`
@@ -370,6 +379,18 @@ For each PR:
 - LLM planner cannot bypass patch policy.
 - Web search is allowed only for hypothesis generation, not patch planning.
 - Execution workers receive no OpenAI/GitHub/Modal/dashboard/judge secrets.
+- `TrialRunner.run(...)` remains the official training entrypoint.
+- No dynamic Modal `.with_options(...)` resource escalation appears.
+- Training artifacts cannot write baseline, canonical ledger, or Discovery
+  Ledger records.
+- Live Modal commands refuse absent or wrong approval tokens without calling
+  Modal, writing ledgers, or promoting run artifacts.
+- Worker handoffs commit and reload Modal Volume state before cross-container
+  reads.
+- Canonical ledger, results TSV, and run summary writes are serialized.
+- Repeated failure/OOM/NaN/gate-kill patterns hit explicit stop rules.
+- Stage-one `KEEP` remains provisional until confirmed by Falsification Gate
+  evidence.
 - UI reads autoresearch summary artifacts.
 - UI labels sample fallback data honestly.
 - Full tests pass or failures are recorded with exact blockers.

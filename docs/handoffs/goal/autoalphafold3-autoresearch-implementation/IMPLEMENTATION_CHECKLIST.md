@@ -35,6 +35,16 @@
 - [ ] LLM planner cannot bypass patch policy.
 - [ ] Web search is allowed only for hypothesis generation, not patch planning.
 - [ ] Execution workers receive no OpenAI/GitHub/Modal/dashboard/judge secrets.
+- [ ] `TrialRunner.run(...)` remains the official training entrypoint.
+- [ ] No dynamic Modal `.with_options(...)` resource escalation appears.
+- [ ] Training artifacts cannot write baseline, canonical ledger, or Discovery
+  Ledger records.
+- [ ] Live Modal commands refuse absent or wrong approval tokens without
+  calling Modal, writing ledgers, or promoting run artifacts.
+- [ ] Worker handoffs commit and reload Modal Volume state before
+  cross-container reads.
+- [ ] Canonical ledger, results TSV, and run summary writes are serialized.
+- [ ] Repeated failure/OOM/NaN/gate-kill patterns hit explicit stop rules.
 - [ ] UI reads autoresearch summary artifacts.
 - [ ] UI labels sample fallback data honestly.
 - [ ] Full tests pass or failures are recorded with exact blockers.

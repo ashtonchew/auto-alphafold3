@@ -132,6 +132,19 @@ Promotion rules:
 - provisional `KEEP` remains non-discovery until Falsification Gate
   confirmation
 
+Stop conditions:
+
+- Do not retry a failed candidate more than once unless the failure is a
+  trivial candidate-local bug and the hypothesis, move family, and budget stay
+  unchanged.
+- Stop a move family after three candidate-level `FAIL` results until a human
+  reviews the failure pattern.
+- Stop or downgrade the family after two OOM, NaN, timeout, or failed-target
+  failures in the same budget tier; do not raise Modal resources from the
+  loop.
+- A repeated Falsification Gate kill for the same mechanism family blocks more
+  variants of that family until the hypothesis is rewritten from evidence.
+
 ## Candidate Evidence
 
 Each candidate should write or reference:
@@ -188,6 +201,11 @@ python3 -m autoalphafold3.agent run-short-training \
   --approve I_APPROVE_SHORT_TRAINING_TRIAL
 ```
 
+This command is a planned human-operator wrapper. Its implementation must
+delegate through the Modal-hosted trusted orchestrator and the approved
+`AutoFoldTrial` submission boundary; it must not call trial workers directly or
+create a parallel live execution authority.
+
 Open-ended autoresearch loop, after deterministic ladder passes and a human
 reviews the plan:
 
@@ -204,14 +222,22 @@ python3 -m autoalphafold3.agent autoresearch-loop \
 These are `PENDING_HUMAN_LIVE_ACTION` commands until the implementation exists
 and a human explicitly approves them.
 
+The open-ended loop must submit one validated `AutoFoldTrial` at a time through
+the trusted orchestrator. The loop may plan candidates and collect returned
+evidence, but it must not bypass preflight, scorer-only evaluation, canonical
+ledger authority, or Modal resource policy.
+
 ## Review And UI Render
 
-Before each PR:
+Before each implementation or source-behavior PR:
 
 ```bash
 git diff --check
 python3 -m pytest -p no:cacheprovider
 ```
+
+Docs-only PRs may run the relevant documentation/eval checks instead, but any
+skipped source test must be recorded in the PR body with the reason.
 
 Current labelled sample render:
 

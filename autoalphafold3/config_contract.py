@@ -42,6 +42,7 @@ NANOFOLD_REQUIRED_KEYS = frozenset(
 NANOFOLD_OPTIONAL_NONNEGATIVE_FLOAT_KEYS = frozenset(
     {
         "diffusion_loss_weight",
+        "dist_loss_weight",
         "distogram_loss_weight",
         "local_calpha_geometry_loss_weight",
     }

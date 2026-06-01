@@ -96,6 +96,18 @@ def test_nanofold_config_rejects_invalid_loss_weights(tmp_path: Path) -> None:
     assert result.missing_keys == ["local_calpha_geometry_loss_weight"]
 
 
+def test_nanofold_config_rejects_invalid_legacy_dist_loss_weight(tmp_path: Path) -> None:
+    config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config["dist_loss_weight"] = -1.0
+    config_path = tmp_path / "bad_legacy_loss_weight.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    result = validate_config_file(config_path)
+
+    assert not result.valid
+    assert result.missing_keys == ["dist_loss_weight"]
+
+
 def test_diffusion_loss_skips_geometry_when_disabled_for_defaults() -> None:
     predicted = torch.zeros(1, 4, 3)
     target = torch.ones(1, 4, 3)

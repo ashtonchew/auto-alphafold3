@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from autoalphafold3.config_contract import validate_config_file
 from autoalphafold3.local_fixtures import APPROVAL_TOKEN, materialize_local_nanofold_fixture
 from autoalphafold3.patch_policy import validate_patch_scope
 from autoalphafold3.short_training import run_short_nanofold_training, short_training_payload
@@ -16,7 +17,7 @@ if str(NANOFOLD_ROOT) not in sys.path:
     sys.path.insert(0, str(NANOFOLD_ROOT))
 
 import torch  # noqa: E402
-from nanofold.train.loss import compute_local_calpha_geometry_loss, extract_calpha_coords  # noqa: E402
+from nanofold.train.loss import compute_diffusion_loss, compute_local_calpha_geometry_loss, extract_calpha_coords  # noqa: E402
 from nanofold.train.model.nanofold import Nanofold  # noqa: E402
 
 try:
@@ -83,6 +84,28 @@ def test_nanofold_get_args_reads_experiment_loss_weights() -> None:
     assert args["local_calpha_geometry_loss_weight"] == 0.25
 
 
+def test_nanofold_config_rejects_invalid_loss_weights(tmp_path: Path) -> None:
+    config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config["local_calpha_geometry_loss_weight"] = -0.1
+    config_path = tmp_path / "bad_loss_weight.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    result = validate_config_file(config_path)
+
+    assert not result.valid
+    assert result.missing_keys == ["local_calpha_geometry_loss_weight"]
+
+
+def test_diffusion_loss_skips_geometry_when_disabled_for_defaults() -> None:
+    predicted = torch.zeros(1, 4, 3)
+    target = torch.ones(1, 4, 3)
+    t = torch.ones(1, 1, 1)
+
+    losses = compute_diffusion_loss(predicted, target, t, data_std_dev=16, compute_local_geometry=False)
+
+    assert losses["local_calpha_geometry_loss"].item() == 0.0
+
+
 def test_local_calpha_geometry_loss_is_differentiable() -> None:
     predicted = torch.tensor(
         [
@@ -129,6 +152,31 @@ def test_local_calpha_geometry_loss_is_differentiable() -> None:
     assert torch.isfinite(loss)
     assert predicted.grad is not None
     assert torch.isfinite(predicted.grad).all()
+
+
+def test_local_calpha_geometry_loss_known_cutoff_value() -> None:
+    target = torch.tensor(
+        [
+            [
+                [0.0, -1.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [10.0, -1.0, 0.0],
+                [10.0, 0.0, 0.0],
+                [10.0, 1.0, 0.0],
+                [30.0, -1.0, 0.0],
+                [30.0, 0.0, 0.0],
+                [30.0, 1.0, 0.0],
+            ]
+        ]
+    )
+    predicted = target.clone()
+    predicted[:, 4, 0] = 12.0
+    predicted[:, 7, 0] = 60.0
+
+    loss = compute_local_calpha_geometry_loss(predicted, target)
+
+    assert torch.allclose(loss, torch.tensor(1.5))
 
 
 def test_local_calpha_geometry_loss_handles_empty_local_mask() -> None:

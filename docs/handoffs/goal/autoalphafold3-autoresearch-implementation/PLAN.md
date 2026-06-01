@@ -86,38 +86,9 @@ Validation:
 
 ## Planned PR 3: NanoFold Geometry Loss
 
-Approach:
-
-- Modify only approved NanoFold training files:
-  `external/nanofold/nanofold/train/loss.py` and
-  `external/nanofold/nanofold/train/model/nanofold.py`.
-- Add `configs/experiments/local_calpha_geometry_smoke.json` with nonzero
-  local geometry weight for fixture smoke experiments.
-- Keep defaults equivalent to the prior hard-coded formula:
-  `4 * diffusion_loss + 0.03 * dist_loss`.
-- Add `compute_local_calpha_geometry_loss(...)` as a smooth local C-alpha
-  pair-distance loss over training coordinates only.
-
-Read-only grounding agents:
-
-- `Euler`: docs/contracts review. Findings: preserve locked scorer and
-  benchmark boundaries, use `diffusion_loss_weight=4.0`,
-  `distogram_loss_weight=0.03`, and
-  `local_calpha_geometry_loss_weight=0.0` defaults; keep experiment configs in
-  `configs/experiments/**`.
-- `Dalton`: NanoFold internals review. Findings: diffusion coordinates are
-  backbone atoms in `N, CA, C` order, so the new helper must extract CA atoms
-  before pair-distance loss; no trainer change is needed.
-- `Archimedes`: test-plan review. Findings: add pure loss math tests,
-  NanoFold wiring tests, patch-policy coverage, and fixture-backed finite loss
-  checks.
-
-Validation:
-
-- `python3 -m pytest -p no:cacheprovider tests/test_nanofold_geometry_loss.py -q`
-  passed: 10 passed.
-- `python3 -m pytest -p no:cacheprovider tests/test_nanofold_geometry_loss.py tests/test_short_training.py tests/test_checkpoint_training.py tests/test_nanofold_adapter.py -q`
-  passed: 48 passed.
+Make loss weights config-driven and add a differentiable local C-alpha
+pair-distance loss inside the approved NanoFold training surface. Defaults must
+preserve current behavior when the new geometry weight is zero.
 
 ## Planned PR 4: Candidate Artifacts And Git Safety
 

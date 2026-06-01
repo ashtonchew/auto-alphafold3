@@ -5,12 +5,16 @@ import torch.nn.functional as F
 from nanofold.train.util import rigid_align
 
 
-def compute_diffusion_loss(x, x_gt, t, data_std_dev):
+def compute_diffusion_loss(x, x_gt, t, data_std_dev, compute_local_geometry=False):
     with torch.no_grad():
         x_gt_aligned = rigid_align(x_gt, x).detach()
     mse_loss = F.mse_loss(x, x_gt_aligned, reduction="none").mean(dim=(-2, -1), keepdim=True) / 3
     lddt_loss = compute_lddt_loss(x, x_gt_aligned)
-    local_calpha_geometry_loss = compute_local_calpha_geometry_loss(x, x_gt_aligned)
+    local_calpha_geometry_loss = (
+        compute_local_calpha_geometry_loss(x, x_gt_aligned)
+        if compute_local_geometry
+        else x.new_zeros(())
+    )
     diffusion_loss = (t**2 + data_std_dev**2) / (t + data_std_dev) ** 2 * (mse_loss) + lddt_loss
     return {
         "mse_loss": mse_loss.mean(),

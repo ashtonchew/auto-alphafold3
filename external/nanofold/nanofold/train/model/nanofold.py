@@ -118,6 +118,7 @@ class Nanofold(nn.Module):
                 num_diffusion_transformer_blocks,
                 num_diffusion_transformer_heads,
                 position_bins,
+                compute_local_geometry_loss=local_calpha_geometry_loss_weight != 0.0,
             ),
             disable=not compile_model,
             dynamic=True,

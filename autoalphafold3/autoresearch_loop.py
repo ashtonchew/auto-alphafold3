@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -42,6 +43,7 @@ FORBIDDEN_TRUE_PLAN_FLAGS = {
 ALLOWED_CONFIG_EXACT = {"configs/nanofold_dev_cpu_smoke.json"}
 ALLOWED_CONFIG_PREFIXES = ("configs/experiments/",)
 LOCKED_READ_TOKENS = ("/locked", "locked/labels", "public_val_labels", "autoalphafold3-locked")
+PATCH_FORBIDDEN_KEYS = FORBIDDEN_TRUE_PLAN_FLAGS | {"max_templates"}
 
 
 class AutoresearchLoopError(RuntimeError):
@@ -371,7 +373,11 @@ def _llm_candidates(
     if plan.config is not None:
         _refuse_plan_authority_claims(plan.config, "LLM config")
         _refuse_template_config(plan.config)
-    _refuse_unsafe_patch_text(root=root, patch_text=plan.patch_text)
+    patch_paths = _refuse_unsafe_patch_text(root=root, patch_text=plan.patch_text)
+    if plan.trial["trial_id"] != start_trial_id:
+        raise AutoresearchLoopError("LLM candidate trial_id must match start_trial_id")
+    if patch_paths != set(plan.changed_paths):
+        raise AutoresearchLoopError("LLM patch_text paths must match changed_paths")
     return [
         {
             "hypothesis": plan.hypothesis,
@@ -388,11 +394,22 @@ def _read_candidate_plan(*, root: Path, candidate_plan: str | Path | None) -> di
     path = Path(candidate_plan)
     if path.is_absolute() or ".." in path.parts:
         raise AutoresearchLoopError("candidate plan must be a repo-relative path without traversal")
+    if not path.as_posix().startswith("configs/experiments/"):
+        raise AutoresearchLoopError("candidate plan must live under configs/experiments/")
+    _refuse_plan_path_symlinks(root, path)
     path = root / path
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise AutoresearchLoopError("candidate plan must be a JSON object")
     return payload
+
+
+def _refuse_plan_path_symlinks(root: Path, relative: Path) -> None:
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise AutoresearchLoopError(f"candidate plan path must not contain symlinks: {current}")
 
 
 def _llm_policy_specs(model: str) -> dict[str, dict[str, object]]:
@@ -599,12 +616,16 @@ def _refuse_template_config(config: dict[str, object]) -> None:
         raise AutoresearchLoopError("manual config must pin max_templates=0")
 
 
-def _refuse_unsafe_patch_text(*, root: Path, patch_text: str) -> None:
+def _refuse_unsafe_patch_text(*, root: Path, patch_text: str) -> set[str]:
     if not patch_text.strip():
-        return
+        return set()
     paths: set[str] = set()
+    added_lines: list[str] = []
+    has_hunk_content = False
+    in_hunk = False
     for line in patch_text.splitlines():
         if line.startswith("diff --git "):
+            in_hunk = False
             parts = line.split()
             if len(parts) < 4 or not parts[2].startswith("a/") or not parts[3].startswith("b/"):
                 raise AutoresearchLoopError(f"unsupported manual patch header: {line}")
@@ -617,15 +638,41 @@ def _refuse_unsafe_patch_text(*, root: Path, patch_text: str) -> None:
                 paths.add(path[2:])
             else:
                 raise AutoresearchLoopError(f"unsupported manual patch file header: {line}")
+        elif line.startswith("@@"):
+            in_hunk = True
         elif line.startswith("+") and not line.startswith("+++"):
+            if not in_hunk:
+                raise AutoresearchLoopError("manual patch_text hunk content must follow a hunk header")
+            has_hunk_content = True
             if any(token in line for token in LOCKED_READ_TOKENS):
                 raise AutoresearchLoopError("manual patch_text appears to read locked labels")
+            added_lines.append(line[1:])
+        elif line.startswith("-") and not line.startswith("---"):
+            if not in_hunk:
+                raise AutoresearchLoopError("manual patch_text hunk content must follow a hunk header")
+            has_hunk_content = True
     if not paths:
         raise AutoresearchLoopError("manual patch_text must include file headers")
     try:
         validate_patch_scope(sorted(paths), repo_root=root, allow_empty=False)
     except PatchPolicyError as exc:
         raise AutoresearchLoopError(str(exc)) from exc
+    if not has_hunk_content:
+        raise AutoresearchLoopError("manual patch_text must include at least one patch hunk content line")
+    _refuse_patch_authority_text("\n".join(added_lines))
+    return paths
+
+
+def _refuse_patch_authority_text(text: str) -> None:
+    for key in PATCH_FORBIDDEN_KEYS:
+        pattern = rf"['\"]?{re.escape(key)}['\"]?\s*:\s*([^,}}\s]+)"
+        for match in re.finditer(pattern, text, flags=re.MULTILINE):
+            value = match.group(1).strip().strip("'\"").lower()
+            if key == "max_templates" and value in {"0", "0.0"}:
+                continue
+            if key != "max_templates" and value == "false":
+                continue
+            raise AutoresearchLoopError(f"manual patch_text cannot claim {key}")
 
 
 def _trial_number(trial_id: str) -> int:

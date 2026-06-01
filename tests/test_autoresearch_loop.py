@@ -65,7 +65,13 @@ def _llm_candidate_payload(*, changed_paths: list[str] | None = None) -> dict[st
             "checkpoint_path": None,
         },
         "config": {"config_path": "configs/experiments/llm_geometry.json", "max_templates": 0},
-        "patch_text": "diff --git a/configs/experiments/llm_geometry.json b/configs/experiments/llm_geometry.json\n",
+        "patch_text": (
+            "diff --git a/configs/experiments/llm_geometry.json b/configs/experiments/llm_geometry.json\n"
+            "--- a/configs/experiments/llm_geometry.json\n"
+            "+++ b/configs/experiments/llm_geometry.json\n"
+            "@@ -0,0 +1 @@\n"
+            "+{\"max_templates\": 0}\n"
+        ),
     }
 
 
@@ -180,7 +186,13 @@ def test_manual_autoresearch_plan_consumes_prepared_candidate(tmp_path: Path) ->
                     "checkpoint_path": None,
                 },
                 "config": {"local_calpha_geometry_loss_weight": 0.25, "max_templates": 0},
-                "patch_text": "diff --git a/configs/experiments/x.json b/configs/experiments/x.json\n",
+                "patch_text": (
+                    "diff --git a/configs/experiments/x.json b/configs/experiments/x.json\n"
+                    "--- a/configs/experiments/x.json\n"
+                    "+++ b/configs/experiments/x.json\n"
+                    "@@ -0,0 +1 @@\n"
+                    "+{\"max_templates\": 0}\n"
+                ),
             }
         ),
         encoding="utf-8",
@@ -215,6 +227,40 @@ def test_manual_autoresearch_plan_refuses_absolute_path(tmp_path: Path) -> None:
             mode="dry-run",
             planner="manual",
             candidate_plan=candidate_plan,
+        )
+    assert not (tmp_path / "runs/autoresearch/manual").exists()
+
+
+def test_manual_autoresearch_plan_refuses_non_planning_surface_path(tmp_path: Path) -> None:
+    candidate_plan = tmp_path / "runs/autoresearch/recorded.json"
+    candidate_plan.parent.mkdir(parents=True)
+    candidate_plan.write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(AutoresearchLoopError, match="configs/experiments"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="manual",
+            mode="dry-run",
+            planner="manual",
+            candidate_plan="runs/autoresearch/recorded.json",
+        )
+    assert not (tmp_path / "runs/autoresearch/manual").exists()
+
+
+def test_manual_autoresearch_plan_refuses_symlinked_plan_path(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}\n", encoding="utf-8")
+    plan_dir = tmp_path / "configs/experiments"
+    plan_dir.mkdir(parents=True)
+    (plan_dir / "candidate.json").symlink_to(outside)
+
+    with pytest.raises(AutoresearchLoopError, match="symlink"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="manual",
+            mode="dry-run",
+            planner="manual",
+            candidate_plan="configs/experiments/candidate.json",
         )
     assert not (tmp_path / "runs/autoresearch/manual").exists()
 
@@ -335,7 +381,13 @@ def test_manual_autoresearch_plan_refuses_bad_artifact_dir_and_templates(tmp_pat
             "checkpoint_path": None,
         },
         "config": {"local_calpha_geometry_loss_weight": 0.25, "max_templates": 0},
-        "patch_text": "diff --git a/configs/experiments/x.json b/configs/experiments/x.json\n",
+        "patch_text": (
+            "diff --git a/configs/experiments/x.json b/configs/experiments/x.json\n"
+            "--- a/configs/experiments/x.json\n"
+            "+++ b/configs/experiments/x.json\n"
+            "@@ -0,0 +1 @@\n"
+            "+{\"max_templates\": 0}\n"
+        ),
     }
     candidate_plan.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -445,7 +497,13 @@ def test_manual_autoresearch_plan_refuses_bad_config_path_and_locked_label_patch
             "checkpoint_path": None,
         },
         "config": {"local_calpha_geometry_loss_weight": 0.25, "max_templates": 0},
-        "patch_text": "diff --git a/configs/experiments/x.json b/configs/experiments/x.json\n",
+        "patch_text": (
+            "diff --git a/configs/experiments/x.json b/configs/experiments/x.json\n"
+            "--- a/configs/experiments/x.json\n"
+            "+++ b/configs/experiments/x.json\n"
+            "@@ -0,0 +1 @@\n"
+            "+{\"max_templates\": 0}\n"
+        ),
     }
     candidate_plan.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -637,6 +695,111 @@ def test_llm_autoresearch_refuses_locked_surface_before_artifacts(tmp_path: Path
     assert not (tmp_path / "runs/trials").exists()
 
 
+def test_llm_autoresearch_refuses_patch_path_mismatch_and_authority_flags(tmp_path: Path) -> None:
+    mismatch = _llm_candidate_payload(changed_paths=["configs/experiments/declared.json"])
+    fake = FakeLLMPlanner(mismatch)
+
+    with pytest.raises(AutoresearchLoopError, match="must match"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-mismatch",
+            mode="dry-run",
+            planner="llm",
+            max_candidates=1,
+            planner_client=fake,
+        )
+
+    blank_patch = _llm_candidate_payload()
+    blank_patch["patch_text"] = ""
+    fake = FakeLLMPlanner(blank_patch)
+
+    with pytest.raises(AutoresearchLoopError, match="must match"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-blank-patch",
+            mode="dry-run",
+            planner="llm",
+            max_candidates=1,
+            planner_client=fake,
+        )
+
+    header_only = _llm_candidate_payload()
+    header_only["patch_text"] = "diff --git a/configs/experiments/llm_geometry.json b/configs/experiments/llm_geometry.json\n"
+    fake = FakeLLMPlanner(header_only)
+
+    with pytest.raises(AutoresearchLoopError, match="hunk content"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-header-only",
+            mode="dry-run",
+            planner="llm",
+            max_candidates=1,
+            planner_client=fake,
+        )
+
+    malformed_hunk = _llm_candidate_payload()
+    malformed_hunk["patch_text"] = (
+        "diff --git a/configs/experiments/llm_geometry.json b/configs/experiments/llm_geometry.json\n"
+        "--- a/configs/experiments/llm_geometry.json\n"
+        "+++ b/configs/experiments/llm_geometry.json\n"
+        "+{\"max_templates\": 0}\n"
+    )
+    fake = FakeLLMPlanner(malformed_hunk)
+
+    with pytest.raises(AutoresearchLoopError, match="hunk header"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-malformed-hunk",
+            mode="dry-run",
+            planner="llm",
+            max_candidates=1,
+            planner_client=fake,
+        )
+
+    wrong_trial = _llm_candidate_payload()
+    wrong_trial["trial"]["trial_id"] = "T999"
+    wrong_trial["trial"]["artifact_dir"] = "runs/trials/T999"
+    fake = FakeLLMPlanner(wrong_trial)
+
+    with pytest.raises(AutoresearchLoopError, match="start_trial_id"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-wrong-trial",
+            mode="dry-run",
+            planner="llm",
+            max_candidates=1,
+            planner_client=fake,
+        )
+
+    authority = _llm_candidate_payload()
+    authority["patch_text"] = (
+        "diff --git a/configs/experiments/llm_geometry.json b/configs/experiments/llm_geometry.json\n"
+        "--- a/configs/experiments/llm_geometry.json\n"
+        "+++ b/configs/experiments/llm_geometry.json\n"
+        "@@ -0,0 +3 @@\n"
+        "+{\"official_benchmark_result\": false,\n"
+        "+ \"writes_ledger\"\n"
+        "+ : true, \"max_templates\": 1}\n"
+    )
+    fake = FakeLLMPlanner(authority)
+
+    with pytest.raises(AutoresearchLoopError, match="max_templates|official_benchmark_result|writes_ledger"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-authority-patch",
+            mode="dry-run",
+            planner="llm",
+            max_candidates=1,
+            planner_client=fake,
+        )
+    assert not (tmp_path / "runs/autoresearch/llm-mismatch").exists()
+    assert not (tmp_path / "runs/autoresearch/llm-blank-patch").exists()
+    assert not (tmp_path / "runs/autoresearch/llm-header-only").exists()
+    assert not (tmp_path / "runs/autoresearch/llm-malformed-hunk").exists()
+    assert not (tmp_path / "runs/autoresearch/llm-wrong-trial").exists()
+    assert not (tmp_path / "runs/autoresearch/llm-authority-patch").exists()
+
+
 def test_llm_autoresearch_cli_requires_recorded_plan(tmp_path: Path) -> None:
     result = subprocess.run(
         [
@@ -687,8 +850,6 @@ def test_llm_autoresearch_cli_consumes_recorded_plan(tmp_path: Path) -> None:
             "dry-run",
             "--planner",
             "llm",
-            "--max-candidates",
-            "1",
             "--candidate-plan",
             "configs/experiments/recorded-llm.json",
         ],
@@ -705,3 +866,38 @@ def test_llm_autoresearch_cli_consumes_recorded_plan(tmp_path: Path) -> None:
     assert payload["llm_policy"]["patch_planning"]["tools"] == []
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_llm_autoresearch_cli_rejects_explicit_multi_candidate_request(tmp_path: Path) -> None:
+    candidate_plan = tmp_path / "configs/experiments/recorded-llm.json"
+    candidate_plan.parent.mkdir(parents=True)
+    candidate_plan.write_text(json.dumps(_llm_candidate_payload()), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "autoalphafold3.agent",
+            "autoresearch-loop",
+            "--repo-root",
+            str(tmp_path),
+            "--run-id",
+            "cli-llm-two",
+            "--mode",
+            "dry-run",
+            "--planner",
+            "llm",
+            "--max-candidates",
+            "2",
+            "--candidate-plan",
+            "configs/experiments/recorded-llm.json",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert "exactly one" in payload["error"]

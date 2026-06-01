@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     autoresearch_loop_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
     autoresearch_loop_parser.add_argument("--planner", choices=("manual", "deterministic", "llm"), default="deterministic")
     autoresearch_loop_parser.add_argument("--start-trial-id", default="T120")
-    autoresearch_loop_parser.add_argument("--max-candidates", type=int, default=6)
+    autoresearch_loop_parser.add_argument("--max-candidates", type=int, default=None)
     autoresearch_loop_parser.add_argument("--candidate-plan", default=None)
     autoresearch_loop_parser.add_argument("--model", default=DEFAULT_LLM_MODEL)
     autoresearch_loop_parser.add_argument("--approve", default=None)
@@ -302,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
                 mode=args.mode,
                 planner=args.planner,
                 start_trial_id=args.start_trial_id,
-                max_candidates=args.max_candidates,
+                max_candidates=args.max_candidates if args.max_candidates is not None else (1 if args.planner == "llm" else 6),
                 candidate_plan=args.candidate_plan,
                 approval=args.approve,
                 model=args.model,

@@ -6,14 +6,14 @@
 - [x] Goal progress files created.
 - [x] Autoresearch runbook created.
 - [x] Agent program prompt created.
-- [ ] Short-training manifest schema implemented.
-- [ ] Short-training runner writes trial-scoped artifacts only.
-- [ ] Short-training runner rejects fake training claims.
-- [ ] Short-training runner rejects `max_templates != 0`.
-- [ ] Short-training runner rejects unsafe feature paths.
-- [ ] Short-training runner rejects non-empty output directories.
-- [ ] Fixture-backed 2-3 step short-training test passes.
-- [ ] Local scaffold mode cannot stamp official benchmark evidence.
+- [x] Short-training manifest schema implemented.
+- [x] Short-training runner writes trial-scoped artifacts only.
+- [x] Short-training runner rejects fake training claims.
+- [x] Short-training runner rejects `max_templates != 0`.
+- [x] Short-training runner rejects unsafe feature paths.
+- [x] Short-training runner rejects non-empty output directories.
+- [x] Fixture-backed 2-3 step short-training test passes.
+- [x] Local scaffold mode cannot stamp official benchmark evidence.
 - [ ] Config-driven NanoFold loss weights implemented.
 - [ ] Defaults preserve current loss behavior when new weights are zero.
 - [ ] Differentiable local C-alpha geometry loss implemented.

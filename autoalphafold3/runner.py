@@ -309,6 +309,14 @@ def run_fixed_budget_trial(
             output_dir=output_dir,
             split=split,
         )
+    if trial_json.get("runner_mode") == "short_training":
+        from autoalphafold3.short_training import run_short_nanofold_training
+
+        return run_short_nanofold_training(
+            trial_json,
+            features_dir=features_dir,
+            output_dir=output_dir,
+        )
     if not allow_local_stub:
         raise RunnerError(
             "run_fixed_budget_trial is not implemented without NanoFold features, "

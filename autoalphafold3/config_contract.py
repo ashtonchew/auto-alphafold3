@@ -83,24 +83,36 @@ def validate_config_file(config_path: str | Path, *, repo_root: str | Path = "."
     if not path.is_absolute():
         path = Path(repo_root) / path
     data = json.loads(path.read_text(encoding="utf-8"))
+    return validate_config_payload(data, source=str(config_path))
 
+
+def validate_config_payload(data: object, *, source: str = "<inline-config>") -> ConfigValidationResult:
+    """Validate an already-loaded scaffold or NanoFold training config payload."""
+
+    if not isinstance(data, dict):
+        return ConfigValidationResult(
+            config_kind="unknown",
+            path=source,
+            valid=False,
+            missing_keys=["json_object"],
+        )
     if data.get("schema_version") == AUTO_TINY_SCHEMA_VERSION:
         config = AutoTinyConfig.model_validate(data)
         config.max_templates
-        return ConfigValidationResult(config_kind="auto_tiny_scaffold", path=str(config_path), valid=True)
+        return ConfigValidationResult(config_kind="auto_tiny_scaffold", path=source, valid=True)
 
     missing = sorted(NANOFOLD_REQUIRED_KEYS - data.keys())
     if missing:
         return ConfigValidationResult(
             config_kind="nanofold_training",
-            path=str(config_path),
+            path=source,
             valid=False,
             missing_keys=missing,
         )
     if data.get("max_templates") != 0:
         return ConfigValidationResult(
             config_kind="nanofold_training",
-            path=str(config_path),
+            path=source,
             valid=False,
             missing_keys=["max_templates=0"],
         )
@@ -112,11 +124,11 @@ def validate_config_file(config_path: str | Path, *, repo_root: str | Path = "."
     if invalid_optional:
         return ConfigValidationResult(
             config_kind="nanofold_training",
-            path=str(config_path),
+            path=source,
             valid=False,
             missing_keys=invalid_optional,
         )
-    return ConfigValidationResult(config_kind="nanofold_training", path=str(config_path), valid=True)
+    return ConfigValidationResult(config_kind="nanofold_training", path=source, valid=True)
 
 
 def _is_nonnegative_finite_number(value: object) -> bool:

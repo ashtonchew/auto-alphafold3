@@ -274,6 +274,7 @@ class AutoFoldTrial(BaseModel):
     prediction: RegisteredPrediction
     patch_path: str | None = None
     config_path: str
+    config_payload: dict[str, object] | None = None
     budget: BudgetTier
     seed: int = Field(ge=0)
     n_res: int | None = Field(default=None, ge=1)

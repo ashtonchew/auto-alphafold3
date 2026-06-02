@@ -673,6 +673,54 @@ def _write_pairformer_surface_design_review_inputs(tmp_path: Path) -> Path:
     return report.relative_to(tmp_path)
 
 
+def _write_auxiliary_surface_design_review_inputs(tmp_path: Path) -> Path:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.joinpath("nanofold_dev_cpu_smoke.json").write_text(
+        (REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    report = tmp_path / "runs/autoresearch/surface_design_review/T173-auxiliary-contact-loss.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.surface_design_review.v1",
+                "status": "PASS",
+                "decision": "APPROVE_DRY_RUN_PLANNER_IMPLEMENTATION_ONLY",
+                "approved_next_surface": "auxiliary_loss",
+                "approved_planner": "auxiliary_contact_loss_diagnostic",
+                "candidate_limit": 1,
+                "may_start_live_candidate": False,
+                "may_start_open_ended_loop": False,
+                "bench_blocked_reason": "new planner must be dry-run validated",
+                "consumed_strategy_review": "runs/autoresearch/surface_strategy_review/T172-blocked.json",
+                "exhausted_surfaces": [
+                    "sampler_coordinate_scale",
+                    "sampler_geometry_selection",
+                    "sampler_low_noise",
+                    "diffusion_data_scale",
+                    "pairformer_attention",
+                ],
+                "required_next_pr": {
+                    "planner": "auxiliary_contact_loss_diagnostic",
+                    "candidate_limit": 1,
+                    "mode_before_merge": "dry-run",
+                    "candidate_budget": "trial",
+                    "must_consume_review": True,
+                },
+                "design_rationale": "Auxiliary contact loss remains non-overlapping.",
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
 def _write_prediction_geometry_audit_inputs(
     tmp_path: Path,
     *,
@@ -2022,6 +2070,78 @@ def test_pairformer_attention_diagnostic_requires_design_review(tmp_path: Path) 
         )
 
     assert not (tmp_path / "runs/autoresearch/pairformer-attention-wrong-review").exists()
+
+
+def test_auxiliary_contact_loss_diagnostic_plans_one_non_overlapping_candidate(tmp_path: Path) -> None:
+    report = _write_auxiliary_surface_design_review_inputs(tmp_path)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="auxiliary-contact-loss-diagnostic",
+        mode="dry-run",
+        planner="auxiliary_contact_loss_diagnostic",
+        start_trial_id="T173",
+        max_candidates=1,
+        candidate_budget="trial",
+        diagnostic_report=report,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T173"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T173"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "training"
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["move_family"] == "auxiliary_loss"
+    assert trial["diagnostic_target"] == "long_range_topology_weak"
+    assert trial["prediction"]["causal_component"] == "contact_focused_distogram_auxiliary_loss"
+    assert trial["config_path"] == "configs/experiments/T173_auxiliary_contact_loss_diagnostic.json"
+    assert trial["config_payload"]["max_templates"] == 0
+    assert trial["config_payload"]["contact_auxiliary_loss_weight"] == pytest.approx(2.0)
+    assert trial["config_payload"]["contact_auxiliary_distance_cutoff"] == pytest.approx(8.0)
+    assert trial["config_payload"]["contact_auxiliary_min_sequence_separation"] == 8
+    assert trial["config_payload"]["distogram_loss_weight"] == pytest.approx(0.03)
+    assert trial["config_payload"]["local_calpha_geometry_loss_weight"] == pytest.approx(0.0)
+    assert "sampler_coordinate_scale" not in trial
+    assert "diffusion_data_std_dev" not in trial["config_payload"]
+    assert trial["config_payload"]["num_pairformer_blocks"] == 3
+    assert trial["config_payload"]["num_triangular_attention_channels"] == 16
+    assert config["schema_version"] == "autoaf3.auxiliary_contact_loss_diagnostic_plan.v1"
+    assert config["source_surface_design_review"] == str(report)
+    assert config["approved_next_surface"] == "auxiliary_loss"
+    assert config["approved_planner"] == "auxiliary_contact_loss_diagnostic"
+    assert config["config_payload_overrides"]["contact_auxiliary_loss_weight"] == pytest.approx(2.0)
+    assert config["writes_ledger"] is False
+    assert config["writes_discovery_ledger"] is False
+    assert "configs/experiments/T173_auxiliary_contact_loss_diagnostic.json" in patch_text
+    assert "bounded auxiliary contact-loss diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_auxiliary_contact_loss_diagnostic_requires_design_review(tmp_path: Path) -> None:
+    report = _write_pairformer_surface_design_review_inputs(tmp_path)
+
+    with pytest.raises(AutoresearchLoopError, match="did not approve auxiliary_loss"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="auxiliary-contact-loss-wrong-review",
+            mode="dry-run",
+            planner="auxiliary_contact_loss_diagnostic",
+            start_trial_id="T173",
+            max_candidates=1,
+            candidate_budget="trial",
+            diagnostic_report=report,
+        )
+
+    assert not (tmp_path / "runs/autoresearch/auxiliary-contact-loss-wrong-review").exists()
 
 
 def test_deterministic_sampler_checkpoint_follows_start_trial_id(tmp_path: Path) -> None:

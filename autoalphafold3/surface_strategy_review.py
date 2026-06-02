@@ -75,6 +75,9 @@ IMPLEMENTED_PLANNER_SURFACES: dict[str, frozenset[str]] = {
     "pairformer_attention_diagnostic": frozenset(
         {"pairformer_attention", "pairformer_attention_diagnostic"}
     ),
+    "auxiliary_contact_loss_diagnostic": frozenset(
+        {"auxiliary_loss", "auxiliary_contact_loss", "auxiliary_contact_loss_diagnostic"}
+    ),
 }
 
 UNIMPLEMENTED_ALLOWED_SURFACES = (
@@ -169,9 +172,7 @@ def _blocked_report(
         consumed_next_surface_reviews=[str(item) for item in next_surface_reviews],
         consumed_diagnoses=[str(item) for item in diagnoses],
         exhausted_surfaces=exhausted,
-        unimplemented_candidate_surfaces=[
-            surface for surface in UNIMPLEMENTED_ALLOWED_SURFACES if surface not in set(exhausted)
-        ],
+        unimplemented_candidate_surfaces=_unimplemented_candidate_surfaces(exhausted),
         required_next_step=(
             "Do offline design review for one unimplemented allowed surface; add a dry-run-only planner "
             "PR before any more live candidates or open-ended bench loop."
@@ -232,6 +233,20 @@ def _surface_exhausted(approved_surface: str, planner: str, exhausted: list[str]
     aliases = set(IMPLEMENTED_PLANNER_SURFACES.get(planner, frozenset()))
     aliases.add(approved_surface)
     return any(alias in exhausted_set for alias in aliases)
+
+
+def _unimplemented_candidate_surfaces(exhausted: list[str]) -> list[str]:
+    exhausted_set = set(exhausted)
+    implemented_aliases = {
+        alias
+        for aliases in IMPLEMENTED_PLANNER_SURFACES.values()
+        for alias in aliases
+    }
+    return [
+        surface
+        for surface in UNIMPLEMENTED_ALLOWED_SURFACES
+        if surface not in exhausted_set and surface not in implemented_aliases
+    ]
 
 
 def _string_list(value: object) -> list[str]:

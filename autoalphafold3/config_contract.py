@@ -47,6 +47,7 @@ NANOFOLD_OPTIONAL_NONNEGATIVE_FLOAT_KEYS = frozenset(
         "local_calpha_geometry_loss_weight",
         "diffusion_gamma_0",
         "diffusion_gamma_min",
+        "contact_auxiliary_loss_weight",
     }
 )
 NANOFOLD_OPTIONAL_POSITIVE_FLOAT_KEYS = frozenset(
@@ -57,6 +58,12 @@ NANOFOLD_OPTIONAL_POSITIVE_FLOAT_KEYS = frozenset(
         "diffusion_s_max",
         "diffusion_s_min",
         "diffusion_schedule_p",
+        "contact_auxiliary_distance_cutoff",
+    }
+)
+NANOFOLD_OPTIONAL_NONNEGATIVE_INT_KEYS = frozenset(
+    {
+        "contact_auxiliary_min_sequence_separation",
     }
 )
 
@@ -138,6 +145,11 @@ def validate_config_payload(data: object, *, source: str = "<inline-config>") ->
         for key in sorted(NANOFOLD_OPTIONAL_POSITIVE_FLOAT_KEYS)
         if key in data and not _is_positive_finite_number(data.get(key))
     )
+    invalid_optional.extend(
+        key
+        for key in sorted(NANOFOLD_OPTIONAL_NONNEGATIVE_INT_KEYS)
+        if key in data and not _is_nonnegative_integer(data.get(key))
+    )
     if invalid_optional:
         return ConfigValidationResult(
             config_kind="nanofold_training",
@@ -158,3 +170,7 @@ def _is_positive_finite_number(value: object) -> bool:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return False
     return math.isfinite(float(value)) and float(value) > 0.0
+
+
+def _is_nonnegative_integer(value: object) -> bool:
+    return not isinstance(value, bool) and isinstance(value, int) and value >= 0

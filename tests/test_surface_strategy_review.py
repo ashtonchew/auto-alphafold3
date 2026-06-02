@@ -47,7 +47,9 @@ def test_surface_strategy_blocks_after_t171_no_surface_approved(tmp_path: Path) 
     assert payload["may_start_live_candidate"] is False
     assert payload["may_start_open_ended_loop"] is False
     assert "diffusion_data_scale" in payload["exhausted_surfaces"]
-    assert "pairformer_attention" in payload["unimplemented_candidate_surfaces"]
+    assert "feature_handling" in payload["unimplemented_candidate_surfaces"]
+    assert "pairformer_attention" not in payload["unimplemented_candidate_surfaces"]
+    assert "auxiliary_loss" not in payload["unimplemented_candidate_surfaces"]
     assert payload["starts_search"] is False
     assert payload["writes_ledger"] is False
     assert payload["writes_discovery_ledger"] is False

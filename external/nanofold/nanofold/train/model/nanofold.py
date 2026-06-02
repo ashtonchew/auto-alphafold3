@@ -59,6 +59,9 @@ class Nanofold(nn.Module):
         diffusion_s_max=160,
         diffusion_s_min=0.0004,
         diffusion_schedule_p=7,
+        contact_auxiliary_loss_weight=0.0,
+        contact_auxiliary_distance_cutoff=8.0,
+        contact_auxiliary_min_sequence_separation=8,
     ):
         super().__init__()
 
@@ -140,7 +143,14 @@ class Nanofold(nn.Module):
             dynamic=True,
         )
         self.distogram_loss = torch.compile(
-            DistogramLoss(pair_embedding_size, num_distogram_bins, device),
+            DistogramLoss(
+                pair_embedding_size,
+                num_distogram_bins,
+                device,
+                contact_auxiliary_loss_weight=contact_auxiliary_loss_weight,
+                contact_auxiliary_distance_cutoff=contact_auxiliary_distance_cutoff,
+                contact_auxiliary_min_sequence_separation=contact_auxiliary_min_sequence_separation,
+            ),
             disable=not compile_model,
             dynamic=True,
         )
@@ -200,6 +210,12 @@ class Nanofold(nn.Module):
             "diffusion_s_max": config.get("diffusion_s_max", 160),
             "diffusion_s_min": config.get("diffusion_s_min", 0.0004),
             "diffusion_schedule_p": config.get("diffusion_schedule_p", 7),
+            "contact_auxiliary_loss_weight": config.get("contact_auxiliary_loss_weight", 0.0),
+            "contact_auxiliary_distance_cutoff": config.get("contact_auxiliary_distance_cutoff", 8.0),
+            "contact_auxiliary_min_sequence_separation": config.get(
+                "contact_auxiliary_min_sequence_separation",
+                8,
+            ),
         }
 
     @classmethod

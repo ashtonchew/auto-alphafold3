@@ -17,7 +17,12 @@ if str(NANOFOLD_ROOT) not in sys.path:
     sys.path.insert(0, str(NANOFOLD_ROOT))
 
 import torch  # noqa: E402
-from nanofold.train.loss import compute_diffusion_loss, compute_local_calpha_geometry_loss, extract_calpha_coords  # noqa: E402
+from nanofold.train.loss import (  # noqa: E402
+    DistogramLoss,
+    compute_diffusion_loss,
+    compute_local_calpha_geometry_loss,
+    extract_calpha_coords,
+)
 from nanofold.train.model.nanofold import Nanofold  # noqa: E402
 
 try:
@@ -109,6 +114,19 @@ def test_nanofold_get_args_reads_diffusion_data_scale_config() -> None:
     assert args["diffusion_schedule_p"] == pytest.approx(7.0)
 
 
+def test_nanofold_get_args_reads_contact_auxiliary_loss_config() -> None:
+    config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config["contact_auxiliary_loss_weight"] = 2.0
+    config["contact_auxiliary_distance_cutoff"] = 8.0
+    config["contact_auxiliary_min_sequence_separation"] = 8
+
+    args = Nanofold.get_args(config)
+
+    assert args["contact_auxiliary_loss_weight"] == pytest.approx(2.0)
+    assert args["contact_auxiliary_distance_cutoff"] == pytest.approx(8.0)
+    assert args["contact_auxiliary_min_sequence_separation"] == 8
+
+
 def test_nanofold_config_rejects_invalid_loss_weights(tmp_path: Path) -> None:
     config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
     config["local_calpha_geometry_loss_weight"] = -0.1
@@ -143,6 +161,53 @@ def test_nanofold_config_rejects_invalid_diffusion_data_scale(tmp_path: Path) ->
 
     assert not result.valid
     assert result.missing_keys == ["diffusion_data_std_dev"]
+
+
+def test_nanofold_config_rejects_invalid_contact_auxiliary_params(tmp_path: Path) -> None:
+    config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config["contact_auxiliary_loss_weight"] = -0.1
+    config["contact_auxiliary_distance_cutoff"] = 0.0
+    config["contact_auxiliary_min_sequence_separation"] = -1
+    config_path = tmp_path / "bad_contact_auxiliary.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    result = validate_config_file(config_path)
+
+    assert not result.valid
+    assert result.missing_keys == [
+        "contact_auxiliary_loss_weight",
+        "contact_auxiliary_distance_cutoff",
+        "contact_auxiliary_min_sequence_separation",
+    ]
+
+
+def test_distogram_contact_auxiliary_reweights_contact_pairs() -> None:
+    coords = torch.tensor(
+        [
+            [
+                [0.0, 0.0, 0.0],
+                [30.0, 0.0, 0.0],
+                [60.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ]
+        ]
+    )
+    focused = DistogramLoss(
+        3,
+        4,
+        "cpu",
+        contact_auxiliary_loss_weight=3.0,
+        contact_auxiliary_distance_cutoff=8.0,
+        contact_auxiliary_min_sequence_separation=3,
+    )
+    distance_mat = torch.norm(coords.unsqueeze(-2) - coords.unsqueeze(-3), dim=-1)
+
+    weight = focused._contact_auxiliary_weight(distance_mat)
+
+    assert weight[0, 0, 3].item() == pytest.approx(4.0)
+    assert weight[0, 3, 0].item() == pytest.approx(4.0)
+    assert weight[0, 0, 1].item() == pytest.approx(1.0)
+    assert weight[0, 0, 0].item() == pytest.approx(1.0)
 
 
 def test_diffusion_loss_skips_geometry_when_disabled_for_defaults() -> None:

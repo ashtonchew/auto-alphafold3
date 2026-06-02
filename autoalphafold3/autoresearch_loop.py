@@ -208,6 +208,11 @@ class PlannerTrial(BaseModel):
     cost_cap: float
     timeout_cap: int
     artifact_dir: str
+    sampler_noise_scale: float | None = None
+    sampler_step_scale: float | None = None
+    sampler_schedule_shape: str | None = None
+    sampler_num_samples: int | None = None
+    sampler_selection_policy: str | None = None
     sampler_coordinate_normalization: str | None = None
     sampler_coordinate_scale: float | None = None
     checkpoint_path: None
@@ -412,6 +417,7 @@ def run_autoresearch_loop(
         "coordinate_normalized_sampler_diagnostic",
         "calibrated_coordinate_normalized_sampler_diagnostic",
         "calibrated_sampler_locality_selection_diagnostic",
+        "calibrated_sampler_low_noise_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
@@ -572,6 +578,15 @@ def _run_modal_candidate_smoke(
         _require_deployed_runtime_capability(
             client,
             capability="post_training_sampler_selection",
+        )
+    if (
+        checked.sampler_noise_scale is not None
+        or checked.sampler_step_scale is not None
+        or checked.sampler_schedule_shape is not None
+    ):
+        _require_deployed_runtime_capability(
+            client,
+            capability="post_training_sampler_schedule",
         )
     try:
         payload = client.submit_and_poll_trial(_modal_trial_payload(checked))
@@ -897,6 +912,9 @@ def _modal_short_training_payload(trial: AutoFoldTrial) -> dict[str, object]:
         config_payload=trial.config_payload,
         sampler_coordinate_normalization=trial.sampler_coordinate_normalization,
         sampler_coordinate_scale=trial.sampler_coordinate_scale,
+        sampler_noise_scale=trial.sampler_noise_scale,
+        sampler_step_scale=trial.sampler_step_scale,
+        sampler_schedule_shape=trial.sampler_schedule_shape,
         sampler_num_samples=trial.sampler_num_samples,
         sampler_selection_policy=trial.sampler_selection_policy,
     )
@@ -996,6 +1014,15 @@ def _planned_candidates(
         )
     if planner == "calibrated_sampler_locality_selection_diagnostic":
         return _calibrated_sampler_locality_selection_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
+    if planner == "calibrated_sampler_low_noise_diagnostic":
+        return _calibrated_sampler_low_noise_diagnostic_candidates(
             root=root,
             start_trial_id=start_trial_id,
             max_candidates=max_candidates,
@@ -1939,6 +1966,121 @@ def _require_controlled_coordinate_scale(geometry: dict[str, object]) -> None:
     flags = set(str(flag) for flag in geometry.get("scale_flags", []))
     if {"adjacent_ca_distance_collapsed", "reference_radius_scale_shift", "reference_pair_distance_shift_gt_20A"} & flags:
         raise AutoresearchLoopError("calibrated sampler locality-selection diagnostic requires scale failure to be resolved")
+
+
+def _calibrated_sampler_low_noise_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("calibrated_sampler_low_noise_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("calibrated_sampler_low_noise_diagnostic planner requires --diagnostic-report")
+    geometry = _prediction_geometry_audit_summary(
+        root=root,
+        diagnostic_report=diagnostic_report,
+        require_reference_scale_flags=False,
+    )
+    _require_controlled_coordinate_scale(geometry)
+    source_trial_id = _single_candidate_trial_id(geometry, planner="calibrated_sampler_low_noise_diagnostic")
+    source_sampler = _source_sampler_manifest_summary(root=root, trial_id=source_trial_id)
+    scale = source_sampler["sampler_coordinate_scale"]
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_calibrated_sampler_low_noise_diagnostic.json"
+    config_payload = _coordinate_scale_locality_diagnostic_config_payload(root)
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.DIFFUSION_SAMPLER_GOLF,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded calibrated sampler low-noise diagnostic should test whether T169 failed "
+            "because label-free sampler selection moved structures too far after scale calibration. "
+            "It preserves the proven C-alpha scale, returns to one first sample, reduces sampler "
+            "noise, and keeps labels, manifests, scorer, templates, Modal resources, and ledger "
+            "authority unchanged."
+        ),
+    )
+    trial["agent_session_id"] = "calibrated-sampler-low-noise-diagnostic-planner"
+    trial["seed"] = 99000 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.DISTOGRAM_GOOD_LDDT_FLAT.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["sampler_coordinate_normalization"] = "ca_bond"
+    trial["sampler_coordinate_scale"] = scale
+    trial["sampler_noise_scale"] = 0.5
+    trial["sampler_num_samples"] = 1
+    trial["sampler_selection_policy"] = "first"
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="calibrated_low_noise_first_sample",
+        predicted_axis=FalsificationAxis.DISTOGRAM_VS_3D,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.006),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.calibrated_sampler_low_noise_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "source_geometry_audit": str(diagnostic_report),
+        "source_trial_id": source_trial_id,
+        "source_sampler_manifest": source_sampler["path"],
+        "source_verdict": geometry["recommendation_status"],
+        "reference_trial_id": geometry["reference_trial_id"],
+        "candidate_trial_ids": geometry["candidate_trial_ids"],
+        "scale_flags": geometry["scale_flags"],
+        "reference_deltas": geometry["reference_deltas"],
+        "worst_targets": [],
+        "sampler_coordinate_normalization": "ca_bond",
+        "sampler_coordinate_scale": scale,
+        "sampler_noise_scale": 0.5,
+        "sampler_num_samples": 1,
+        "sampler_selection_policy": "first",
+        "config_payload_overrides": {
+            "residue_crop_size": config_payload["residue_crop_size"],
+            "num_msa_samples": config_payload["num_msa_samples"],
+            "learning_rate": config_payload["learning_rate"],
+            "lr_start_factor": config_payload["lr_start_factor"],
+            "lr_warmup": config_payload["lr_warmup"],
+            "clip_norm": config_payload["clip_norm"],
+            "diffusion_loss_weight": config_payload["diffusion_loss_weight"],
+            "distogram_loss_weight": config_payload["distogram_loss_weight"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+            "diffusion_steps": config_payload["diffusion_steps"],
+        },
+        "failed_shapes_avoided": [
+            "unbounded live search",
+            "multi-sample geometry selection after T169 scorer regression",
+            "scorer, label, manifest, fingerprint, baseline, Modal resource, or ledger edits",
+        ],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded calibrated sampler low-noise diagnostic",
+            ),
+        }
+    ]
 
 
 def _single_candidate_trial_id(geometry: dict[str, object], *, planner: str) -> str:

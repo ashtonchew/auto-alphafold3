@@ -49,6 +49,9 @@ def short_training_payload(
     local_only: bool = False,
     predict_after_training: bool = False,
     config_payload: dict[str, object] | None = None,
+    sampler_noise_scale: float | None = None,
+    sampler_step_scale: float | None = None,
+    sampler_schedule_shape: str | None = None,
     sampler_num_samples: int | None = None,
     sampler_selection_policy: str | None = None,
     sampler_coordinate_normalization: str | None = None,
@@ -79,6 +82,20 @@ def short_training_payload(
     }
     if config_payload is not None:
         payload["config_payload"] = config_payload
+    if sampler_noise_scale is not None:
+        noise_scale = float(sampler_noise_scale)
+        if not 0.25 <= noise_scale <= 2.0:
+            raise ShortTrainingError("sampler_noise_scale must be in [0.25, 2.0]")
+        payload["sampler_noise_scale"] = noise_scale
+    if sampler_step_scale is not None:
+        step_scale = float(sampler_step_scale)
+        if not 0.25 <= step_scale <= 2.0:
+            raise ShortTrainingError("sampler_step_scale must be in [0.25, 2.0]")
+        payload["sampler_step_scale"] = step_scale
+    if sampler_schedule_shape is not None:
+        if sampler_schedule_shape not in {"linear", "cosine", "late_refine"}:
+            raise ShortTrainingError("sampler_schedule_shape must be linear, cosine, or late_refine")
+        payload["sampler_schedule_shape"] = sampler_schedule_shape
     if sampler_num_samples is not None:
         checked_num_samples = int(sampler_num_samples)
         if not 1 <= checked_num_samples <= 4:

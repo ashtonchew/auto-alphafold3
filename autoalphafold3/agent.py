@@ -157,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     sampler_loop_parser.add_argument("--failure-streak-limit", type=int, default=2)
     sampler_loop_parser.add_argument(
         "--planner",
-        choices=("deterministic", "reference_sweep", "llm"),
+        choices=("deterministic", "reference_sweep", "strategy_pivot", "llm"),
         default="deterministic",
     )
     sampler_loop_parser.add_argument("--model", default=DEFAULT_LLM_MODEL)

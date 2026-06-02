@@ -407,6 +407,35 @@ def test_sampler_loop_reference_sweep_starts_near_recorded_t088_settings(tmp_pat
     assert second["sampler_step_scale"] == pytest.approx(1.6)
 
 
+def test_sampler_loop_strategy_pivot_avoids_blocked_t088_neighborhood(tmp_path: Path) -> None:
+    seed_path = _write_exhausted_sampler_strategy_fixture(tmp_path)
+
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_path,
+        repo_root=tmp_path,
+        max_candidates=2,
+        start_trial_id="T130",
+        planner="strategy_pivot",
+        search_reference_trial_id="T081",
+        prior_decision_trial_ids=["T108", "T109", "T110"],
+    )
+
+    assert result.status == "PASS"
+    assert result.planner == "strategy_pivot"
+    assert result.generated_trials == ["T130", "T131"]
+    first = json.loads((tmp_path / "trials/T130.json").read_text())
+    second = json.loads((tmp_path / "trials/T131.json").read_text())
+    assert first["trial_kind"] == "sampler"
+    assert "max_steps" not in first
+    assert first["sampler_schedule_shape"] == "cosine"
+    assert first["sampler_selection_policy"] == "geometry"
+    assert first["sampler_noise_scale"] == pytest.approx(1.35)
+    assert first["sampler_step_scale"] == pytest.approx(0.75)
+    assert second["sampler_schedule_shape"] == "linear"
+    assert second["sampler_selection_policy"] == "first"
+    assert result.decisions[-1]["strategy_context"]["recommendation"] == "stop_t088_neighborhood"
+
+
 def test_sampler_loop_modal_requires_exact_approval(tmp_path: Path) -> None:
     with pytest.raises(SamplerLoopError, match=APPROVAL_TEXT):
         run_incremental_sampler_loop(
@@ -493,6 +522,32 @@ def test_sampler_loop_reference_sweep_keeps_stage_one_boundaries(tmp_path: Path)
     trial = json.loads((tmp_path / "trials/T122.json").read_text())
     assert trial["sampler_steps"] == 12
     assert trial["sampler_selection_policy"] == "compact_geometry"
+
+
+def test_sampler_loop_strategy_pivot_keeps_stage_one_boundaries(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=1,
+        start_trial_id="T132",
+        planner="strategy_pivot",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=FakeSamplerClient(scores=[0.2]),
+        search_reference_trial_id="T088",
+    )
+
+    assert result.status == "PASS"
+    assert result.scored_trials == ["T132"]
+    assert result.decisions[0]["planner"] == "strategy_pivot"
+    assert result.decisions[0]["status"] == "DISCARD"
+    assert result.decisions[0]["beats_global_current_best"] is False
+    assert result.writes_discovery_ledger is False
+    trial = json.loads((tmp_path / "trials/T132.json").read_text())
+    assert trial["sampler_schedule_shape"] == "cosine"
+    assert trial["sampler_selection_policy"] == "geometry"
 
 
 def test_sampler_loop_stops_on_repeated_infra_failures(tmp_path: Path) -> None:

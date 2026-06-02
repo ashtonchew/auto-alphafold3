@@ -122,6 +122,35 @@ and target-blind geometry or compact-geometry selection. It still writes only
 candidate trial files and canonical ledger rows; it does not write the
 Discovery Ledger, change locked assets, or alter Modal resource policy.
 
+If the strategy gate blocks more T088-neighborhood work, use
+`--planner strategy_pivot` for one deterministic sampler-only pivot outside the
+blocked neighborhood:
+
+```bash
+python -m autoalphafold3.agent autonomous-sampler-loop \
+  --seed-trial trials/T012.json \
+  --max-candidates 1 \
+  --start-trial-id T113 \
+  --mode modal \
+  --planner strategy_pivot \
+  --poll-interval-s 2 \
+  --per-candidate-timeout-s 300 \
+  --failure-streak-limit 1 \
+  --search-reference-trial-id T081 \
+  --prior-decision-trial-id T108 \
+  --prior-decision-trial-id T109 \
+  --prior-decision-trial-id T110 \
+  --prior-decision-trial-id T111 \
+  --prior-decision-trial-id T112 \
+  --approve I_APPROVE_AUTONOMOUS_SAMPLER_LOOP
+```
+
+The pivot planner deliberately avoids the exhausted late-refine
+compact/geometry T088 neighborhood. Its first candidate uses a cosine schedule,
+higher noise, lower step scale, and target-blind geometry selection. It is still
+sampler-only frozen-checkpoint search: no training, no patches, no scorer or
+manifest changes, no Modal resource changes, and no Discovery Ledger writes.
+
 The practical one-hour leg is:
 
 ```bash

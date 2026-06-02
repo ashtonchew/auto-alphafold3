@@ -178,7 +178,7 @@ def run_incremental_sampler_loop(
         raise SamplerLoopError("failure_streak_limit must be at least 1")
     if mode not in {"dry-run", "modal"}:
         raise SamplerLoopError(f"unsupported mode: {mode}")
-    if planner not in {"deterministic", "reference_sweep", "llm"}:
+    if planner not in {"deterministic", "reference_sweep", "strategy_pivot", "llm"}:
         raise SamplerLoopError(f"unsupported planner: {planner}")
     if mode == "modal" and approval != APPROVAL_TEXT:
         raise SamplerLoopError(f"modal sampler loop requires --approve {APPROVAL_TEXT}")
@@ -518,6 +518,57 @@ class ReferenceSweepSamplerPlanner:
         )
 
 
+class StrategyPivotSamplerPlanner:
+    """Deterministic non-neighborhood sampler pivot after T088-local exhaustion."""
+
+    def plan(
+        self,
+        *,
+        seed_trial: dict[str, object],
+        trial_id: str,
+        candidate_index: int,
+        prior_decisions: list[dict[str, object]],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
+        strategy_context: dict[str, object],
+    ) -> SamplerCandidatePlan:
+        sampler_steps, noise_scale, step_scale, schedule_shape, num_samples, selection_policy = (
+            _strategy_pivot_sampler_knobs(candidate_index)
+        )
+        ceiling = strategy_context.get("sampler_family_ceiling")
+        ceiling_trial = ceiling.get("trial_id") if isinstance(ceiling, dict) else "unknown"
+        recommendation = strategy_context.get("recommendation")
+        return SamplerCandidatePlan(
+            diagnostic_target="stability_compute",
+            hypothesis=(
+                "A deterministic sampler pivot outside the exhausted T088 late-refine compact-geometry "
+                "neighborhood should test whether a distinct noise/schedule mechanism can recover "
+                "sampler-family progress without changing training, scorer, labels, manifests, Modal "
+                "resources, or templates."
+            ),
+            intervention=(
+                f"Use sampler_steps={sampler_steps}, noise_scale={noise_scale}, step_scale={step_scale}, "
+                f"schedule={schedule_shape}, samples={num_samples}, selection={selection_policy}; this "
+                f"intentionally avoids the blocked T088 neighborhood after strategy={recommendation} "
+                f"against sampler-family ceiling {ceiling_trial}."
+            ),
+            predicted_direction="up",
+            expected_lddt_delta_band=[0.001, 0.012],
+            sampler_steps=sampler_steps,
+            sampler_noise_scale=noise_scale,
+            sampler_step_scale=step_scale,
+            sampler_schedule_shape=schedule_shape,
+            sampler_num_samples=num_samples,
+            sampler_selection_policy=selection_policy,
+            seed=93000 + candidate_index,
+            rationale=(
+                f"Strategy recommendation is {recommendation}; global best is "
+                f"{global_current_best.get('score')}; search reference is {search_reference.get('score')}. "
+                "The candidate is sampler-only and outside the blocked local late-refine neighborhood."
+            ),
+        )
+
+
 class OpenAISamplerPlanner:
     """Structured-output OpenAI planner for one sampler candidate at a time."""
 
@@ -706,6 +757,18 @@ def _reference_sweep_sampler_knobs(candidate_index: int) -> tuple[int, float, fl
     return knob_grid[candidate_index % len(knob_grid)]
 
 
+def _strategy_pivot_sampler_knobs(candidate_index: int) -> tuple[int, float, float, str, int, str]:
+    """Return bounded sampler settings outside the exhausted T088 neighborhood."""
+
+    knob_grid = [
+        (6, 1.35, 0.75, "cosine", 2, "geometry"),
+        (4, 1.0, 1.0, "linear", 1, "first"),
+        (7, 1.5, 0.7, "cosine", 3, "geometry"),
+        (5, 1.2, 0.85, "linear", 2, "geometry"),
+    ]
+    return knob_grid[candidate_index % len(knob_grid)]
+
+
 def _build_planner(
     planner: str,
     *,
@@ -718,6 +781,8 @@ def _build_planner(
         return DeterministicSamplerPlanner()
     if planner == "reference_sweep":
         return ReferenceSweepSamplerPlanner()
+    if planner == "strategy_pivot":
+        return StrategyPivotSamplerPlanner()
     if planner == "llm":
         return OpenAISamplerPlanner(model=model)
     raise SamplerLoopError(f"unsupported planner: {planner}")

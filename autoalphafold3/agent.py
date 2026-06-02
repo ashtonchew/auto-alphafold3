@@ -143,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
             "diffusion_data_scale_diagnostic",
             "pairformer_attention_diagnostic",
             "auxiliary_contact_loss_diagnostic",
+            "feature_ref_pos_scale_diagnostic",
             "llm",
         ),
         default="deterministic",

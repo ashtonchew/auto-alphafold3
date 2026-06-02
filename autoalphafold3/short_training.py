@@ -189,6 +189,7 @@ def run_short_nanofold_training(
         config["train_split"],
         config["residue_crop_size"],
         config["num_msa_samples"],
+        config.get("ref_pos_translation_scale", 100.0),
     )
     trainer = Trainer(config, loggers=[], checkpoint_save_freq=max_steps, checkpoint=None)
     train_iter = iter(train)

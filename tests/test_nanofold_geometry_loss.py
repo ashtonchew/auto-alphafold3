@@ -23,6 +23,7 @@ from nanofold.train.loss import (  # noqa: E402
     compute_local_calpha_geometry_loss,
     extract_calpha_coords,
 )
+from nanofold.train.chain_dataset import ChainDataset  # noqa: E402
 from nanofold.train.model.nanofold import Nanofold  # noqa: E402
 
 try:
@@ -127,6 +128,14 @@ def test_nanofold_get_args_reads_contact_auxiliary_loss_config() -> None:
     assert args["contact_auxiliary_min_sequence_separation"] == 8
 
 
+def test_chain_dataset_ref_pos_translation_scale_defaults_and_overrides() -> None:
+    default = ChainDataset(None, [], residue_crop_size=16, num_msa=2)
+    scaled = ChainDataset(None, [], residue_crop_size=16, num_msa=2, ref_pos_translation_scale=10.0)
+
+    assert default.ref_pos_translation_scale == pytest.approx(100.0)
+    assert scaled.ref_pos_translation_scale == pytest.approx(10.0)
+
+
 def test_nanofold_config_rejects_invalid_loss_weights(tmp_path: Path) -> None:
     config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
     config["local_calpha_geometry_loss_weight"] = -0.1
@@ -179,6 +188,18 @@ def test_nanofold_config_rejects_invalid_contact_auxiliary_params(tmp_path: Path
         "contact_auxiliary_distance_cutoff",
         "contact_auxiliary_min_sequence_separation",
     ]
+
+
+def test_nanofold_config_rejects_invalid_ref_pos_translation_scale(tmp_path: Path) -> None:
+    config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config["ref_pos_translation_scale"] = 0.0
+    config_path = tmp_path / "bad_ref_pos_scale.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    result = validate_config_file(config_path)
+
+    assert not result.valid
+    assert result.missing_keys == ["ref_pos_translation_scale"]
 
 
 def test_distogram_contact_auxiliary_reweights_contact_pairs() -> None:

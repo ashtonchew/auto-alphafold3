@@ -25,10 +25,11 @@ def encode_one_hot(seq):
 
 
 class ChainDataset(IterableDataset):
-    def __init__(self, table, indices, residue_crop_size, num_msa):
+    def __init__(self, table, indices, residue_crop_size, num_msa, ref_pos_translation_scale=100.0):
         super().__init__()
         self.residue_crop_size = residue_crop_size
         self.num_msa = num_msa
+        self.ref_pos_translation_scale = float(ref_pos_translation_scale)
         self.table = table
         self.indices = indices
         self.distogram_max = 50.75
@@ -180,7 +181,7 @@ class ChainDataset(IterableDataset):
         )
         residue_index = torch.tensor(row["positions"])
         random_rotations = uniform_random_rotation(local_coords.size(0))
-        random_translations = torch.rand(local_coords.size(0), 3) * 100
+        random_translations = torch.rand(local_coords.size(0), 3) * self.ref_pos_translation_scale
         frames = Frame(random_rotations.unsqueeze(-3), random_translations.unsqueeze(-2))
         ref_pos = Frame.apply(frames, local_coords).view(-1, 3)
         ref_space_uid = (

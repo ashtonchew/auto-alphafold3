@@ -1016,6 +1016,34 @@ pair distances, records selected-sample locality flags in sampler selection
 metadata, and preserves the default behavior when unset. It does not score,
 write ledgers, call Modal, or create official benchmark evidence by itself.
 
+After the locality guard PR is merged, review the implemented behavior offline:
+
+```bash
+python3 -m autoalphafold3.agent candidate-implementation-review \
+  --evidence-bridge-review runs/autoresearch/evidence_bridge_review/T177-evidence-guided-failure-mode-bridge-review.json \
+  --candidate sampler_locality_guard \
+  --output runs/autoresearch/candidate_implementation_review/T178-sampler-locality-guard-review.json
+```
+
+An approved candidate implementation review emits
+`APPROVE_LIVE_SMOKE_GATE_PR_ONLY`. That still does not authorize Modal. It only
+allows the next PR to implement a separate one-candidate live-smoke approval
+gate.
+
+Attach the candidate implementation review to the composite gate:
+
+```bash
+python3 -m autoalphafold3.agent bench-readiness-review \
+  --surface-strategy-review runs/autoresearch/surface_strategy_review/T176-diffusion-initialization-scale-blocked-full.json \
+  --broader-strategy-review runs/autoresearch/broader_strategy_review/T176-post-discard-no-go-post-pr115.json \
+  --evidence-bridge-review runs/autoresearch/evidence_bridge_review/T177-evidence-guided-failure-mode-bridge-review.json \
+  --candidate-implementation-review runs/autoresearch/candidate_implementation_review/T178-sampler-locality-guard-review.json \
+  --output runs/autoresearch/bench_readiness_review/T178-live-smoke-gate-required.json
+```
+
+The expected decision is
+`BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_GATE_REQUIRED`.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

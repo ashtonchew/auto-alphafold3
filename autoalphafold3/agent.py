@@ -17,6 +17,10 @@ from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_s
 from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
 from autoalphafold3.bench_readiness_review import BenchReadinessReviewError, review_bench_readiness
 from autoalphafold3.broader_strategy_review import BroaderStrategyReviewError, review_broader_strategy
+from autoalphafold3.candidate_implementation_review import (
+    CandidateImplementationReviewError,
+    review_candidate_implementation,
+)
 from autoalphafold3.checkpoint_runner import CheckpointRunError, run_one_batch_checkpoint
 from autoalphafold3.evidence_bridge_review import EvidenceBridgeReviewError, review_evidence_bridge
 from autoalphafold3.gate_calibration import GateCalibrationError, calibrate_gate
@@ -231,6 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     bench_readiness_parser.add_argument("--surface-strategy-review", required=True)
     bench_readiness_parser.add_argument("--broader-strategy-review", default=None)
     bench_readiness_parser.add_argument("--evidence-bridge-review", default=None)
+    bench_readiness_parser.add_argument("--candidate-implementation-review", default=None)
     bench_readiness_parser.add_argument("--baseline-dir", default="runs/baseline")
     bench_readiness_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
     bench_readiness_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
@@ -260,6 +265,12 @@ def main(argv: list[str] | None = None) -> int:
     evidence_bridge_parser.add_argument("--post-exhaustion-strategy", required=True)
     evidence_bridge_parser.add_argument("--candidate-run-dir", required=True)
     evidence_bridge_parser.add_argument("--output", default=None)
+
+    candidate_implementation_parser = subparsers.add_parser("candidate-implementation-review")
+    candidate_implementation_parser.add_argument("--repo-root", default=".")
+    candidate_implementation_parser.add_argument("--evidence-bridge-review", required=True)
+    candidate_implementation_parser.add_argument("--candidate", default="sampler_locality_guard")
+    candidate_implementation_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -619,12 +630,29 @@ def main(argv: list[str] | None = None) -> int:
                 surface_strategy_review=args.surface_strategy_review,
                 broader_strategy_review=args.broader_strategy_review,
                 evidence_bridge_review=args.evidence_bridge_review,
+                candidate_implementation_review=args.candidate_implementation_review,
                 baseline_dir=args.baseline_dir,
                 config_path=args.config_path,
                 calibration_path=args.calibration_path,
                 modal_authority_path=args.modal_authority_path,
             )
         except BenchReadinessReviewError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "candidate-implementation-review":
+        try:
+            result = review_candidate_implementation(
+                repo_root=args.repo_root,
+                evidence_bridge_review=args.evidence_bridge_review,
+                candidate=args.candidate,
+            )
+        except CandidateImplementationReviewError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

@@ -409,7 +409,7 @@ def _record_modal_candidate_payload(
             reason=result.failure_signature or f"modal trial returned {result.status.value}",
             postmortem=result.postmortem or f"Modal trial returned {result.status.value}.",
         )
-        wrote_files.extend([str(envelope.error_report_path), str(envelope.decision_path), str(envelope.postmortem_path)])
+        wrote_files.extend([str(envelope.decision_path), str(envelope.postmortem_path)])
         decision["status"] = result.status.value
         decision["decision_path"] = str(envelope.decision_path)
         return {"decision": decision, "wrote_files": wrote_files}

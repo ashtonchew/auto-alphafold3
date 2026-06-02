@@ -952,6 +952,27 @@ emit exactly one dry-run artifact-only candidate, keep `starts_search=false`,
 keep ledger writes false, and rerun the composite bench gate before any bounded
 live smoke.
 
+After that planner PR is merged, generate the first artifact-only bridge
+candidate:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner evidence_guided_failure_mode_bridge_diagnostic \
+  --run-id evidence-guided-failure-mode-bridge-001-post-pr \
+  --start-trial-id T177 \
+  --candidate-budget smoke \
+  --diagnostic-report runs/autoresearch/post_exhaustion_strategy/T176-evidence-guided-failure-mode-bridge-prd-post-pr118.json \
+  --scorer-report runs/autoresearch/scorer_sensitivity/T175-vs-T176-diffusion-initialization-scale.json \
+  --geometry-report runs/autoresearch/prediction_geometry/T176-vs-T175.json
+```
+
+The planner is dry-run-only and refuses `--mode modal`. It writes only planning
+artifacts under `runs/autoresearch/<run-id>/`, with `artifact_only=true`,
+`stop_before_live_modal=true`, and no ledger or Discovery Ledger authority. Do
+not run a bounded live smoke until this dry-run envelope has been reviewed and a
+fresh bench-readiness-review explicitly allows at most one live candidate.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

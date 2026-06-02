@@ -862,6 +862,84 @@ def _write_diffusion_initialization_broader_strategy_review_inputs(tmp_path: Pat
     return report.relative_to(tmp_path)
 
 
+def _write_post_exhaustion_strategy_prd_inputs(tmp_path: Path) -> Path:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.joinpath("nanofold_dev_cpu_smoke.json").write_text(
+        (REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    report = tmp_path / "runs/autoresearch/post_exhaustion_strategy/T176-evidence-bridge-prd.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.post_exhaustion_strategy_prd.v1",
+                "status": "PASS",
+                "decision": "APPROVE_DRY_RUN_STRATEGY_PRD_ONLY",
+                "approved_strategy_family": "evidence_guided_failure_mode_bridge",
+                "approved_planner": "evidence_guided_failure_mode_bridge_diagnostic",
+                "candidate_limit": 1,
+                "may_start_live_candidate": False,
+                "may_start_open_ended_loop": False,
+                "non_overlap_rationale": "pre-live evidence bridge",
+                "allowed_edit_areas": ["autoalphafold3/autoresearch_loop.py"],
+                "forbidden_edits": ["scorer", "benchmark_contract", "Modal resources", "canonical_ledger"],
+                "dry_run_candidate_shape": {"artifact_only": True, "candidate_limit": 1},
+                "required_evidence_before_live_smoke": ["dry-run planner consumes real local scorer-sensitivity evidence"],
+                "stop_conditions": ["post-merge full local gate is not green"],
+                "consumed_bench_readiness_review": "runs/autoresearch/bench_readiness_review/review.json",
+                "consumed_strategy_exhaustion_audit": "runs/autoresearch/strategy_exhaustion_audit/review.json",
+                "exhausted_implemented_planners": [
+                    "targeted_diagnostic",
+                    "diffusion_initialization_scale_diagnostic",
+                ],
+                "remaining_implemented_planners": [],
+                "blocked_reason": None,
+                "required_next_step": "implement dry-run planner",
+                "ui_reporting_constraint": "planning evidence only",
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
+def _write_evidence_bridge_scorer_sensitivity_inputs(tmp_path: Path) -> Path:
+    report = tmp_path / "runs/autoresearch/scorer_sensitivity/T175-vs-T176.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.scorer_sensitivity.v1",
+                "status": "PASS",
+                "mode": "modal",
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "trial_ids": ["T175", "T176"],
+                "reference_trial_id": "T175",
+                "metric_deltas_vs_reference": {"T176": {"best_val_calpha_lddt": 0.00014417153791711386}},
+                "per_target_score_deltas_vs_reference": {
+                    "T176": {
+                        "1HEL_A": 0.0021,
+                        "1MBD_A": -0.0009,
+                        "2BP2_A": -0.0007,
+                        "2LZM_A": -0.0006,
+                    }
+                },
+                "all_primary_scores_identical": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
 def _write_prediction_geometry_audit_inputs(
     tmp_path: Path,
     *,
@@ -2506,6 +2584,90 @@ def test_diffusion_initialization_scale_diagnostic_requires_broader_strategy_rev
         )
 
     assert not (tmp_path / "runs/autoresearch/diffusion-initialization-wrong-review").exists()
+
+
+def test_evidence_guided_failure_mode_bridge_plans_one_artifact_only_candidate(tmp_path: Path) -> None:
+    prd = _write_post_exhaustion_strategy_prd_inputs(tmp_path)
+    scorer = _write_evidence_bridge_scorer_sensitivity_inputs(tmp_path)
+    geometry = _write_controlled_scale_prediction_geometry_audit_inputs(
+        tmp_path,
+        report_name="T176-vs-T175.json",
+    )
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="evidence-guided-failure-mode-bridge",
+        mode="dry-run",
+        planner="evidence_guided_failure_mode_bridge_diagnostic",
+        start_trial_id="T177",
+        max_candidates=1,
+        candidate_budget="smoke",
+        diagnostic_report=prd,
+        scorer_report=scorer,
+        geometry_report=geometry,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T177"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T177"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "debug"
+    assert trial["budget"] == "smoke"
+    assert trial["max_steps"] == 10
+    assert trial["move_family"] == "evidence_gate"
+    assert trial["diagnostic_target"] == "stability_compute"
+    assert trial["prediction"]["causal_component"] == "pre_live_failure_mode_bridge"
+    assert trial["prediction"]["expected_lddt_delta_band"] == [0.0, 0.0001]
+    assert trial["config_path"] == "configs/experiments/T177_evidence_guided_failure_mode_bridge_diagnostic.json"
+    assert trial["config_payload"]["max_templates"] == 0
+    assert config["schema_version"] == "autoaf3.evidence_guided_failure_mode_bridge_plan.v1"
+    assert config["artifact_only"] is True
+    assert config["stop_before_live_modal"] is True
+    assert config["source_post_exhaustion_strategy_prd"] == str(prd)
+    assert config["source_scorer_sensitivity"] == str(scorer)
+    assert config["source_geometry_audit"] == str(geometry)
+    assert config["approved_strategy_family"] == "evidence_guided_failure_mode_bridge"
+    assert config["approved_planner"] == "evidence_guided_failure_mode_bridge_diagnostic"
+    assert config["candidate_limit"] == 1
+    assert config["remaining_implemented_planners"] == []
+    assert config["target_level_non_regression_expectations"][0]["kill_if_regresses"] is True
+    assert "adjacent_ca_distance_outlier_gt_30A" in config["geometry_failure_modes_to_avoid"]
+    assert "scorer" in config["forbidden_edit_attestation"]["forbidden_edits"]
+    assert config["starts_search"] is False
+    assert config["writes_ledger"] is False
+    assert config["writes_discovery_ledger"] is False
+    assert config["official_benchmark_result"] is False
+    assert "artifact-only evidence-guided failure-mode bridge diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_evidence_guided_failure_mode_bridge_is_dry_run_only(tmp_path: Path) -> None:
+    prd = _write_post_exhaustion_strategy_prd_inputs(tmp_path)
+    scorer = _write_evidence_bridge_scorer_sensitivity_inputs(tmp_path)
+    geometry = _write_controlled_scale_prediction_geometry_audit_inputs(tmp_path)
+
+    with pytest.raises(AutoresearchLoopError, match="dry-run-only"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="evidence-guided-live-refused",
+            mode="modal",
+            planner="evidence_guided_failure_mode_bridge_diagnostic",
+            start_trial_id="T177",
+            max_candidates=1,
+            diagnostic_report=prd,
+            scorer_report=scorer,
+            geometry_report=geometry,
+            approval="I_APPROVE_AUTORESEARCH_LIVE_SEARCH",
+        )
+
+    assert not (tmp_path / "runs/autoresearch/evidence-guided-live-refused").exists()
 
 
 def test_deterministic_sampler_checkpoint_follows_start_trial_id(tmp_path: Path) -> None:

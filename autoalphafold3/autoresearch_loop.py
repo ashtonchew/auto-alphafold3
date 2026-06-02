@@ -2959,10 +2959,12 @@ def _validate_live_smoke_gate_for_planned_candidates(
         trial = AutoFoldTrial.model_validate(candidate["trial"])
         if trial.sampler_locality_guard == APPROVED_LIVE_SMOKE_GUARD:
             guarded_trials.append(trial)
+    if mode != "modal":
+        if live_smoke_gate is None:
+            return
+        raise AutoresearchLoopError("live-smoke gate may only be consumed by modal autoresearch")
     if not guarded_trials and live_smoke_gate is None:
         return
-    if mode != "modal":
-        raise AutoresearchLoopError("live-smoke gate may only be consumed by modal autoresearch")
     if not guarded_trials:
         raise AutoresearchLoopError("live-smoke gate requires a sampler_locality_guard candidate")
     if live_smoke_gate is None:

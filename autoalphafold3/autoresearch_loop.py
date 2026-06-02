@@ -56,6 +56,12 @@ ALLOWED_CONFIG_EXACT = {"configs/nanofold_dev_cpu_smoke.json"}
 ALLOWED_CONFIG_PREFIXES = ("configs/experiments/",)
 LOCKED_READ_TOKENS = ("/locked", "locked/labels", "public_val_labels", "autoalphafold3-locked")
 PATCH_FORBIDDEN_KEYS = FORBIDDEN_TRUE_PLAN_FLAGS | {"max_templates"}
+_AUTORESEARCH_PLANNER_SYSTEM_PROMPT = """You are the NanoFold-style AlphaFold3-lite autoresearch planner.
+Return exactly one JSON plan matching the provided schema.
+Plan only bounded smoke-budget candidate changes on the approved experiment config surface.
+Do not propose scorer, label, manifest, fingerprint, baseline, Modal, GPU, Volume, template database, or ledger changes.
+Official NanoFold-style runs must keep max_templates=0.
+Candidate plans must be falsifiable, pre-registered, artifact-only, and safe to discard before any ledger write."""
 
 
 class AutoresearchLoopError(RuntimeError):
@@ -118,6 +124,85 @@ class AutoresearchCandidatePlan(BaseModel):
         if self.config is not None and self.config.get("max_templates", 0) != 0:
             raise ValueError("LLM candidate config must preserve max_templates=0")
         return self
+
+
+class OpenAIAutoresearchPlanner:
+    """Structured-output OpenAI planner for one autoresearch candidate."""
+
+    def __init__(self, *, repo_root: str | Path = ".", model: str = DEFAULT_LLM_MODEL) -> None:
+        self.repo_root = Path(repo_root)
+        self.model = model
+        self.policy = default_llm_phase_policy(AgentSearchPhase.PATCH_PLANNING, model=model)
+
+    def plan(
+        self,
+        *,
+        run_id: str,
+        trial_id: str,
+        candidate_index: int,
+        model: str,
+        policy: dict[str, dict[str, object]],
+        base_commit: str,
+    ) -> AutoresearchCandidatePlan:
+        del model
+        prompt = _autoresearch_planner_prompt(
+            root=self.repo_root,
+            run_id=run_id,
+            trial_id=trial_id,
+            candidate_index=candidate_index,
+            base_commit=base_commit,
+            policy=policy,
+        )
+        try:
+            from openai import OpenAI
+        except ModuleNotFoundError as exc:
+            raise AutoresearchLoopError("LLM planner requires the openai package") from exc
+
+        try:
+            client = OpenAI()
+        except Exception as exc:  # noqa: BLE001 - missing local key should use Modal harness secret.
+            if _is_missing_openai_credentials(exc):
+                return _plan_autoresearch_with_modal_harness_secret(
+                    prompt=prompt,
+                    trial_id=trial_id,
+                    candidate_index=candidate_index,
+                    base_commit=base_commit,
+                    policy=policy,
+                    model=self.model,
+                )
+            raise
+
+        kwargs = self.policy.to_responses_create_kwargs()
+        try:
+            response = client.responses.parse(
+                **kwargs,
+                input=[
+                    {"role": "system", "content": _AUTORESEARCH_PLANNER_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                text_format=AutoresearchCandidatePlan,
+            )
+        except TypeError:
+            response = client.responses.parse(
+                **kwargs,
+                input=[
+                    {"role": "system", "content": _AUTORESEARCH_PLANNER_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                text={"format": AutoresearchCandidatePlan},
+            )
+        except Exception as exc:  # noqa: BLE001 - allow harness-secret fallback only for missing local credentials.
+            if _is_missing_openai_credentials(exc):
+                return _plan_autoresearch_with_modal_harness_secret(
+                    prompt=prompt,
+                    trial_id=trial_id,
+                    candidate_index=candidate_index,
+                    base_commit=base_commit,
+                    policy=policy,
+                    model=self.model,
+                )
+            raise
+        return _extract_autoresearch_parsed_plan(response)
 
 
 @dataclass(frozen=True)
@@ -635,8 +720,6 @@ def _llm_candidates(
 ) -> list[dict[str, object]]:
     if max_candidates != 1:
         raise AutoresearchLoopError("LLM autoresearch planner authors exactly one candidate per run")
-    if planner_client is None and candidate_plan is None:
-        raise AutoresearchLoopError("LLM autoresearch CLI planning requires --candidate-plan recorded output; live LLM planning is not enabled")
     if planner_client is not None:
         try:
             raw_plan = planner_client.plan(
@@ -649,8 +732,20 @@ def _llm_candidates(
             )
         except Exception as exc:  # noqa: BLE001 - planner failures must stop before artifacts.
             raise AutoresearchLoopError(f"LLM autoresearch planner failed: {exc}") from exc
-    else:
+    elif candidate_plan is not None:
         raw_plan = _read_candidate_plan(root=root, candidate_plan=candidate_plan)
+    else:
+        try:
+            raw_plan = OpenAIAutoresearchPlanner(repo_root=root, model=model).plan(
+                run_id=run_id,
+                trial_id=start_trial_id,
+                candidate_index=0,
+                model=model,
+                policy=llm_policy,
+                base_commit=base_commit,
+            )
+        except Exception as exc:  # noqa: BLE001 - planner failures must stop before artifacts.
+            raise AutoresearchLoopError(f"LLM autoresearch planner failed: {exc}") from exc
     try:
         plan = AutoresearchCandidatePlan.model_validate(raw_plan)
         AutoFoldTrial.model_validate(plan.trial)
@@ -673,6 +768,140 @@ def _llm_candidates(
             "patch_text": plan.patch_text,
         }
     ]
+
+
+def _autoresearch_planner_prompt(
+    *,
+    root: Path,
+    run_id: str,
+    trial_id: str,
+    candidate_index: int,
+    base_commit: str,
+    policy: dict[str, dict[str, object]],
+) -> str:
+    base_config = _read_small_json(root / "configs" / "nanofold_dev_cpu_smoke.json")
+    local_geometry_config = _read_small_json(root / "configs" / "experiments" / "local_calpha_geometry_smoke.json")
+    payload = {
+        "task": "Plan the next single bounded autoresearch candidate. Do not plan a batch.",
+        "run_id": run_id,
+        "trial_id": trial_id,
+        "candidate_index": candidate_index,
+        "base_commit": base_commit,
+        "implementation_target": "NanoFold-style AlphaFold3-lite",
+        "llm_policy": policy,
+        "allowed_candidate_shape": {
+            "trial_kind": "training",
+            "budget": "smoke",
+            "max_steps": 10,
+            "max_wall_minutes": 5,
+            "artifact_dir": f"runs/trials/{trial_id}",
+            "checkpoint_path": None,
+            "primary_metric": "best_val_calpha_lddt",
+            "scorer_version": "calpha_lddt_v1",
+            "max_templates": 0,
+        },
+        "allowed_edit_surface": {
+            "changed_paths": ["configs/experiments/<candidate-note>.json"],
+            "config_path_prefix": "configs/experiments/",
+            "allowed_existing_configs": sorted(ALLOWED_CONFIG_EXACT),
+            "config_payload": "Use a full NanoFold config object derived from the supplied smoke configs for executable config changes.",
+            "patch_text": "Use a harmless candidate-note JSON diff; executable config changes belong in trial.config_payload.",
+        },
+        "allowed_move_families": [item.value for item in MoveFamily],
+        "allowed_diagnostic_targets": [item.value for item in DiagnosticTarget],
+        "allowed_prediction": {
+            "predicted_axis": [item.value for item in FalsificationAxis],
+            "predicted_direction": [item.value for item in PredictionDirection],
+            "expected_lddt_delta_band": "two non-negative floats, low <= high",
+        },
+        "required_trial_defaults": {
+            "parent_commit": base_commit,
+            "agent_session_id": "openai-autoresearch-planner",
+            "seed": candidate_index,
+            "n_res": 32,
+            "manifest_hashes": {},
+            "param_cap": 176514,
+            "gpu_memory_cap": 80.0,
+            "cost_cap": 2.0,
+            "timeout_cap": 300,
+        },
+        "hard_constraints": [
+            "Return exactly one candidate object, not a candidates array.",
+            "trial.trial_id must equal the requested trial_id.",
+            "trial.artifact_dir must equal runs/trials/<trial_id>.",
+            "trial.config_path must be repo-relative and under configs/experiments/ unless using an allowed existing config.",
+            "If trial.config_payload is present, it must preserve max_templates=0 and include every required NanoFold config key.",
+            "changed_paths must exactly match patch_text file paths.",
+            "patch_text must be a real unified diff with hunk content.",
+            "Do not include official_benchmark_result, writes_baseline, writes_ledger, writes_discovery_ledger, starts_search, or live_modal_execution true anywhere.",
+            "Do not propose or mention reading locked labels or using the autoalphafold3-locked volume.",
+            "Do not edit autoalphafold3/scorer, public manifests, fingerprints, runs/baseline, Modal app resources, GPU settings, Volumes, or cost caps.",
+            "Do not add or use templates; max_templates remains 0.",
+        ],
+        "reference_configs": {
+            "configs/nanofold_dev_cpu_smoke.json": base_config,
+            "configs/experiments/local_calpha_geometry_smoke.json": local_geometry_config,
+        },
+    }
+    return json.dumps(payload, allow_nan=False, sort_keys=True)
+
+
+def _read_small_json(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def _extract_autoresearch_parsed_plan(response: object) -> AutoresearchCandidatePlan:
+    for output in getattr(response, "output", []) or []:
+        if getattr(output, "type", None) != "message":
+            continue
+        for item in getattr(output, "content", []) or []:
+            if getattr(item, "type", None) == "refusal":
+                raise AutoresearchLoopError(f"LLM planner refused: {getattr(item, 'refusal', '')}")
+            parsed = getattr(item, "parsed", None)
+            if parsed is not None:
+                return AutoresearchCandidatePlan.model_validate(parsed)
+    parsed = getattr(response, "parsed", None)
+    if parsed is not None:
+        return AutoresearchCandidatePlan.model_validate(parsed)
+    raise AutoresearchLoopError("LLM planner returned no parsed autoresearch plan")
+
+
+def _is_missing_openai_credentials(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return "missing credentials" in message or ("api_key" in message and "environment variable" in message)
+
+
+def _plan_autoresearch_with_modal_harness_secret(
+    *,
+    prompt: str,
+    trial_id: str,
+    candidate_index: int,
+    base_commit: str,
+    policy: dict[str, dict[str, object]],
+    model: str,
+) -> AutoresearchCandidatePlan:
+    try:
+        import modal
+    except ModuleNotFoundError as exc:
+        raise AutoresearchLoopError("local OpenAI credentials are missing and Modal SDK is unavailable") from exc
+
+    payload = {
+        "prompt": prompt,
+        "trial_id": trial_id,
+        "candidate_index": candidate_index,
+        "base_commit": base_commit,
+        "policy": policy,
+        "model": model,
+    }
+    orchestrator = modal.Cls.from_name(APP_NAME, TRUSTED_ORCHESTRATOR_CLASS)()
+    result = orchestrator.plan_autoresearch_candidate.remote(payload)
+    return AutoresearchCandidatePlan.model_validate(result)
 
 
 def _read_candidate_plan(*, root: Path, candidate_plan: str | Path | None) -> dict[str, object]:

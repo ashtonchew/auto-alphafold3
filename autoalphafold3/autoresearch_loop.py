@@ -24,7 +24,7 @@ from autoalphafold3.autoresearch_comparisons import (
     AutoresearchComparisonError,
     compare_and_write_candidate_decision,
 )
-from autoalphafold3.modal_app import APP_NAME, TRUSTED_ORCHESTRATOR_CLASS
+from autoalphafold3.modal_app import APP_NAME, DATA_MOUNT, TRUSTED_ORCHESTRATOR_CLASS
 from autoalphafold3.schema import (
     AutoFoldResult,
     AutoFoldTrial,
@@ -283,23 +283,42 @@ def _run_modal_candidate_smoke(
     matched_budget_result: AutoFoldResult | None,
 ) -> dict[str, object]:
     checked = AutoFoldTrial.model_validate(trial)
-    if checked.trial_kind != TrialKind.TRAINING:
-        raise AutoresearchLoopError("live autoresearch smoke currently supports training candidates only")
+    if checked.trial_kind not in {TrialKind.TRAINING, TrialKind.SAMPLER}:
+        raise AutoresearchLoopError("live autoresearch currently supports training and sampler candidates only")
     client = modal_client if modal_client is not None else DeployedTrustedAutoresearchClient(environment_name=modal_env)
     try:
-        payload = client.submit_and_poll_trial(_modal_short_training_payload(checked))
+        payload = client.submit_and_poll_trial(_modal_trial_payload(checked))
     except Exception as exc:  # noqa: BLE001 - normalize delegated runner failures.
         raise AutoresearchLoopError(f"live autoresearch trusted-orchestrator trial failed: {exc}") from exc
     wrote_files: list[str] = []
     decision_overrides: dict[str, object] = {}
-    if _is_short_training_manifest(payload):
-        wrote_files.extend(_record_short_training_manifest(envelope=envelope, payload=payload))
+    if _is_short_training_manifest(payload) or _is_sampler_manifest(payload):
+        if _is_short_training_manifest(payload):
+            wrote_files.extend(_record_short_training_manifest(envelope=envelope, payload=payload))
+            manifest_path = envelope.training_manifest_path
+        else:
+            wrote_files.extend(_record_sampler_manifest(envelope=envelope, payload=payload))
+            manifest_path = envelope.sampler_manifest_path
         decision_overrides.update(
             {
-                "training_manifest_path": str(envelope.training_manifest_path),
-                "training_status": payload.get("status"),
+                "execution_manifest_path": str(manifest_path),
+                "worker_status": payload.get("status"),
             }
         )
+        if _is_short_training_manifest(payload):
+            decision_overrides.update(
+                {
+                    "training_manifest_path": str(envelope.training_manifest_path),
+                    "training_status": payload.get("status"),
+                }
+            )
+        else:
+            decision_overrides.update(
+                {
+                    "sampler_manifest_path": str(envelope.sampler_manifest_path),
+                    "sampler_status": payload.get("status"),
+                }
+            )
         try:
             payload = client.score_trial(checked.trial_id)
         except Exception as exc:  # noqa: BLE001 - normalize scorer failures.
@@ -438,10 +457,20 @@ def _is_short_training_manifest(payload: dict[str, object]) -> bool:
     return payload.get("schema_version") == "autoaf3.short_training_manifest.v1"
 
 
+def _is_sampler_manifest(payload: dict[str, object]) -> bool:
+    return payload.get("schema_version") == "autoaf3.sampler_manifest.v1"
+
+
 def _record_short_training_manifest(*, envelope, payload: dict[str, object]) -> list[str]:
     if payload.get("trial_id") != envelope.trial_id:
         raise AutoresearchLoopError("live autoresearch short-training manifest trial_id mismatch")
     return write_candidate_evidence(envelope, training_manifest=payload)
+
+
+def _record_sampler_manifest(*, envelope, payload: dict[str, object]) -> list[str]:
+    if payload.get("trial_id") != envelope.trial_id:
+        raise AutoresearchLoopError("live autoresearch sampler manifest trial_id mismatch")
+    return write_candidate_evidence(envelope, sampler_manifest=payload)
 
 
 def _score_payload_to_result(payload: dict[str, object]) -> AutoFoldResult:
@@ -461,6 +490,16 @@ def _score_payload_to_result(payload: dict[str, object]) -> AutoFoldResult:
         else None,
         postmortem=str(error_report.get("reason") or payload.get("postmortem") or ""),
     )
+
+
+def _modal_trial_payload(trial: AutoFoldTrial) -> dict[str, object]:
+    if trial.trial_kind == TrialKind.SAMPLER:
+        payload = trial.model_dump(mode="json")
+        checkpoint_path = str(payload.get("checkpoint_path") or "")
+        if checkpoint_path.startswith("runs/trials/"):
+            payload["checkpoint_path"] = f"{DATA_MOUNT}/{checkpoint_path}"
+        return payload
+    return _modal_short_training_payload(trial)
 
 
 def _modal_short_training_payload(trial: AutoFoldTrial) -> dict[str, object]:

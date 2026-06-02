@@ -149,3 +149,50 @@ def test_checkpoint_prediction_artifacts_accept_short_training_checkpoint(tmp_pa
     assert not (tmp_path / "runs/baseline").exists()
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_run_sampler_trial_accepts_short_training_checkpoint_manifest(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    materialize_local_nanofold_fixture(
+        repo_root=tmp_path,
+        output_dir="features",
+        approval=APPROVAL_TOKEN,
+    )
+    training_manifest = run_short_nanofold_training(
+        short_training_payload(
+            trial_id="T120",
+            candidate_id="T120",
+            config_path="configs/nanofold_dev_cpu_smoke.json",
+            features_path="tiny_features.arrow",
+            max_steps=1,
+            budget="smoke",
+            seed=0,
+            local_only=True,
+        ),
+        features_dir=tmp_path / "features",
+        output_dir=tmp_path / "runs/trials/T120",
+        repo_root=REPO_ROOT,
+        local_only=True,
+    )
+
+    sampler_manifest = run_sampler_trial(
+        {
+            "trial_id": "T121",
+            "trial_kind": "sampler",
+            "checkpoint_path": training_manifest["checkpoint_path"],
+            "seed": 0,
+            "sampler_steps": 1,
+        },
+        features_dir=tmp_path / "features",
+        output_dir=tmp_path / "runs/trials/T121",
+        repo_root=REPO_ROOT,
+        split="smoke",
+    )
+
+    output = tmp_path / "runs/trials/T121"
+    predictions = json.loads((output / "predictions.json").read_text(encoding="utf-8"))
+    validate_prediction_artifact(predictions)
+    assert sampler_manifest["status"] == "SAMPLER_PREDICTED"
+    assert sampler_manifest["checkpoint_source_trial_id"] == "T120"
+    assert sampler_manifest["real_training_performed"] is False
+    assert sampler_manifest["inference_only"] is True

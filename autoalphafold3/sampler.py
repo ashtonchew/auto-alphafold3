@@ -61,7 +61,7 @@ def run_sampler_trial(
     output.mkdir(parents=True, exist_ok=True)
 
     checkpoint_path = _checkpoint_path(trial_json)
-    checkpoint_manifest = _load_and_validate_checkpoint_manifest(checkpoint_path)
+    checkpoint_manifest = _load_and_validate_checkpoint_source_manifest(checkpoint_path)
     _require_checkpoint_sha(checkpoint_path, str(checkpoint_manifest["checkpoint_sha256"]))
     _require_checkpoint_matches_trial(checkpoint_manifest, checkpoint_path)
 

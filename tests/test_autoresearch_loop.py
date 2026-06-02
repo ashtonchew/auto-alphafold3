@@ -55,6 +55,8 @@ class FakeSequencedTrustedAutoresearchClient:
 
     def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
         self.submitted_trials.append(trial)
+        if trial.get("trial_kind") == "sampler":
+            return _sampler_manifest(str(trial["trial_id"]), checkpoint_path=str(trial["checkpoint_path"]))
         return _short_training_manifest(str(trial["trial_id"]))
 
     def score_trial(self, trial_id: str) -> dict[str, object]:
@@ -98,6 +100,35 @@ def _short_training_manifest(trial_id: str = "T130") -> dict[str, object]:
         "writes_discovery_ledger": False,
         "starts_search": False,
         "reads_locked_labels": False,
+    }
+
+
+def _sampler_manifest(trial_id: str = "T135", *, checkpoint_path: str = "/mnt/autoalphafold3/runs/trials/T133/checkpoint.pt") -> dict[str, object]:
+    return {
+        "schema_version": "autoaf3.sampler_manifest.v1",
+        "status": "SAMPLER_PREDICTED",
+        "trial_id": trial_id,
+        "candidate_id": trial_id,
+        "checkpoint_path": checkpoint_path,
+        "checkpoint_sha256": SHA,
+        "checkpoint_source_trial_id": "T133",
+        "feature_file": "/mnt/autoalphafold3/features/nanofold_event_small_no_templates.arrow",
+        "target_ids": ["2LZM_A"],
+        "prediction_count": 1,
+        "real_training_performed": False,
+        "inference_only": True,
+        "max_templates": 0,
+        "sampler_steps": 2,
+        "sampler_noise_scale": 1.0,
+        "sampler_step_scale": 1.0,
+        "sampler_schedule_shape": "linear",
+        "sampler_num_samples": 1,
+        "sampler_selection_policy": "first",
+        "starts_search": False,
+        "writes_baseline": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "runtime_s": 1.0,
     }
 
 
@@ -838,6 +869,38 @@ def test_autoresearch_loop_modal_runs_multiple_candidates_without_ledger(tmp_pat
     assert [candidate["status"] for candidate in summary["candidates"]] == ["DISCARD", "KEEP"]
     assert summary["candidates"][1]["matched_budget_delta"] == pytest.approx(0.02)
     assert len(result.wrote_files) == len(set(result.wrote_files))
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_autoresearch_loop_modal_runs_full_ladder_including_sampler(tmp_path: Path) -> None:
+    _write_baseline_lock(tmp_path, score=0.08)
+    scores = {f"T{number:03d}": 0.07 for number in range(130, 136)}
+    client = FakeSequencedTrustedAutoresearchClient(scores)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="live-full",
+        mode="modal",
+        planner="deterministic",
+        start_trial_id="T130",
+        max_candidates=6,
+        approval=APPROVAL_TEXT,
+        modal_client=client,
+    )
+
+    assert result.status == "PASS"
+    assert result.generated_trials == ["T130", "T131", "T132", "T133", "T134", "T135"]
+    submitted = client.submitted_trials
+    assert [trial["trial_kind"] for trial in submitted] == ["training", "training", "training", "training", "training", "sampler"]
+    assert submitted[-1]["checkpoint_path"] == "/mnt/autoalphafold3/runs/trials/T133/checkpoint.pt"
+    assert client.scored_trials == result.generated_trials
+    assert all(decision["status"] == "DISCARD" for decision in result.decisions)
+    assert result.decisions[-1]["sampler_status"] == "SAMPLER_PREDICTED"
+    sampler_manifest = tmp_path / "runs/autoresearch/live-full/candidates/T135/sampler_manifest.json"
+    assert json.loads(sampler_manifest.read_text(encoding="utf-8"))["checkpoint_path"] == submitted[-1]["checkpoint_path"]
+    summary = json.loads((tmp_path / "runs/autoresearch/live-full/summary.json").read_text(encoding="utf-8"))
+    assert summary["candidates"][-1]["status"] == "DISCARD"
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
 

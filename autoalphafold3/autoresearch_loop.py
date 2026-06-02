@@ -49,6 +49,8 @@ from autoalphafold3.short_training import short_training_payload
 from autoalphafold3.short_training_runner import DEFAULT_MODAL_FEATURES_PATH
 
 APPROVAL_TEXT = "I_APPROVE_AUTORESEARCH_LIVE_SEARCH"
+OPEN_ENDED_BENCH_GATE_SCHEMA = "autoaf3.open_ended_bench_gate.v1"
+OPEN_ENDED_BENCH_GATE_DECISION = "APPROVE_OPEN_ENDED_BENCH_ONLY"
 APPROVED_LIVE_SMOKE_GUARD = "reject_exploded"
 MODAL_WORKER_RESULT_TIMEOUT_S = 900
 FORBIDDEN_TRUE_PLAN_FLAGS = {
@@ -406,6 +408,7 @@ def run_autoresearch_loop(
     scorer_report: str | Path | None = None,
     geometry_report: str | Path | None = None,
     live_smoke_gate: str | Path | None = None,
+    open_ended_bench_gate: str | Path | None = None,
 ) -> AutoresearchLoopResult:
     """Plan autoresearch candidates and optionally run one approved Modal candidate."""
 
@@ -448,6 +451,17 @@ def run_autoresearch_loop(
     base_commit = _git_head(root)
     llm_policy = _llm_policy_specs(model) if planner == "llm" else None
     prior_outcomes = _prior_autoresearch_outcomes(root=root, prior_run_ids=prior_run_ids or [])
+    _validate_open_ended_bench_gate_for_loop(
+        root=root,
+        mode=mode,
+        planner=planner,
+        max_candidates=max_candidates,
+        approval=approval,
+        model=model,
+        failure_streak_limit=failure_streak_limit,
+        candidate_budget=candidate_budget,
+        open_ended_bench_gate=open_ended_bench_gate,
+    )
     planned = _planned_candidates(
         root=root,
         planner=planner,
@@ -3020,6 +3034,75 @@ def _validate_live_smoke_gate_for_planned_candidates(
     for key, value in expected.items():
         if payload.get(key) != value:
             raise AutoresearchLoopError(f"live-smoke gate must contain {key}={value!r}")
+
+
+def _validate_open_ended_bench_gate_for_loop(
+    *,
+    root: Path,
+    mode: str,
+    planner: str,
+    max_candidates: int,
+    approval: str | None,
+    model: str,
+    failure_streak_limit: int,
+    candidate_budget: str,
+    open_ended_bench_gate: str | Path | None,
+) -> None:
+    """Require post-exhaustion authority before any live LLM bench planning."""
+
+    if mode != "modal" or planner != "llm":
+        if open_ended_bench_gate is not None:
+            raise AutoresearchLoopError("open-ended bench gate may only be consumed by modal llm autoresearch")
+        return
+    if open_ended_bench_gate is None:
+        raise AutoresearchLoopError("modal llm autoresearch requires --open-ended-bench-gate")
+    if approval != APPROVAL_TEXT:
+        raise AutoresearchLoopError(f"open-ended bench gate requires --approve {APPROVAL_TEXT}")
+    payload = _read_open_ended_bench_gate(root=root, open_ended_bench_gate=open_ended_bench_gate)
+    expected = {
+        "schema_version": OPEN_ENDED_BENCH_GATE_SCHEMA,
+        "status": "PASS",
+        "decision": OPEN_ENDED_BENCH_GATE_DECISION,
+        "approved_mode": "modal",
+        "approved_planner": "llm",
+        "approved_candidate_budget": candidate_budget,
+        "required_approval_token": APPROVAL_TEXT,
+        "may_start_live_candidate": False,
+        "may_start_open_ended_loop": True,
+        "starts_search": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "official_benchmark_result": False,
+    }
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            raise AutoresearchLoopError(f"open-ended bench gate must contain {key}={value!r}")
+    if payload.get("approved_model") != model:
+        raise AutoresearchLoopError(f"open-ended bench gate must approve model={model!r}")
+    approved_max = payload.get("approved_max_candidates")
+    if not isinstance(approved_max, int) or approved_max < max_candidates:
+        raise AutoresearchLoopError("open-ended bench gate approved_max_candidates is below requested max_candidates")
+    approved_failures = payload.get("approved_failure_streak_limit")
+    if not isinstance(approved_failures, int) or approved_failures < failure_streak_limit:
+        raise AutoresearchLoopError(
+            "open-ended bench gate approved_failure_streak_limit is below requested failure_streak_limit"
+        )
+
+
+def _read_open_ended_bench_gate(*, root: Path, open_ended_bench_gate: str | Path) -> dict[str, object]:
+    path = Path(open_ended_bench_gate)
+    if path.is_absolute() or ".." in path.parts:
+        raise AutoresearchLoopError("open-ended bench gate must be a repo-relative path without traversal")
+    if not path.as_posix().startswith("runs/autoresearch/open_ended_bench_gate/"):
+        raise AutoresearchLoopError("open-ended bench gate must live under runs/autoresearch/open_ended_bench_gate/")
+    _refuse_plan_path_symlinks(root, path)
+    try:
+        payload = json.loads((root / path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(f"could not read open-ended bench gate: {path}") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("open-ended bench gate must be a JSON object")
+    return payload
 
 
 def _read_live_smoke_gate(*, root: Path, live_smoke_gate: str | Path) -> dict[str, object]:

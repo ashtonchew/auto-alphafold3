@@ -309,6 +309,32 @@ def _write_live_smoke_gate(tmp_path: Path, **overrides: object) -> str:
     return "runs/autoresearch/live_smoke_gate/live-smoke-approved.json"
 
 
+def _write_open_ended_bench_gate(tmp_path: Path, **overrides: object) -> str:
+    path = tmp_path / "runs/autoresearch/open_ended_bench_gate/open-ended-approved.json"
+    path.parent.mkdir(parents=True)
+    payload: dict[str, object] = {
+        "schema_version": "autoaf3.open_ended_bench_gate.v1",
+        "status": "PASS",
+        "decision": "APPROVE_OPEN_ENDED_BENCH_ONLY",
+        "approved_mode": "modal",
+        "approved_planner": "llm",
+        "approved_model": "gpt-5.4-mini",
+        "approved_candidate_budget": "smoke",
+        "approved_max_candidates": 3,
+        "approved_failure_streak_limit": 2,
+        "required_approval_token": APPROVAL_TEXT,
+        "may_start_live_candidate": False,
+        "may_start_open_ended_loop": True,
+        "starts_search": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "official_benchmark_result": False,
+    }
+    payload.update(overrides)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return "runs/autoresearch/open_ended_bench_gate/open-ended-approved.json"
+
+
 def _write_sampler_locality_guard_candidate_plan(tmp_path: Path) -> str:
     path = tmp_path / "configs/experiments/T178_sampler_locality_guard_live_smoke.json"
     path.parent.mkdir(parents=True)
@@ -3878,6 +3904,7 @@ def test_llm_modal_candidate_passes_inline_config_payload_without_ledger(tmp_pat
     config_payload["learning_rate"] = 0.0016
     fake = FakeLLMPlanner(_llm_candidate_payload(config_payload=config_payload))
     client = FakeTrustedAutoresearchClient(_short_training_manifest("T120"), _scored_metrics_payload("T120", score=0.07))
+    open_ended_gate = _write_open_ended_bench_gate(tmp_path)
 
     result = run_autoresearch_loop(
         repo_root=tmp_path,
@@ -3888,6 +3915,7 @@ def test_llm_modal_candidate_passes_inline_config_payload_without_ledger(tmp_pat
         approval=APPROVAL_TEXT,
         planner_client=fake,
         modal_client=client,
+        open_ended_bench_gate=open_ended_gate,
     )
 
     assert result.status == "PASS"
@@ -3896,6 +3924,28 @@ def test_llm_modal_candidate_passes_inline_config_payload_without_ledger(tmp_pat
     assert result.decisions[0]["status"] == "DISCARD"
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_llm_modal_requires_open_ended_bench_gate_before_planning(tmp_path: Path) -> None:
+    fake = FakeLLMPlanner(_llm_candidate_payload())
+    client = FakeTrustedAutoresearchClient(_short_training_manifest("T120"), _scored_metrics_payload("T120", score=0.07))
+
+    with pytest.raises(AutoresearchLoopError, match="requires --open-ended-bench-gate"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-live-missing-open-gate",
+            mode="modal",
+            planner="llm",
+            max_candidates=1,
+            approval=APPROVAL_TEXT,
+            planner_client=fake,
+            modal_client=client,
+        )
+
+    assert fake.calls == []
+    assert client.submitted_trials == []
+    assert client.scored_trials == []
+    assert not (tmp_path / "runs/autoresearch/llm-live-missing-open-gate").exists()
 
 
 def test_llm_modal_runs_bounded_batch_with_matched_budget_without_ledger(tmp_path: Path) -> None:
@@ -3907,6 +3957,7 @@ def test_llm_modal_runs_bounded_batch_with_matched_budget_without_ledger(tmp_pat
         ]
     )
     client = FakeSequencedTrustedAutoresearchClient({"T120": 0.07, "T121": 0.09})
+    open_ended_gate = _write_open_ended_bench_gate(tmp_path)
 
     result = run_autoresearch_loop(
         repo_root=tmp_path,
@@ -3917,6 +3968,7 @@ def test_llm_modal_runs_bounded_batch_with_matched_budget_without_ledger(tmp_pat
         approval=APPROVAL_TEXT,
         planner_client=fake,
         modal_client=client,
+        open_ended_bench_gate=open_ended_gate,
     )
 
     assert result.status == "PASS"

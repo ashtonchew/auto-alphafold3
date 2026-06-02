@@ -14,6 +14,7 @@ EVIDENCE_BRIDGE_SCHEMA = "autoaf3.evidence_bridge_review.v1"
 CANDIDATE_IMPLEMENTATION_SCHEMA = "autoaf3.candidate_implementation_review.v1"
 LIVE_SMOKE_GATE_SCHEMA = "autoaf3.live_smoke_gate.v1"
 LIVE_SMOKE_RESULT_SCHEMA = "autoaf3.live_smoke_result_review.v1"
+OPEN_ENDED_BENCH_GATE_SCHEMA = "autoaf3.open_ended_bench_gate.v1"
 SCHEMA_VERSION = "autoaf3.bench_readiness_review.v1"
 
 
@@ -47,6 +48,10 @@ class BenchReadinessReview:
     live_smoke_result_decision: str | None
     live_smoke_result_status: str | None
     live_smoke_result_trial_id: str | None
+    open_ended_bench_gate_decision: str | None
+    approved_open_ended_planner: str | None
+    approved_open_ended_model: str | None
+    approved_open_ended_max_candidates: int | None
     required_objectives: list[dict[str, object]]
     roadmap: list[dict[str, object]]
     evidence: dict[str, object]
@@ -72,6 +77,7 @@ def review_bench_readiness(
     candidate_implementation_review: str | Path | None = None,
     live_smoke_gate: str | Path | None = None,
     live_smoke_result_review: str | Path | None = None,
+    open_ended_bench_gate: str | Path | None = None,
 ) -> BenchReadinessReview:
     """Decide whether the actual open-ended autoresearch bench may start."""
 
@@ -100,6 +106,11 @@ def review_bench_readiness(
     live_smoke_result = (
         _read_live_smoke_result(root=root, path=live_smoke_result_review)
         if live_smoke_result_review is not None
+        else None
+    )
+    open_ended_gate = (
+        _read_open_ended_bench_gate(root=root, path=open_ended_bench_gate)
+        if open_ended_bench_gate is not None
         else None
     )
     readiness = build_readiness_report(
@@ -176,7 +187,35 @@ def review_bench_readiness(
         if live_smoke_result is not None and live_smoke_result.get("reviewed_trial_id") is not None
         else None
     )
-    if autonomous_ready and live_smoke_result_decision == "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_PROVISIONAL_KEEP":
+    open_ended_gate_decision = (
+        str(open_ended_gate.get("decision") or "")
+        if open_ended_gate is not None
+        else None
+    )
+    open_ended_gate_planner = (
+        str(open_ended_gate.get("approved_planner") or "")
+        if open_ended_gate is not None and open_ended_gate.get("approved_planner") is not None
+        else None
+    )
+    open_ended_gate_model = (
+        str(open_ended_gate.get("approved_model") or "")
+        if open_ended_gate is not None and open_ended_gate.get("approved_model") is not None
+        else None
+    )
+    open_ended_gate_max_candidates = (
+        int(open_ended_gate.get("approved_max_candidates"))
+        if open_ended_gate is not None and isinstance(open_ended_gate.get("approved_max_candidates"), int)
+        else None
+    )
+    open_ended_gate_may_start = (
+        autonomous_ready
+        and open_ended_gate_decision == "APPROVE_OPEN_ENDED_BENCH_ONLY"
+        and open_ended_gate.get("may_start_open_ended_loop") is True
+    ) if open_ended_gate is not None else False
+    if open_ended_gate_may_start:
+        decision = "APPROVE_OPEN_ENDED_BENCH"
+        can_start = True
+    elif autonomous_ready and live_smoke_result_decision == "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_PROVISIONAL_KEEP":
         decision = "BLOCK_OPEN_ENDED_BENCH_FALSIFICATION_REQUIRED"
         can_start = False
     elif autonomous_ready and live_smoke_result_decision == "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_DISCARDED":
@@ -209,9 +248,10 @@ def review_bench_readiness(
     else:
         decision = "BLOCK_OPEN_ENDED_BENCH_STRATEGY_NOT_APPROVED"
         can_start = False
-    effective_may_start_live = live_smoke_result is None and (
+    effective_may_start_live = open_ended_gate is None and live_smoke_result is None and (
         may_start_live or (autonomous_ready and live_smoke_gate_decision == "APPROVE_BOUNDED_LIVE_SMOKE_ONLY")
     )
+    effective_may_start_open_ended = can_start
     return BenchReadinessReview(
         schema_version=SCHEMA_VERSION,
         status="PASS",
@@ -220,7 +260,7 @@ def review_bench_readiness(
         autonomous_search_ready=autonomous_ready,
         surface_strategy_decision=strategy_decision,
         may_start_live_candidate=effective_may_start_live,
-        may_start_open_ended_loop=may_start_open_ended,
+        may_start_open_ended_loop=effective_may_start_open_ended,
         exhausted_surfaces=exhausted,
         unimplemented_candidate_surfaces=unimplemented,
         broader_strategy_decision=broader_decision,
@@ -235,9 +275,17 @@ def review_bench_readiness(
         live_smoke_result_decision=live_smoke_result_decision,
         live_smoke_result_status=live_smoke_result_status,
         live_smoke_result_trial_id=live_smoke_result_trial_id,
+        open_ended_bench_gate_decision=open_ended_gate_decision,
+        approved_open_ended_planner=open_ended_gate_planner,
+        approved_open_ended_model=open_ended_gate_model,
+        approved_open_ended_max_candidates=open_ended_gate_max_candidates,
         required_objectives=_required_objectives(
             autonomous_ready=autonomous_ready,
-            may_start_open_ended=may_start_open_ended,
+            may_start_open_ended=effective_may_start_open_ended,
+            open_ended_gate_decision=open_ended_gate_decision,
+            open_ended_gate_planner=open_ended_gate_planner,
+            open_ended_gate_model=open_ended_gate_model,
+            open_ended_gate_max_candidates=open_ended_gate_max_candidates,
             unimplemented=unimplemented,
             broader_decision=broader_decision,
             broader_surface=broader_surface,
@@ -253,7 +301,11 @@ def review_bench_readiness(
         ),
         roadmap=_roadmap(
             autonomous_ready=autonomous_ready,
-            may_start_open_ended=may_start_open_ended,
+            may_start_open_ended=effective_may_start_open_ended,
+            open_ended_gate_decision=open_ended_gate_decision,
+            open_ended_gate_planner=open_ended_gate_planner,
+            open_ended_gate_model=open_ended_gate_model,
+            open_ended_gate_max_candidates=open_ended_gate_max_candidates,
             unimplemented=unimplemented,
             broader_decision=broader_decision,
             broader_surface=broader_surface,
@@ -276,6 +328,7 @@ def review_bench_readiness(
             ),
             "live_smoke_gate": str(live_smoke_gate) if live_smoke_gate is not None else None,
             "live_smoke_result_review": str(live_smoke_result_review) if live_smoke_result_review is not None else None,
+            "open_ended_bench_gate": str(open_ended_bench_gate) if open_ended_bench_gate is not None else None,
             "readiness_mode": readiness_payload.get("mode"),
             "readiness_problems": readiness_payload.get("problems", []),
             "pending_human_actions": readiness_payload.get("pending_human_actions", []),
@@ -409,6 +462,28 @@ def _read_live_smoke_result(*, root: Path, path: str | Path) -> dict[str, object
     return payload
 
 
+def _read_open_ended_bench_gate(*, root: Path, path: str | Path) -> dict[str, object]:
+    checked = _safe_evidence_path(root=root, path=path, label="open-ended bench gate")
+    try:
+        payload = json.loads(checked.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise BenchReadinessReviewError(f"cannot read open-ended bench gate: {path}") from exc
+    if not isinstance(payload, dict):
+        raise BenchReadinessReviewError("open-ended bench gate must be a JSON object")
+    if payload.get("schema_version") != OPEN_ENDED_BENCH_GATE_SCHEMA:
+        raise BenchReadinessReviewError("open-ended bench gate schema mismatch")
+    if payload.get("status") != "PASS":
+        raise BenchReadinessReviewError("open-ended bench gate must have status=PASS")
+    for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "official_benchmark_result"):
+        if payload.get(key) is True:
+            raise BenchReadinessReviewError(f"open-ended bench gate must not claim {key}=true")
+    if payload.get("may_start_live_candidate") is True:
+        raise BenchReadinessReviewError("open-ended bench gate must not authorize a standalone live candidate")
+    if payload.get("decision") == "APPROVE_OPEN_ENDED_BENCH_ONLY" and payload.get("may_start_open_ended_loop") is not True:
+        raise BenchReadinessReviewError("approved open-ended bench gate must authorize open-ended loop execution")
+    return payload
+
+
 def _safe_evidence_path(*, root: Path, path: str | Path, label: str = "surface strategy") -> Path:
     candidate = Path(path)
     if candidate.is_absolute() or ".." in candidate.parts:
@@ -425,6 +500,10 @@ def _required_objectives(
     *,
     autonomous_ready: bool,
     may_start_open_ended: bool,
+    open_ended_gate_decision: str | None,
+    open_ended_gate_planner: str | None,
+    open_ended_gate_model: str | None,
+    open_ended_gate_max_candidates: int | None,
     unimplemented: list[str],
     broader_decision: str | None,
     broader_surface: str | None,
@@ -457,7 +536,22 @@ def _required_objectives(
                 "evidence_required": "surface strategy approves a dry-run-only planner and post-merge readiness is green",
             }
         )
-    if live_smoke_result_decision == "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_PROVISIONAL_KEEP":
+    if may_start_open_ended:
+        evidence = "surface strategy and readiness both approve open-ended execution"
+        if open_ended_gate_decision == "APPROVE_OPEN_ENDED_BENCH_ONLY":
+            evidence = (
+                f"open-ended-bench-gate approves planner={open_ended_gate_planner} "
+                f"model={open_ended_gate_model} max-candidates={open_ended_gate_max_candidates}"
+            )
+        objectives.append(
+            {
+                "name": "start_open_ended_bench",
+                "status": "approved",
+                "objective": "Run the capped open-ended autoresearch bench through the trusted orchestrator.",
+                "evidence_required": evidence,
+            }
+        )
+    elif live_smoke_result_decision == "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_PROVISIONAL_KEEP":
         objectives.append(
             {
                 "name": "run_falsification_gate",
@@ -556,15 +650,6 @@ def _required_objectives(
                 ),
             }
         )
-    if may_start_open_ended:
-        objectives.append(
-            {
-                "name": "start_open_ended_bench",
-                "status": "approved",
-                "objective": "Run the open-ended autoresearch bench through the trusted orchestrator.",
-                "evidence_required": "surface strategy and readiness both approve open-ended execution",
-            }
-        )
     return objectives
 
 
@@ -572,6 +657,10 @@ def _roadmap(
     *,
     autonomous_ready: bool,
     may_start_open_ended: bool,
+    open_ended_gate_decision: str | None,
+    open_ended_gate_planner: str | None,
+    open_ended_gate_model: str | None,
+    open_ended_gate_max_candidates: int | None,
     unimplemented: list[str],
     broader_decision: str | None,
     broader_surface: str | None,
@@ -586,11 +675,18 @@ def _roadmap(
     live_smoke_result_trial_id: str | None,
 ) -> list[dict[str, object]]:
     if may_start_open_ended:
+        action = "Start the approved open-ended Modal bench with explicit approval token."
+        if open_ended_gate_decision == "APPROVE_OPEN_ENDED_BENCH_ONLY":
+            action = (
+                "Start the approved capped Modal bench with "
+                f"planner={open_ended_gate_planner}, model={open_ended_gate_model}, "
+                f"max-candidates={open_ended_gate_max_candidates}, and smoke budget."
+            )
         return [
             {
                 "step": "run_open_ended_bench",
                 "status": "ready",
-                "action": "Start the approved open-ended Modal bench with explicit approval token.",
+                "action": action,
             }
         ]
     steps = [

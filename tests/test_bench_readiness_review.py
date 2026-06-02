@@ -250,6 +250,62 @@ def test_bench_readiness_live_smoke_result_overrides_stale_open_ended_approval(
     assert report.required_objectives[0]["name"] == "post_smoke_strategy_review"
 
 
+def test_bench_readiness_consumes_open_ended_gate_after_exhausted_smoke_strategy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _write_surface_strategy(
+        tmp_path,
+        may_start_open_ended_loop=False,
+        exhausted_surfaces=["sampler_low_noise"],
+        unimplemented_candidate_surfaces=[],
+    )
+    live_smoke_result = _write_live_smoke_result_review(tmp_path)
+    open_ended_gate = _write_open_ended_bench_gate(tmp_path)
+    monkeypatch.setattr(bench_review, "build_readiness_report", lambda **_: FakeReadiness(ready=True))
+
+    report = review_bench_readiness(
+        repo_root=tmp_path,
+        surface_strategy_review=strategy,
+        live_smoke_result_review=live_smoke_result,
+        open_ended_bench_gate=open_ended_gate,
+    )
+
+    payload = report.to_dict()
+    assert payload["decision"] == "APPROVE_OPEN_ENDED_BENCH"
+    assert payload["can_start_open_ended_bench"] is True
+    assert payload["may_start_live_candidate"] is False
+    assert payload["may_start_open_ended_loop"] is True
+    assert payload["live_smoke_result_decision"] == "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_DISCARDED"
+    assert payload["open_ended_bench_gate_decision"] == "APPROVE_OPEN_ENDED_BENCH_ONLY"
+    assert payload["approved_open_ended_planner"] == "llm"
+    assert payload["approved_open_ended_max_candidates"] == 3
+    assert payload["required_objectives"][0]["name"] == "start_open_ended_bench"
+    assert payload["roadmap"][0]["step"] == "run_open_ended_bench"
+    assert payload["evidence"]["open_ended_bench_gate"] == str(open_ended_gate)
+    assert payload["starts_search"] is False
+    assert payload["writes_ledger"] is False
+    assert payload["writes_discovery_ledger"] is False
+    assert payload["official_benchmark_result"] is False
+
+
+def test_bench_readiness_refuses_live_authority_in_open_ended_gate(tmp_path: Path) -> None:
+    strategy = _write_surface_strategy(
+        tmp_path,
+        may_start_open_ended_loop=False,
+        exhausted_surfaces=["sampler_low_noise"],
+        unimplemented_candidate_surfaces=[],
+    )
+    open_ended_gate = _write_open_ended_bench_gate(tmp_path, may_start_live_candidate=True)
+
+    with pytest.raises(BenchReadinessReviewError, match="standalone live candidate"):
+        review_bench_readiness(
+            repo_root=tmp_path,
+            surface_strategy_review=strategy,
+            open_ended_bench_gate=open_ended_gate,
+        )
+
+
 def test_bench_readiness_routes_provisional_keep_to_falsification(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -616,4 +672,30 @@ def _write_live_smoke_result_review(
         ),
         encoding="utf-8",
     )
+    return path.relative_to(tmp_path)
+
+
+def _write_open_ended_bench_gate(tmp_path: Path, **overrides: object) -> Path:
+    path = tmp_path / "runs/autoresearch/open_ended_bench_gate/review.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, object] = {
+        "schema_version": "autoaf3.open_ended_bench_gate.v1",
+        "status": "PASS",
+        "decision": "APPROVE_OPEN_ENDED_BENCH_ONLY",
+        "approved_mode": "modal",
+        "approved_planner": "llm",
+        "approved_model": "gpt-5.4-mini",
+        "approved_candidate_budget": "smoke",
+        "approved_max_candidates": 3,
+        "approved_failure_streak_limit": 2,
+        "required_approval_token": "I_APPROVE_AUTORESEARCH_LIVE_SEARCH",
+        "may_start_live_candidate": False,
+        "may_start_open_ended_loop": True,
+        "starts_search": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "official_benchmark_result": False,
+    }
+    payload.update(overrides)
+    path.write_text(json.dumps(payload), encoding="utf-8")
     return path.relative_to(tmp_path)

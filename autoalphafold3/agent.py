@@ -38,6 +38,10 @@ from autoalphafold3.modal_trial_artifacts import (
     fetch_modal_trial_artifacts,
 )
 from autoalphafold3.next_surface_review import NextSurfaceReviewError, review_next_surface
+from autoalphafold3.open_ended_bench_gate import (
+    OpenEndedBenchGateError,
+    review_open_ended_bench_gate,
+)
 from autoalphafold3.post_discard_diagnosis import (
     PostDiscardDiagnosisError,
     diagnose_post_discard_evidence,
@@ -188,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     autoresearch_loop_parser.add_argument("--scorer-report", default=None)
     autoresearch_loop_parser.add_argument("--geometry-report", default=None)
     autoresearch_loop_parser.add_argument("--live-smoke-gate", default=None)
+    autoresearch_loop_parser.add_argument("--open-ended-bench-gate", default=None)
 
     compare_predictions_parser = subparsers.add_parser("compare-predictions")
     compare_predictions_parser.add_argument("left_predictions")
@@ -248,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
     bench_readiness_parser.add_argument("--candidate-implementation-review", default=None)
     bench_readiness_parser.add_argument("--live-smoke-gate", default=None)
     bench_readiness_parser.add_argument("--live-smoke-result-review", default=None)
+    bench_readiness_parser.add_argument("--open-ended-bench-gate", default=None)
     bench_readiness_parser.add_argument("--baseline-dir", default="runs/baseline")
     bench_readiness_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
     bench_readiness_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
@@ -277,6 +283,16 @@ def main(argv: list[str] | None = None) -> int:
     post_smoke_strategy_parser.add_argument("--live-smoke-result-review", required=True)
     post_smoke_strategy_parser.add_argument("--bench-readiness-review", required=True)
     post_smoke_strategy_parser.add_argument("--output", default=None)
+
+    open_ended_bench_gate_parser = subparsers.add_parser("open-ended-bench-gate")
+    open_ended_bench_gate_parser.add_argument("--repo-root", default=".")
+    open_ended_bench_gate_parser.add_argument("--strategy-exhaustion-audit", required=True)
+    open_ended_bench_gate_parser.add_argument("--baseline-dir", default="runs/baseline")
+    open_ended_bench_gate_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
+    open_ended_bench_gate_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
+    open_ended_bench_gate_parser.add_argument("--modal-authority-path", default="runs/modal_event_authority.json")
+    open_ended_bench_gate_parser.add_argument("--model", default=DEFAULT_LLM_MODEL)
+    open_ended_bench_gate_parser.add_argument("--output", default=None)
 
     evidence_bridge_parser = subparsers.add_parser("evidence-bridge-review")
     evidence_bridge_parser.add_argument("--repo-root", default=".")
@@ -525,6 +541,7 @@ def main(argv: list[str] | None = None) -> int:
                 scorer_report=args.scorer_report,
                 geometry_report=args.geometry_report,
                 live_smoke_gate=args.live_smoke_gate,
+                open_ended_bench_gate=args.open_ended_bench_gate,
             )
         except (AutoresearchLoopError, CandidateArtifactError, OSError, ValueError) as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
@@ -668,6 +685,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_implementation_review=args.candidate_implementation_review,
                 live_smoke_gate=args.live_smoke_gate,
                 live_smoke_result_review=args.live_smoke_result_review,
+                open_ended_bench_gate=args.open_ended_bench_gate,
                 baseline_dir=args.baseline_dir,
                 config_path=args.config_path,
                 calibration_path=args.calibration_path,
@@ -806,6 +824,26 @@ def main(argv: list[str] | None = None) -> int:
                 bench_readiness_review=args.bench_readiness_review,
             )
         except PostSmokeStrategyReviewError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "open-ended-bench-gate":
+        try:
+            result = review_open_ended_bench_gate(
+                repo_root=args.repo_root,
+                strategy_exhaustion_audit=args.strategy_exhaustion_audit,
+                baseline_dir=args.baseline_dir,
+                config_path=args.config_path,
+                calibration_path=args.calibration_path,
+                modal_authority_path=args.modal_authority_path,
+                model=args.model,
+            )
+        except OpenEndedBenchGateError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

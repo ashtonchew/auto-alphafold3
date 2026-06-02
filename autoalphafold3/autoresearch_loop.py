@@ -166,8 +166,6 @@ def run_autoresearch_loop(
     if mode == "modal":
         if approval != APPROVAL_TEXT:
             raise AutoresearchLoopError(f"live autoresearch requires --approve {APPROVAL_TEXT}")
-        if max_candidates != 1:
-            raise AutoresearchLoopError("live autoresearch currently supports exactly one candidate")
 
     root = Path(repo_root)
     base_commit = _git_head(root)

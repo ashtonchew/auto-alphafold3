@@ -47,6 +47,21 @@ class FakeTrustedAutoresearchClient:
         return self.score_payload or _scorer_fail_payload(trial_id)
 
 
+class FakeSequencedTrustedAutoresearchClient:
+    def __init__(self, scores: dict[str, float]) -> None:
+        self.scores = scores
+        self.submitted_trials: list[dict[str, object]] = []
+        self.scored_trials: list[str] = []
+
+    def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
+        self.submitted_trials.append(trial)
+        return _short_training_manifest(str(trial["trial_id"]))
+
+    def score_trial(self, trial_id: str) -> dict[str, object]:
+        self.scored_trials.append(trial_id)
+        return _scored_metrics_payload(trial_id, score=self.scores[trial_id])
+
+
 SHA = "c" * 64
 
 
@@ -796,19 +811,32 @@ def test_autoresearch_loop_requires_live_approval(tmp_path: Path) -> None:
         )
 
 
-def test_autoresearch_loop_modal_requires_one_candidate_before_artifacts(tmp_path: Path) -> None:
-    with pytest.raises(AutoresearchLoopError, match="exactly one"):
-        run_autoresearch_loop(
-            repo_root=tmp_path,
-            run_id="live-two",
-            mode="modal",
-            planner="deterministic",
-            max_candidates=2,
-            approval=APPROVAL_TEXT,
-            modal_client=FakeTrustedAutoresearchClient(_short_training_manifest("T130")),
-        )
+def test_autoresearch_loop_modal_runs_multiple_candidates_without_ledger(tmp_path: Path) -> None:
+    _write_baseline_lock(tmp_path, score=0.08)
+    client = FakeSequencedTrustedAutoresearchClient({"T130": 0.07, "T131": 0.09})
 
-    assert not (tmp_path / "runs/autoresearch/live-two").exists()
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="live-two",
+        mode="modal",
+        planner="deterministic",
+        start_trial_id="T130",
+        max_candidates=2,
+        approval=APPROVAL_TEXT,
+        modal_client=client,
+    )
+
+    assert result.status == "PASS"
+    assert result.generated_trials == ["T130", "T131"]
+    assert [trial["trial_id"] for trial in client.submitted_trials] == ["T130", "T131"]
+    assert all(trial["predict_after_training"] is True for trial in client.submitted_trials)
+    assert client.scored_trials == ["T130", "T131"]
+    assert [decision["status"] for decision in result.decisions] == ["DISCARD", "KEEP"]
+    summary = json.loads((tmp_path / "runs/autoresearch/live-two/summary.json").read_text(encoding="utf-8"))
+    assert [candidate["status"] for candidate in summary["candidates"]] == ["DISCARD", "KEEP"]
+    assert len(result.wrote_files) == len(set(result.wrote_files))
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
 
 
 def test_autoresearch_loop_modal_reexecs_through_repo_venv_when_needed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

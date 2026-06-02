@@ -72,6 +72,10 @@ class CandidateEnvelope:
         return self.candidate_dir / "training_manifest.json"
 
     @property
+    def sampler_manifest_path(self) -> Path:
+        return self.candidate_dir / "sampler_manifest.json"
+
+    @property
     def loss_history_path(self) -> Path:
         return self.candidate_dir / "loss_history.json"
 
@@ -232,6 +236,7 @@ def write_candidate_evidence(
     *,
     preflight: dict[str, object] | None = None,
     training_manifest: dict[str, object] | None = None,
+    sampler_manifest: dict[str, object] | None = None,
     loss_history: dict[str, object] | None = None,
     metrics: dict[str, object] | None = None,
     error_report: dict[str, object] | None = None,
@@ -242,6 +247,7 @@ def write_candidate_evidence(
     for path, payload in (
         (envelope.preflight_path, preflight),
         (envelope.training_manifest_path, training_manifest),
+        (envelope.sampler_manifest_path, sampler_manifest),
         (envelope.loss_history_path, loss_history),
         (envelope.metrics_path, metrics),
         (envelope.error_report_path, error_report),
@@ -299,6 +305,7 @@ def _candidate_artifact_paths(envelope: CandidateEnvelope) -> dict[str, str]:
         "trial": str(envelope.trial_path),
         "preflight": str(envelope.preflight_path),
         "training_manifest": str(envelope.training_manifest_path),
+        "sampler_manifest": str(envelope.sampler_manifest_path),
         "loss_history": str(envelope.loss_history_path),
         "metrics": str(envelope.metrics_path),
         "error_report": str(envelope.error_report_path),

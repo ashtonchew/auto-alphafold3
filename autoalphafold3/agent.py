@@ -21,6 +21,10 @@ from autoalphafold3.gate_calibration_runner import GateCalibrationRunError, run_
 from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
 from autoalphafold3.llm_policy import DEFAULT_LLM_MODEL, AgentSearchPhase, default_llm_phase_policies, default_llm_phase_policy
 from autoalphafold3.modal_authority import ModalAuthorityError, audit_modal_event_authority
+from autoalphafold3.post_discard_diagnosis import (
+    PostDiscardDiagnosisError,
+    diagnose_post_discard_evidence,
+)
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.scorer_sensitivity import ScorerSensitivityError, run_scorer_sensitivity
 from autoalphafold3.sampler_loop import APPROVAL_TEXT as SAMPLER_LOOP_APPROVAL_TEXT
@@ -150,6 +154,13 @@ def main(argv: list[str] | None = None) -> int:
     scorer_sensitivity_parser.add_argument("--modal-env", default=None)
     scorer_sensitivity_parser.add_argument("--approve", default=None)
     scorer_sensitivity_parser.add_argument("--output", default=None)
+
+    post_discard_parser = subparsers.add_parser("post-discard-diagnosis")
+    post_discard_parser.add_argument("--repo-root", default=".")
+    post_discard_parser.add_argument("--scorer-report", action="append", required=True)
+    post_discard_parser.add_argument("--prediction-comparison", action="append", required=True)
+    post_discard_parser.add_argument("--exhausted-surface", action="append", default=[])
+    post_discard_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -396,6 +407,23 @@ def main(argv: list[str] | None = None) -> int:
                 modal_env=args.modal_env,
             )
         except ScorerSensitivityError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "post-discard-diagnosis":
+        try:
+            result = diagnose_post_discard_evidence(
+                repo_root=args.repo_root,
+                scorer_reports=args.scorer_report,
+                prediction_comparisons=args.prediction_comparison,
+                exhausted_surfaces=args.exhausted_surface,
+            )
+        except PostDiscardDiagnosisError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

@@ -514,6 +514,36 @@ local-geometry, optimizer/schedule, width/depth capacity, and recycling
 surfaces. The next phase should be a new issue for a different allowed surface
 or a deeper artifact diagnosis, not another immediate live candidate.
 
+## Post-Discard Diagnosis
+
+After pausing live trial-budget spend, classify the accumulated evidence
+offline before approving a new surface:
+
+```bash
+python3 -m autoalphafold3.agent post-discard-diagnosis \
+  --scorer-report runs/autoresearch/scorer_sensitivity/T088-vs-T113-strategy-pivot.json \
+  --scorer-report runs/autoresearch/scorer_sensitivity/T088-vs-T162-capacity-diagnostic.json \
+  --scorer-report runs/autoresearch/scorer_sensitivity/T088-vs-T163-topology-recycling.json \
+  --prediction-comparison runs/autoresearch/prediction_comparisons/T088-vs-T113.json \
+  --prediction-comparison runs/autoresearch/prediction_comparisons/T088-vs-T162.json \
+  --prediction-comparison runs/autoresearch/prediction_comparisons/T088-vs-T163.json \
+  --exhausted-surface sampler \
+  --exhausted-surface local_geometry \
+  --exhausted-surface optimizer_schedule \
+  --exhausted-surface width_depth \
+  --exhausted-surface recycling \
+  --output runs/autoresearch/post_discard_diagnosis/T113-T162-T163.json
+```
+
+This is a local/offline evidence classifier. It does not submit trials, score
+artifacts, start search, write the canonical ledger, write the Discovery
+Ledger, or create benchmark claims. If it emits
+`SHORT_TRAINING_FAMILY_SCORER_COLLAPSE`, do not run another immediate live
+trial-budget candidate from the same short-training family. Define a new issue
+around short-training initialization, artifact scale, or feature/curriculum
+handling first, then dry-run exactly one candidate before any further Modal
+spend.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

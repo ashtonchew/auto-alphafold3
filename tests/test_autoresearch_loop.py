@@ -699,6 +699,7 @@ def test_autoresearch_loop_modal_scores_after_training_and_records_scorer_fail(t
     assert result.writes_ledger is False
     assert result.writes_discovery_ledger is False
     assert result.generated_trials == ["T130"]
+    assert len(result.wrote_files) == len(set(result.wrote_files))
     assert client.submitted_trials[0]["trial_id"] == "T130"
     assert client.submitted_trials[0]["trial_kind"] == "training"
     assert client.submitted_trials[0]["runner_mode"] == "short_training"

@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 from autoalphafold3.orchestrator import poll_trial, submit_trial
+from autoalphafold3.artifact_comparison import ArtifactComparisonError, compare_prediction_artifacts
 from autoalphafold3.autoresearch_loop import AutoresearchLoopError, run_autoresearch_loop
 from autoalphafold3.autoresearch_candidates import CandidateArtifactError
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
@@ -121,6 +122,13 @@ def main(argv: list[str] | None = None) -> int:
     autoresearch_loop_parser.add_argument("--failure-streak-limit", type=int, default=2)
     autoresearch_loop_parser.add_argument("--prior-run-id", action="append", default=[])
     autoresearch_loop_parser.add_argument("--candidate-budget", choices=("smoke", "trial"), default="smoke")
+
+    compare_predictions_parser = subparsers.add_parser("compare-predictions")
+    compare_predictions_parser.add_argument("left_predictions")
+    compare_predictions_parser.add_argument("right_predictions")
+    compare_predictions_parser.add_argument("--left-metrics", default=None)
+    compare_predictions_parser.add_argument("--right-metrics", default=None)
+    compare_predictions_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -326,6 +334,23 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "compare-predictions":
+        try:
+            result = compare_prediction_artifacts(
+                left_predictions=args.left_predictions,
+                right_predictions=args.right_predictions,
+                left_metrics=args.left_metrics,
+                right_metrics=args.right_metrics,
+            )
+        except ArtifactComparisonError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     if args.command == "autonomous-sampler-loop":
         try:

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from autoalphafold3 import agent
 from autoalphafold3.modal_app import modal_event_authority_health
 from autoalphafold3.modal_authority import (
     APPROVAL_TEXT,
@@ -148,3 +149,48 @@ def test_readiness_passes_modal_authority_proof(tmp_path: Path) -> None:
     assert report.modal_event_authority.status == "PASS"
     assert report.modal_event_authority.certification_status == "PASS_LIVE"
     assert report.autonomous_search_ready is True
+
+
+def test_modal_authority_cli_reexecs_to_repo_venv_when_system_python_lacks_modal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    venv_python = tmp_path / ".venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("#!/usr/bin/env python\n", encoding="utf-8")
+    monkeypatch.setattr(agent, "_current_python_can_import_modal", lambda: False)
+    monkeypatch.setattr(agent, "_python_can_import_modal", lambda python: python == venv_python)
+    monkeypatch.setattr(agent.sys, "executable", "/usr/bin/python3")
+    args = type(
+        "Args",
+        (),
+        {"command": "audit-modal-authority", "mode": "modal", "repo_root": str(tmp_path)},
+    )()
+
+    reexec = agent._modal_authority_venv_reexec_argv(
+        args,
+        ["audit-modal-authority", "--mode", "modal"],
+    )
+
+    assert reexec == [
+        str(venv_python),
+        "-m",
+        "autoalphafold3.agent",
+        "audit-modal-authority",
+        "--mode",
+        "modal",
+    ]
+
+
+def test_modal_authority_cli_does_not_reexec_when_current_python_has_modal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent, "_current_python_can_import_modal", lambda: True)
+    args = type(
+        "Args",
+        (),
+        {"command": "audit-modal-authority", "mode": "modal", "repo_root": str(tmp_path)},
+    )()
+
+    assert agent._modal_authority_venv_reexec_argv(args, ["audit-modal-authority"]) is None

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from autoalphafold3.orchestrator import poll_trial, submit_trial
 from autoalphafold3.autoresearch_loop import AutoresearchLoopError, run_autoresearch_loop
@@ -178,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    original_argv = list(sys.argv[1:] if argv is None else argv)
     if args.command == "submit":
         manifest_paths = _parse_manifest_args(args.manifest)
         call_id = submit_trial(
@@ -369,6 +373,9 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "audit-modal-authority":
+        reexec_argv = _modal_authority_venv_reexec_argv(args, original_argv)
+        if reexec_argv is not None:
+            os.execv(reexec_argv[0], reexec_argv)
         try:
             result = audit_modal_event_authority(
                 repo_root=args.repo_root,
@@ -408,6 +415,39 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     return 2
+
+
+def _modal_authority_venv_reexec_argv(args: argparse.Namespace, argv: list[str]) -> list[str] | None:
+    """Return a repo-venv re-exec command when live Modal SDK is only there."""
+
+    if getattr(args, "command", None) != "audit-modal-authority" or getattr(args, "mode", None) != "modal":
+        return None
+    if _current_python_can_import_modal():
+        return None
+    venv_python = Path(getattr(args, "repo_root", ".")) / ".venv" / "bin" / "python"
+    if not venv_python.exists() or venv_python.absolute() == Path(sys.executable).absolute():
+        return None
+    if not _python_can_import_modal(venv_python):
+        return None
+    return [str(venv_python), "-m", "autoalphafold3.agent", *argv]
+
+
+def _current_python_can_import_modal() -> bool:
+    try:
+        import modal  # noqa: F401
+    except ModuleNotFoundError:
+        return False
+    return True
+
+
+def _python_can_import_modal(python: Path) -> bool:
+    result = subprocess.run(
+        [str(python), "-c", "import modal"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 def _render_llm_policy(policy, output_format: str) -> dict[str, object]:

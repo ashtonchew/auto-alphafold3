@@ -128,6 +128,18 @@ def test_nanofold_get_args_reads_contact_auxiliary_loss_config() -> None:
     assert args["contact_auxiliary_min_sequence_separation"] == 8
 
 
+def test_nanofold_get_args_reads_gradient_checkpointing_runtime_flag() -> None:
+    config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config["use_grad_checkpoint"] = True
+    config["compile_model"] = False
+    config["use_amp"] = False
+
+    args = Nanofold.get_args(config)
+
+    assert args["use_grad_checkpoint"] is True
+    assert args["compile_model"] is False
+
+
 def test_chain_dataset_ref_pos_translation_scale_defaults_and_overrides() -> None:
     default = ChainDataset(None, [], residue_crop_size=16, num_msa=2)
     scaled = ChainDataset(None, [], residue_crop_size=16, num_msa=2, ref_pos_translation_scale=10.0)

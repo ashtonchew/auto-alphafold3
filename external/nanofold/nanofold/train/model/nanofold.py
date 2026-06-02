@@ -1,4 +1,5 @@
 import torch
+import torch.utils.checkpoint
 from torch import nn
 
 from nanofold.train.loss import DistogramLoss

@@ -13,6 +13,7 @@ ALLOWED_DESIGN_SURFACES: dict[str, str] = {
     "pairformer_attention": "pairformer_attention_diagnostic",
     "auxiliary_loss": "auxiliary_contact_loss_diagnostic",
     "feature_handling": "feature_ref_pos_scale_diagnostic",
+    "memory_runtime": "gradient_checkpointing_runtime_diagnostic",
 }
 
 
@@ -140,6 +141,8 @@ def _surface_exhausted(proposed_surface: str, exhausted: list[str]) -> bool:
         aliases.add("auxiliary_contact_loss")
     if proposed_surface == "feature_handling":
         aliases.add("ref_pos_scale")
+    if proposed_surface == "memory_runtime":
+        aliases.add("gradient_checkpointing_runtime")
     return bool(aliases.intersection(set(exhausted)))
 
 
@@ -163,5 +166,14 @@ def _design_rationale(proposed_surface: str) -> str:
             "curriculum, diffusion data-scale, Pairformer attention, and auxiliary-loss surfaces because it "
             "changes only synthetic reference-position feature interpretation, not labels, cached features, "
             "manifests, templates, sampler policy, diffusion noise, or model capacity."
+        )
+    if proposed_surface == "memory_runtime":
+        return (
+            "A gradient-checkpointing runtime diagnostic is a canonical allowed memory/runtime move and "
+            "remains non-overlapping with exhausted sampler, locality, optimizer, capacity, recycling, "
+            "curriculum, diffusion data-scale, Pairformer attention, auxiliary-loss, and feature-handling "
+            "surfaces because it changes only activation recomputation behavior during training, not labels, "
+            "cached features, manifests, templates, sampler policy, diffusion noise, model capacity, loss "
+            "shape, or scorer behavior."
         )
     raise SurfaceDesignReviewError(f"unsupported proposed surface: {proposed_surface}")

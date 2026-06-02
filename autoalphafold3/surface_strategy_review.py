@@ -81,6 +81,9 @@ IMPLEMENTED_PLANNER_SURFACES: dict[str, frozenset[str]] = {
     "feature_ref_pos_scale_diagnostic": frozenset(
         {"feature_handling", "ref_pos_scale", "feature_ref_pos_scale_diagnostic"}
     ),
+    "gradient_checkpointing_runtime_diagnostic": frozenset(
+        {"memory_runtime", "gradient_checkpointing_runtime", "gradient_checkpointing_runtime_diagnostic"}
+    ),
 }
 
 UNIMPLEMENTED_ALLOWED_SURFACES = (

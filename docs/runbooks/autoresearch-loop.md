@@ -784,6 +784,40 @@ NanoFold-style AlphaFold3-lite trial-budget training candidate with
 overrides, no diffusion data-scale overrides, no Pairformer capacity overrides,
 no Modal resource edits, no ledger writes, and no Discovery Ledger writes.
 
+If T174 is scored and discarded with the same short-training scorer collapse,
+and `surface-strategy-review` reports `memory_runtime` as the next
+unimplemented available surface, approve only the dry-run planner
+implementation step:
+
+```bash
+python3 -m autoalphafold3.agent surface-design-review \
+  --strategy-review runs/autoresearch/surface_strategy_review/T173-T174-short-training-collapse-blocked.json \
+  --proposed-surface memory_runtime \
+  --output runs/autoresearch/surface_design_review/T175-gradient-checkpointing-runtime.json
+```
+
+After the `gradient_checkpointing_runtime_diagnostic` planner PR exists,
+dry-run exactly one candidate before any Modal spend:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner gradient_checkpointing_runtime_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/surface_design_review/T175-gradient-checkpointing-runtime.json \
+  --run-id gradient-checkpointing-runtime-diagnostic-001-dry-run \
+  --start-trial-id T175 \
+  --max-candidates 1
+```
+
+Review the generated `T175` envelope. It must remain a single
+NanoFold-style AlphaFold3-lite trial-budget training candidate with
+`diagnostic_target=stability_compute`, `move_family=memory_runtime`,
+`max_templates=0`, `use_grad_checkpoint=true`, `compile_model=false`,
+`use_amp=false`, no sampler coordinate overrides, no diffusion data-scale
+overrides, no Pairformer capacity overrides, no loss-shape overrides, no Modal
+resource edits, no ledger writes, and no Discovery Ledger writes.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

@@ -18,6 +18,7 @@ from autoalphafold3.modal_authority import ModalAuthorityError, audit_modal_even
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.sampler_loop import APPROVAL_TEXT as SAMPLER_LOOP_APPROVAL_TEXT
 from autoalphafold3.sampler_loop import SamplerLoopError, run_incremental_sampler_loop
+from autoalphafold3.short_training_runner import ShortTrainingRunError, run_short_training
 from autoalphafold3.modal_assets import (
     ModalAssetAuditError,
     audit_modal_assets,
@@ -90,6 +91,16 @@ def main(argv: list[str] | None = None) -> int:
     checkpoint_run_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
     checkpoint_run_parser.add_argument("--modal-env", default=None)
     checkpoint_run_parser.add_argument("--approve", default=None)
+
+    short_training_parser = subparsers.add_parser("run-short-training")
+    short_training_parser.add_argument("--repo-root", default=".")
+    short_training_parser.add_argument("--trial", required=True)
+    short_training_parser.add_argument("--source-dir", default=None)
+    short_training_parser.add_argument("--features-dir", default="data/toy/nanofold_fixture")
+    short_training_parser.add_argument("--features-path", default=None)
+    short_training_parser.add_argument("--mode", choices=("dry-run", "local-fixture", "modal"), default="dry-run")
+    short_training_parser.add_argument("--modal-env", default=None)
+    short_training_parser.add_argument("--approve", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -249,6 +260,23 @@ def main(argv: list[str] | None = None) -> int:
                 modal_env=args.modal_env,
             )
         except CheckpointRunError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "run-short-training":
+        try:
+            result = run_short_training(
+                trial_path=args.trial,
+                repo_root=args.repo_root,
+                source_dir=args.source_dir,
+                features_dir=args.features_dir,
+                features_path=args.features_path,
+                approval=args.approve,
+                mode=args.mode,
+                modal_env=args.modal_env,
+            )
+        except ShortTrainingRunError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))

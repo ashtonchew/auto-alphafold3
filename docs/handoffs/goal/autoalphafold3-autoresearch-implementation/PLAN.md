@@ -54,11 +54,35 @@ Validation:
 
 ## Planned PR 2: Short-Training Runner
 
-Build a bounded runner around `AutoFoldTrial.max_steps`, `budget`,
-`config_path`, `seed`, and `artifact_dir`. It must write trial-scoped artifacts
-only, stamp real fixture training honestly, reject unsafe paths and
-`max_templates != 0`, and never create official benchmark-ready evidence in
-local scaffold mode.
+Approach:
+
+- Add `autoalphafold3/short_training.py` as the pure training and manifest
+  layer.
+- Add `autoalphafold3/short_training_runner.py` as the dry-run/local-fixture/
+  Modal guard layer.
+- Keep the existing one-batch checkpoint path separate as infrastructure smoke.
+- Keep `run_fixed_budget_trial()` stub behavior unless the payload explicitly
+  requests `runner_mode=short_training`.
+- Use direct `Trainer.training_loop(...)` steps instead of upstream
+  epoch-oriented `Trainer.fit(...)`.
+
+Read-only grounding agents:
+
+- `Raman`: spec/contracts review. Findings: write only
+  `runs/trials/<trial_id>/` artifacts, stamp fixture evidence as non-official,
+  reject unsafe paths, non-empty outputs, fake claims, `max_templates != 0`,
+  and Modal execution without `I_APPROVE_SHORT_TRAINING_TRIAL`.
+- `Newton`: existing code/test pattern review. Findings: mirror
+  checkpoint-runner style, structured JSON CLI failures, atomic JSON writes,
+  fake Modal client tests, and side-effect assertions.
+- `Leibniz`: NanoFold fixture feasibility review. Findings: local fixture
+  supports a 2-3 step real training smoke without downloads; PR 2 should not
+  change NanoFold loss yet.
+
+Validation:
+
+- `python3 -m pytest -p no:cacheprovider tests/test_short_training.py tests/test_checkpoint_training.py tests/test_runner_and_locked_scorer.py -q`
+  passed: 41 passed.
 
 ## Planned PR 3: NanoFold Geometry Loss
 

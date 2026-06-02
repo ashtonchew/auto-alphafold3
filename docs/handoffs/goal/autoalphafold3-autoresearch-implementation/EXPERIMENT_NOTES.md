@@ -22,3 +22,15 @@
 - `PENDING_HUMAN_LIVE_ACTION`: any future open-ended LLM search command must
   name the exact command and approval token after deterministic ladder
   validation exists.
+
+## 2026-06-01 PR 2
+
+- Added a bounded short-training runner with `dry-run`, `local-fixture`, and
+  approval-gated `modal` modes.
+- Local fixture training is real NanoFold training over the synthetic fixture,
+  but remains non-official smoke evidence.
+- Targeted validation passed:
+  `python3 -m pytest -p no:cacheprovider tests/test_short_training.py tests/test_checkpoint_training.py tests/test_runner_and_locked_scorer.py -q`
+  reported 41 passed.
+- Full local validation passed:
+  `python3 -m pytest -p no:cacheprovider` reported 300 passed, 1 skipped.

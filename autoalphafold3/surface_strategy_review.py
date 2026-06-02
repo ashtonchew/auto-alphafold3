@@ -165,6 +165,7 @@ def _blocked_report(
     exhausted: list[str],
     reason: str,
 ) -> SurfaceStrategyReview:
+    unimplemented = _unimplemented_candidate_surfaces(exhausted)
     return SurfaceStrategyReview(
         schema_version=SCHEMA_VERSION,
         status="PASS",
@@ -178,11 +179,8 @@ def _blocked_report(
         consumed_next_surface_reviews=[str(item) for item in next_surface_reviews],
         consumed_diagnoses=[str(item) for item in diagnoses],
         exhausted_surfaces=exhausted,
-        unimplemented_candidate_surfaces=_unimplemented_candidate_surfaces(exhausted),
-        required_next_step=(
-            "Do offline design review for one unimplemented allowed surface; add a dry-run-only planner "
-            "PR before any more live candidates or open-ended bench loop."
-        ),
+        unimplemented_candidate_surfaces=unimplemented,
+        required_next_step=_blocked_required_next_step(unimplemented),
         starts_search=False,
         writes_ledger=False,
         writes_discovery_ledger=False,
@@ -253,6 +251,19 @@ def _unimplemented_candidate_surfaces(exhausted: list[str]) -> list[str]:
         for surface in UNIMPLEMENTED_ALLOWED_SURFACES
         if surface not in exhausted_set and surface not in implemented_aliases
     ]
+
+
+def _blocked_required_next_step(unimplemented_candidate_surfaces: list[str]) -> str:
+    if not unimplemented_candidate_surfaces:
+        return (
+            "No unimplemented allowed planner surfaces remain. Stop live trial-budget spend and open a "
+            "broader offline strategy review before implementing another planner or starting the open-ended "
+            "bench loop."
+        )
+    return (
+        "Do offline design review for one unimplemented allowed surface; add a dry-run-only planner "
+        "PR before any more live candidates or open-ended bench loop."
+    )
 
 
 def _string_list(value: object) -> list[str]:

@@ -51,9 +51,28 @@ def test_surface_strategy_blocks_after_t171_no_surface_approved(tmp_path: Path) 
     assert "pairformer_attention" not in payload["unimplemented_candidate_surfaces"]
     assert "auxiliary_loss" not in payload["unimplemented_candidate_surfaces"]
     assert "memory_runtime" not in payload["unimplemented_candidate_surfaces"]
+    assert "No unimplemented allowed planner surfaces remain" in payload["required_next_step"]
     assert payload["starts_search"] is False
     assert payload["writes_ledger"] is False
     assert payload["writes_discovery_ledger"] is False
+
+
+def test_surface_strategy_points_to_broader_review_when_no_unimplemented_surface_remains(tmp_path: Path) -> None:
+    diagnosis = _write_diagnosis(tmp_path, exhausted_surfaces=["auxiliary_loss", "feature_handling"])
+    review = _write_next_surface_review(
+        tmp_path,
+        decision="NO_NEXT_SURFACE_APPROVED",
+        approved_next_surface=None,
+        planner=None,
+        candidate_limit=0,
+        rejected_surfaces=["auxiliary_loss", "feature_handling"],
+    )
+
+    report = review_surface_strategy(repo_root=tmp_path, next_surface_reviews=[review], diagnoses=[diagnosis])
+
+    assert report.decision == "NO_NON_OVERLAPPING_PLANNER_APPROVED"
+    assert report.unimplemented_candidate_surfaces == []
+    assert "No unimplemented allowed planner surfaces remain" in str(report.required_next_step)
 
 
 def test_surface_strategy_allows_unexhausted_approved_offline_planner(tmp_path: Path) -> None:

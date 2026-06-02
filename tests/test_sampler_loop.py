@@ -109,6 +109,7 @@ class ScoreAwarePlanner:
     def __init__(self) -> None:
         self.observed_scores: list[float | None] = []
         self.observed_fold_cartographer: list[dict[str, object] | None] = []
+        self.observed_strategy_recommendations: list[str | None] = []
 
     def plan(
         self,
@@ -119,6 +120,7 @@ class ScoreAwarePlanner:
         prior_decisions: list[dict[str, object]],
         global_current_best: dict[str, object],
         search_reference: dict[str, object],
+        strategy_context: dict[str, object],
     ) -> SamplerCandidatePlan:
         latest_score = prior_decisions[-1].get("score") if prior_decisions else None
         self.observed_scores.append(float(latest_score) if isinstance(latest_score, int | float) else None)
@@ -126,6 +128,8 @@ class ScoreAwarePlanner:
         self.observed_fold_cartographer.append(
             latest_fold_cartographer if isinstance(latest_fold_cartographer, dict) else None
         )
+        recommendation = strategy_context.get("recommendation")
+        self.observed_strategy_recommendations.append(str(recommendation) if recommendation is not None else None)
         sampler_steps = 4 if latest_score is not None and latest_score < 0.42 else 1
         return SamplerCandidatePlan(
             diagnostic_target="local_geometry_weak",
@@ -157,6 +161,7 @@ class InvalidPlanner:
         prior_decisions: list[dict[str, object]],
         global_current_best: dict[str, object],
         search_reference: dict[str, object],
+        strategy_context: dict[str, object],
     ) -> SamplerCandidatePlan:
         return SamplerCandidatePlan(
             diagnostic_target="local_geometry_weak",
@@ -172,6 +177,68 @@ class InvalidPlanner:
             sampler_selection_policy="first",
             seed=0,
             rationale="This should fail validation.",
+        )
+
+
+class LocalNeighborhoodPlanner:
+    def plan(
+        self,
+        *,
+        seed_trial: dict[str, object],
+        trial_id: str,
+        candidate_index: int,
+        prior_decisions: list[dict[str, object]],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
+        strategy_context: dict[str, object],
+    ) -> SamplerCandidatePlan:
+        return SamplerCandidatePlan(
+            diagnostic_target="local_geometry_weak",
+            hypothesis="Try one more late-refine compact-geometry neighborhood sampler candidate near T088.",
+            intervention="Use late_refine, compact_geometry, high step scale, and low noise again.",
+            predicted_direction="up",
+            expected_lddt_delta_band=[0.001, 0.01],
+            sampler_steps=10,
+            sampler_noise_scale=0.8,
+            sampler_step_scale=1.3,
+            sampler_schedule_shape="late_refine",
+            sampler_num_samples=4,
+            sampler_selection_policy="compact_geometry",
+            seed=123,
+            rationale="This intentionally repeats the exhausted local neighborhood.",
+        )
+
+
+class DistinctSamplerPlanner:
+    def __init__(self) -> None:
+        self.observed_strategy: dict[str, object] | None = None
+
+    def plan(
+        self,
+        *,
+        seed_trial: dict[str, object],
+        trial_id: str,
+        candidate_index: int,
+        prior_decisions: list[dict[str, object]],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
+        strategy_context: dict[str, object],
+    ) -> SamplerCandidatePlan:
+        self.observed_strategy = strategy_context
+        return SamplerCandidatePlan(
+            diagnostic_target="stability_compute",
+            hypothesis="Pivot away from the exhausted T088 late-refine neighborhood with a distinct linear sampler mechanism.",
+            intervention="Use a linear schedule with first-sample selection and neutral scales.",
+            predicted_direction="up",
+            expected_lddt_delta_band=[0.001, 0.01],
+            sampler_steps=4,
+            sampler_noise_scale=1.0,
+            sampler_step_scale=1.0,
+            sampler_schedule_shape="linear",
+            sampler_num_samples=1,
+            sampler_selection_policy="first",
+            seed=124,
+            rationale="The strategy gate requires a non-neighborhood mechanism after repeated all-target regressions.",
         )
 
 
@@ -196,6 +263,92 @@ class DiagnosticSamplerClient(FakeSamplerClient):
             },
         }
         return payload
+
+
+def _write_sampler_ledger_row(root: Path, *, trial_id: str, score: float) -> None:
+    ledger = root / "runs/ledger.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": "autoaf3.result.v1",
+        "status": "DISCARD",
+        "trial_id": trial_id,
+        "candidate_id": f"{trial_id}_sampler",
+        "primary_metric": "best_val_calpha_lddt",
+        "metrics": {
+            "best_val_calpha_lddt": score,
+            "num_targets": 16,
+            "num_scored_targets": 16,
+            "num_failed_targets": 0,
+        },
+        "fold_cartographer": {
+            "signature": "toy_geometry_failed",
+            "summary": {
+                "canonical_target": "local_geometry_weak",
+                "mean_target_calpha_lddt": score,
+                "nan_prediction_residue_count": 0,
+                "num_scored_targets": 16,
+                "num_targets": 16,
+            },
+            "buckets": {},
+        },
+        "artifacts": {"metrics_json": f"runs/trials/{trial_id}/metrics.json"},
+        "postmortem": "Synthetic sampler row for strategy gate tests.",
+    }
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8") + json.dumps(payload, sort_keys=True) + "\n"
+        if ledger.exists()
+        else json.dumps(payload, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_sampler_trial_knobs(root: Path, *, trial_id: str, score_rank: int) -> None:
+    trials = root / "trials"
+    trials.mkdir(parents=True, exist_ok=True)
+    payload = json.loads((trials / "T012.json").read_text(encoding="utf-8"))
+    payload.update(
+        {
+            "trial_id": trial_id,
+            "artifact_dir": f"runs/trials/{trial_id}",
+            "sampler_steps": 12 - min(score_rank, 2),
+            "sampler_noise_scale": 0.6 + score_rank * 0.05,
+            "sampler_step_scale": 1.5 - score_rank * 0.05,
+            "sampler_schedule_shape": "late_refine",
+            "sampler_num_samples": 4,
+            "sampler_selection_policy": "compact_geometry",
+            "seed": 88000 + score_rank,
+        }
+    )
+    (trials / f"{trial_id}.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _write_all_target_regression_report(root: Path, *, reference_trial_id: str, trial_ids: list[str]) -> None:
+    out = root / "runs/autoresearch/scorer_sensitivity"
+    out.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": "autoaf3.scorer_sensitivity.v1",
+        "reference_trial_id": reference_trial_id,
+        "per_target_score_deltas_vs_reference": {
+            trial_id: {"A": -0.01, "B": -0.02, "C": -0.03} for trial_id in trial_ids
+        },
+        "metric_deltas_vs_reference": {
+            trial_id: {"best_val_calpha_lddt": -0.01} for trial_id in trial_ids
+        },
+    }
+    (out / f"{reference_trial_id}-vs-{'-'.join(trial_ids)}.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_exhausted_sampler_strategy_fixture(root: Path) -> Path:
+    seed_path = seed_trial(root)
+    _write_sampler_ledger_row(root, trial_id="T088", score=0.0209)
+    for rank, (trial_id, score) in enumerate((("T108", 0.0192), ("T109", 0.0177), ("T110", 0.0166))):
+        _write_sampler_trial_knobs(root, trial_id=trial_id, score_rank=rank)
+        _write_sampler_ledger_row(root, trial_id=trial_id, score=score)
+    _write_all_target_regression_report(root, reference_trial_id="T088", trial_ids=["T108", "T109", "T110"])
+    return seed_path
 
 
 def test_sampler_loop_dry_run_generates_incremental_trials(tmp_path: Path) -> None:
@@ -455,6 +608,55 @@ def test_sampler_loop_can_continue_from_scored_ledger_decisions(tmp_path: Path) 
     assert second.decisions[0]["continuation_source"] == "ledger"
     assert second.decisions[-1]["trial_id"] == "T082"
     assert second.decisions[-1]["beats_search_reference"] is True
+
+
+def test_sampler_strategy_gate_blocks_repeated_t088_neighborhood_regressions(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    seed_path = _write_exhausted_sampler_strategy_fixture(tmp_path)
+
+    with pytest.raises(SamplerLoopError, match="strategy gate blocks"):
+        run_incremental_sampler_loop(
+            seed_trial_path=seed_path,
+            repo_root=tmp_path,
+            mode="dry-run",
+            max_candidates=1,
+            start_trial_id="T120",
+            baseline_dir=baseline.relative_to(tmp_path),
+            planner="llm",
+            planner_client=LocalNeighborhoodPlanner(),
+            search_reference_trial_id="T081",
+            prior_decision_trial_ids=["T108", "T109", "T110"],
+        )
+
+    assert not (tmp_path / "trials/T120.json").exists()
+
+
+def test_sampler_strategy_gate_allows_distinct_pivot_with_context(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    seed_path = _write_exhausted_sampler_strategy_fixture(tmp_path)
+    planner = DistinctSamplerPlanner()
+
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_path,
+        repo_root=tmp_path,
+        mode="dry-run",
+        max_candidates=1,
+        start_trial_id="T121",
+        baseline_dir=baseline.relative_to(tmp_path),
+        planner="llm",
+        planner_client=planner,
+        search_reference_trial_id="T081",
+        prior_decision_trial_ids=["T108", "T109", "T110"],
+    )
+
+    assert result.status == "PASS"
+    assert result.generated_trials == ["T121"]
+    assert planner.observed_strategy is not None
+    assert planner.observed_strategy["recommendation"] == "stop_t088_neighborhood"
+    assert result.decisions[-1]["strategy_context"]["recommendation"] == "stop_t088_neighborhood"
+    trial = json.loads((tmp_path / "trials/T121.json").read_text(encoding="utf-8"))
+    assert trial["sampler_schedule_shape"] == "linear"
+    assert trial["sampler_selection_policy"] == "first"
 
 
 def test_sampler_loop_rejects_invalid_planner_output_before_writing(tmp_path: Path) -> None:

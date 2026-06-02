@@ -249,6 +249,28 @@ They may plan candidates and collect returned evidence, but must not bypass
 preflight, scorer-only evaluation, canonical ledger authority, or Modal resource
 policy.
 
+After repeated smoke-budget `DISCARD` results show no score sensitivity, the LLM
+planner may be moved to the bounded 250-step trial budget explicitly:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode modal \
+  --planner llm \
+  --candidate-budget trial \
+  --prior-run-id live-autoresearch-<previous> \
+  --run-id live-autoresearch-trial-001 \
+  --start-trial-id T160 \
+  --max-candidates 1 \
+  --failure-streak-limit 2 \
+  --approve I_APPROVE_AUTORESEARCH_LIVE_SEARCH
+```
+
+`--candidate-budget trial` changes only the generated LLM trial shape:
+`budget=trial`, `max_steps=250`, `max_wall_minutes=45`, and
+`timeout_cap=2700`. It does not change Modal GPU/resource settings, ledger
+authority, scorer authority, or promotion rules. Keep this at one candidate per
+live run until the cost and runtime profile are measured.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

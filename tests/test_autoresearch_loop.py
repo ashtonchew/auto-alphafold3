@@ -241,6 +241,10 @@ def _llm_candidate_payload(
     config_path: str = "configs/experiments/llm_geometry.json",
     changed_paths: list[str] | None = None,
     config_payload: dict[str, object] | None = None,
+    budget: str = "smoke",
+    max_steps: int = 10,
+    max_wall_minutes: int = 5,
+    timeout_cap: int = 300,
 ) -> dict[str, object]:
     inline_config = config_payload or json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
     inline_config.setdefault("diffusion_loss_weight", 4.0)
@@ -267,18 +271,18 @@ def _llm_candidate_payload(
             },
             "patch_path": None,
             "config_path": config_path,
-            "budget": "smoke",
+            "budget": budget,
             "seed": 0,
             "n_res": 32,
-            "max_steps": 10,
-            "max_wall_minutes": 5,
+            "max_steps": max_steps,
+            "max_wall_minutes": max_wall_minutes,
             "manifest_hashes": {},
             "scorer_version": "calpha_lddt_v1",
             "primary_metric": "best_val_calpha_lddt",
             "param_cap": 176514,
             "gpu_memory_cap": 80.0,
             "cost_cap": 2.0,
-            "timeout_cap": 300,
+            "timeout_cap": timeout_cap,
             "artifact_dir": f"runs/trials/{trial_id}",
             "checkpoint_path": None,
             "config_payload": inline_config,
@@ -1166,6 +1170,61 @@ def test_llm_autoresearch_plans_bounded_batch_with_prior_plan_context(tmp_path: 
     assert (tmp_path / "runs/autoresearch/llm-two/candidates/T121/trial.json").exists()
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_llm_autoresearch_plans_trial_budget_candidate(tmp_path: Path) -> None:
+    fake = FakeLLMPlanner(
+        _llm_candidate_payload(
+            trial_id="T140",
+            config_path="configs/experiments/llm_trial_budget.json",
+            budget="trial",
+            max_steps=250,
+            max_wall_minutes=45,
+            timeout_cap=2700,
+        )
+    )
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="llm-trial-budget",
+        mode="dry-run",
+        planner="llm",
+        start_trial_id="T140",
+        max_candidates=1,
+        planner_client=fake,
+        candidate_budget="trial",
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T140"]
+    assert fake.calls[0]["candidate_budget"] == "trial"
+    candidate_dir = tmp_path / "runs/autoresearch/llm-trial-budget/candidates/T140"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["max_wall_minutes"] == 45
+    assert trial["timeout_cap"] == 2700
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_llm_autoresearch_refuses_budget_shape_mismatch(tmp_path: Path) -> None:
+    fake = FakeLLMPlanner(_llm_candidate_payload(trial_id="T140"))
+
+    with pytest.raises(AutoresearchLoopError, match="budget must be trial"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-trial-budget-mismatch",
+            mode="dry-run",
+            planner="llm",
+            start_trial_id="T140",
+            max_candidates=1,
+            planner_client=fake,
+            candidate_budget="trial",
+        )
+
+    assert not (tmp_path / "runs/autoresearch/llm-trial-budget-mismatch").exists()
+    assert fake.calls[0]["candidate_budget"] == "trial"
 
 
 def test_llm_autoresearch_planner_receives_prior_run_outcomes(tmp_path: Path) -> None:

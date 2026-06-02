@@ -37,6 +37,7 @@ class DiffusionModel(nn.Module):
         s_max=160,
         s_min=0.0004,
         p=7,
+        initial_noise_scale=1.0,
         compute_local_geometry_loss=False,
     ):
         super().__init__()
@@ -49,6 +50,7 @@ class DiffusionModel(nn.Module):
         self.noise_scale = noise_scale
         self.step_scale = step_scale
         self.data_std_dev = data_std_dev
+        self.initial_noise_scale = initial_noise_scale
         stacked_single_embedding_size = input_embedding_size + single_embedding_size
         stacked_pair_embedding_size = 2 * pair_embedding_size
         self.diffusion_conditioning = DiffusionConditioning(
@@ -130,7 +132,7 @@ class DiffusionModel(nn.Module):
 
     @torch.no_grad
     def sample_diffusion(self, features, input, trunk, pair_rep):
-        x = self.schedule[0] * self.normal.sample(features["local_coords"].shape[:-1]).flatten(
+        x = self.initial_noise_scale * self.schedule[0] * self.normal.sample(features["local_coords"].shape[:-1]).flatten(
             start_dim=-3, end_dim=-2
         ).to(trunk.device)
 

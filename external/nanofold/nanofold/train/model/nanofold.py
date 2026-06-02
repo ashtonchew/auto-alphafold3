@@ -60,6 +60,7 @@ class Nanofold(nn.Module):
         diffusion_s_max=160,
         diffusion_s_min=0.0004,
         diffusion_schedule_p=7,
+        diffusion_initial_noise_scale=1.0,
         contact_auxiliary_loss_weight=0.0,
         contact_auxiliary_distance_cutoff=8.0,
         contact_auxiliary_min_sequence_separation=8,
@@ -138,6 +139,7 @@ class Nanofold(nn.Module):
                 s_max=diffusion_s_max,
                 s_min=diffusion_s_min,
                 p=diffusion_schedule_p,
+                initial_noise_scale=diffusion_initial_noise_scale,
                 compute_local_geometry_loss=local_calpha_geometry_loss_weight != 0.0,
             ),
             disable=not compile_model,
@@ -211,6 +213,7 @@ class Nanofold(nn.Module):
             "diffusion_s_max": config.get("diffusion_s_max", 160),
             "diffusion_s_min": config.get("diffusion_s_min", 0.0004),
             "diffusion_schedule_p": config.get("diffusion_schedule_p", 7),
+            "diffusion_initial_noise_scale": config.get("diffusion_initial_noise_scale", 1.0),
             "contact_auxiliary_loss_weight": config.get("contact_auxiliary_loss_weight", 0.0),
             "contact_auxiliary_distance_cutoff": config.get("contact_auxiliary_distance_cutoff", 8.0),
             "contact_auxiliary_min_sequence_separation": config.get(

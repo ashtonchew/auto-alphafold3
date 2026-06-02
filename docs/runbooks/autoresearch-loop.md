@@ -834,6 +834,61 @@ The open-ended bench may start only when this report emits
 surfaces are exhausted, the correct next phase is broader offline strategy
 review, not another live candidate.
 
+For the current T173-T175 short-training collapse stop state, create the
+broader offline strategy artifact before implementing another planner:
+
+```bash
+python3 -m autoalphafold3.agent broader-strategy-review \
+  --surface-strategy-review runs/autoresearch/surface_strategy_review/T173-T175-short-training-collapse-blocked.json \
+  --bench-readiness-review runs/autoresearch/bench_readiness_review/T173-T175-bench-blocked.json \
+  --output runs/autoresearch/broader_strategy_review/T173-T175-diffusion-initialization-scale.json
+```
+
+This command is offline only. It consumes the final surface strategy and bench
+gate artifacts, refuses source evidence that claims search, ledger, Discovery
+Ledger, or official benchmark authority, and may approve at most one
+dry-run-only planner PR. The current approved broader surface is
+`diffusion_initialization_scale`: model-internal diffusion initial-state scale
+before denoising. It is distinct from exhausted auxiliary loss, feature
+handling, memory/runtime, diffusion data-scale, and post-hoc sampler coordinate
+normalization surfaces.
+
+Rerun the composite bench gate with the broader strategy evidence:
+
+```bash
+python3 -m autoalphafold3.agent bench-readiness-review \
+  --surface-strategy-review runs/autoresearch/surface_strategy_review/T173-T175-short-training-collapse-blocked.json \
+  --broader-strategy-review runs/autoresearch/broader_strategy_review/T173-T175-diffusion-initialization-scale.json \
+  --output runs/autoresearch/bench_readiness_review/T173-T175-dry-run-planner-required.json
+```
+
+If this report emits `BLOCK_OPEN_ENDED_BENCH_DRY_RUN_PLANNER_REQUIRED`, the
+next allowed action is one dry-run-only `diffusion_initialization_scale_diagnostic`
+planner PR. It still does not authorize live Modal execution or the open-ended
+bench.
+
+After the planner PR exists, dry-run exactly one candidate before any Modal
+spend:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner diffusion_initialization_scale_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/broader_strategy_review/T173-T175-diffusion-initialization-scale.json \
+  --run-id diffusion-initialization-scale-diagnostic-001-dry-run \
+  --start-trial-id T176 \
+  --max-candidates 1
+```
+
+Review the generated `T176` envelope. It must remain a single
+NanoFold-style AlphaFold3-lite trial-budget training candidate with
+`diagnostic_target=distogram_good_lddt_flat`,
+`move_family=diffusion_schedule`, `max_templates=0`,
+`diffusion_initial_noise_scale=0.1`, no sampler wrapper overrides, no feature
+reference-position overrides, no auxiliary-loss overrides, no Modal resource
+edits, no ledger writes, and no Discovery Ledger writes.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

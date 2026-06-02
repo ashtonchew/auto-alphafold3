@@ -385,6 +385,7 @@ def run_autoresearch_loop(
     failure_streak_limit: int = 2,
     prior_run_ids: list[str] | None = None,
     candidate_budget: str = BudgetTier.SMOKE.value,
+    diagnostic_report: str | Path | None = None,
 ) -> AutoresearchLoopResult:
     """Plan autoresearch candidates and optionally run one approved Modal candidate."""
 
@@ -394,7 +395,7 @@ def run_autoresearch_loop(
         raise AutoresearchLoopError("candidate_budget must be smoke or trial")
     if mode not in {"dry-run", "modal"}:
         raise AutoresearchLoopError(f"unsupported autoresearch mode: {mode}")
-    if planner not in {"manual", "deterministic", "llm"}:
+    if planner not in {"manual", "deterministic", "targeted_diagnostic", "llm"}:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
     if mode == "modal":
         if approval != APPROVAL_TEXT:
@@ -417,6 +418,7 @@ def run_autoresearch_loop(
         planner_client=planner_client,
         prior_outcomes=prior_outcomes,
         candidate_budget=candidate_budget,
+        diagnostic_report=diagnostic_report,
     )
     for candidate in planned:
         trial = AutoFoldTrial.model_validate(candidate["trial"])
@@ -474,6 +476,8 @@ def run_autoresearch_loop(
                 str(envelope.trial_path),
             ]
         )
+        if candidate.get("config") is not None:
+            wrote_files.append(str(envelope.config_path))
         write_candidate_evidence(envelope, preflight=_planned_preflight(trial))
         wrote_files.append(str(envelope.preflight_path))
         if mode == "modal":
@@ -845,11 +849,21 @@ def _planned_candidates(
     planner_client: AutoresearchPlanner | None,
     prior_outcomes: list[dict[str, object]],
     candidate_budget: str,
+    diagnostic_report: str | Path | None,
 ) -> list[dict[str, object]]:
     if planner == "manual":
         return _manual_candidates(root=root, candidate_plan=candidate_plan)
     if planner == "deterministic":
         return _deterministic_candidates(start_trial_id=start_trial_id, max_candidates=max_candidates, base_commit=base_commit)
+    if planner == "targeted_diagnostic":
+        return _targeted_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
     if planner == "llm":
         return _llm_candidates(
             root=root,
@@ -903,6 +917,81 @@ def _deterministic_candidates(*, start_trial_id: str, max_candidates: int, base_
             }
         )
     return candidates
+
+
+def _targeted_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("targeted_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("targeted_diagnostic planner requires --diagnostic-report")
+    target_summary = _targeted_diagnostic_summary(root=root, diagnostic_report=diagnostic_report)
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_targeted_geometry_diagnostic.json"
+    config_payload = _targeted_diagnostic_config_payload(root)
+    worst_targets = target_summary["worst_targets"]
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.GEOMETRY_LOSS,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded geometry-loss training candidate should test whether the recurring "
+            f"reference-sweep loser targets ({', '.join(worst_targets)}) improve when the "
+            "training objective emphasizes local C-alpha geometry stability without changing "
+            "labels, manifests, scorer, templates, Modal resources, or ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "targeted-diagnostic-planner"
+    trial["seed"] = 90000 + _trial_number(trial_id)
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="local_calpha_geometry_loss_weight",
+        predicted_axis=FalsificationAxis.LOCAL_GEOMETRY,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.012),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.targeted_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "reference_trial_id": target_summary["reference_trial_id"],
+        "candidate_trial_ids": target_summary["candidate_trial_ids"],
+        "worst_targets": worst_targets,
+        "target_loss_summary": target_summary["target_loss_summary"],
+        "config_payload_overrides": {
+            "learning_rate": config_payload["learning_rate"],
+            "distogram_loss_weight": config_payload["distogram_loss_weight"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+            "clip_norm": config_payload["clip_norm"],
+        },
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _targeted_diagnostic_patch_text(root=root, config_path=config_path, config=config),
+        }
+    ]
 
 
 def _manual_candidates(*, root: Path, candidate_plan: str | Path | None) -> list[dict[str, object]]:
@@ -1145,6 +1234,116 @@ def _candidate_budget_shape(candidate_budget: str) -> dict[str, object]:
             "timeout_cap": 2700,
         }
     raise AutoresearchLoopError("candidate_budget must be smoke or trial")
+
+
+def _targeted_diagnostic_summary(*, root: Path, diagnostic_report: str | Path) -> dict[str, object]:
+    path = _diagnostic_report_path(root=root, diagnostic_report=diagnostic_report)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(f"cannot read targeted diagnostic report: {diagnostic_report}") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("targeted diagnostic report must be a JSON object")
+    deltas = payload.get("per_target_score_deltas_vs_reference")
+    if not isinstance(deltas, dict) or not deltas:
+        raise AutoresearchLoopError("targeted diagnostic report missing per-target score deltas")
+    target_stats: dict[str, dict[str, float | int]] = {}
+    candidate_trial_ids: list[str] = []
+    for trial_id, per_target in deltas.items():
+        if not isinstance(per_target, dict):
+            continue
+        candidate_trial_ids.append(str(trial_id))
+        for target_id, raw_delta in per_target.items():
+            if not isinstance(raw_delta, int | float):
+                continue
+            delta = float(raw_delta)
+            stats = target_stats.setdefault(
+                str(target_id),
+                {"negative_count": 0, "sum_negative_delta": 0.0, "min_delta": 0.0},
+            )
+            if delta < 0.0:
+                stats["negative_count"] = int(stats["negative_count"]) + 1
+                stats["sum_negative_delta"] = float(stats["sum_negative_delta"]) + delta
+                stats["min_delta"] = min(float(stats["min_delta"]), delta)
+    losers = [
+        (target_id, stats)
+        for target_id, stats in target_stats.items()
+        if int(stats["negative_count"]) > 0
+    ]
+    if not losers:
+        raise AutoresearchLoopError("targeted diagnostic report has no negative per-target deltas")
+    losers.sort(
+        key=lambda item: (
+            -int(item[1]["negative_count"]),
+            float(item[1]["sum_negative_delta"]),
+            float(item[1]["min_delta"]),
+            item[0],
+        )
+    )
+    selected = losers[:4]
+    return {
+        "reference_trial_id": str(payload.get("reference_trial_id") or ""),
+        "candidate_trial_ids": candidate_trial_ids,
+        "worst_targets": [target_id for target_id, _stats in selected],
+        "target_loss_summary": [
+            {
+                "target_id": target_id,
+                "negative_count": int(stats["negative_count"]),
+                "sum_negative_delta": float(stats["sum_negative_delta"]),
+                "min_delta": float(stats["min_delta"]),
+            }
+            for target_id, stats in selected
+        ],
+    }
+
+
+def _diagnostic_report_path(*, root: Path, diagnostic_report: str | Path) -> Path:
+    path = Path(diagnostic_report)
+    if path.is_absolute() or ".." in path.parts:
+        raise AutoresearchLoopError("diagnostic report must be a repo-relative path without traversal")
+    if not path.as_posix().startswith("runs/autoresearch/"):
+        raise AutoresearchLoopError("diagnostic report must live under runs/autoresearch/")
+    _refuse_plan_path_symlinks(root, path)
+    return root / path
+
+
+def _targeted_diagnostic_config_payload(root: Path) -> dict[str, object]:
+    config_path = root / "configs" / "experiments" / "local_calpha_geometry_smoke.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError("targeted_diagnostic planner requires local_calpha_geometry_smoke config") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("local_calpha_geometry_smoke config must be a JSON object")
+    payload = dict(payload)
+    payload["max_templates"] = 0
+    payload["learning_rate"] = 0.0012
+    payload["local_calpha_geometry_loss_weight"] = 0.4
+    payload["distogram_loss_weight"] = 0.05
+    payload["clip_norm"] = 5.0
+    return payload
+
+
+def _targeted_diagnostic_patch_text(*, root: Path, config_path: str, config: dict[str, object]) -> str:
+    note = {
+        "schema_version": config["schema_version"],
+        "source_diagnostic_report": config["source_diagnostic_report"],
+        "reference_trial_id": config["reference_trial_id"],
+        "worst_targets": config["worst_targets"],
+        "candidate_trial_ids": config["candidate_trial_ids"],
+        "candidate_intent": "bounded local-geometry training diagnostic",
+    }
+    lines = json.dumps(note, allow_nan=False, indent=2, sort_keys=True).splitlines()
+    patch = [
+        f"diff --git a/{config_path} b/{config_path}",
+        "--- /dev/null",
+        f"+++ b/{config_path}",
+        f"@@ -0,0 +1,{len(lines)} @@",
+    ]
+    patch.extend(f"+{line}" for line in lines)
+    patch_text = "\n".join(patch) + "\n"
+    _refuse_unsafe_patch_text(root=root, patch_text=patch_text)
+    return patch_text
 
 
 def _read_small_json(path: Path) -> dict[str, object]:

@@ -337,6 +337,56 @@ If aggregate metric deltas stay pinned while pairwise prediction distances
 changed, inspect these per-target fields before running another live
 trial-budget candidate.
 
+## Targeted Diagnostic Candidate
+
+If a bounded sampler/reference sweep fails but the read-only scorer-sensitivity
+report shows real, target-mixed deltas, use `targeted_diagnostic` before
+spending a larger sampler-only LLM loop. This planner consumes the existing
+scorer-sensitivity JSON report and emits exactly one bounded training candidate
+focused on recurring loser targets. It does not read labels, download data,
+change manifests, alter Modal resources, write the canonical ledger, or write
+the Discovery Ledger during planning.
+
+Dry-run the candidate plan first:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner targeted_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/scorer_sensitivity/T088-vs-T108-T111-reference-sweep.json \
+  --run-id targeted-diagnostic-trial-001 \
+  --start-trial-id T160
+```
+
+Review the generated candidate envelope under
+`runs/autoresearch/targeted-diagnostic-trial-001/candidates/T160/`. The trial
+must remain a NanoFold-style AlphaFold3-lite training candidate with
+`max_templates=0`, `budget=trial`, `max_steps=250`, `max_wall_minutes=45`, and
+`timeout_cap=2700`. The candidate note records the recurrent loser targets
+from the diagnostic report; the executable `config_payload` stays a validated
+NanoFold config object.
+
+Only after reviewing the dry-run envelope and confirming readiness remains
+green, run at most one live candidate:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode modal \
+  --planner targeted_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/scorer_sensitivity/T088-vs-T108-T111-reference-sweep.json \
+  --run-id targeted-diagnostic-trial-001-live \
+  --start-trial-id T160 \
+  --modal-env main \
+  --failure-streak-limit 1 \
+  --approve I_APPROVE_AUTORESEARCH_LIVE_SEARCH
+```
+
+If the live candidate is `DISCARD`, archive the candidate evidence and pivot
+the next plan using the new scorer-sensitivity report. If it is a provisional
+`KEEP`, do not claim a result; run the Falsification Gate path first.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

@@ -917,6 +917,22 @@ The open-ended bench remains blocked unless this report emits
 `can_start_open_ended_bench=true`. A no-go broader strategy is evidence to stop
 live spend, not permission to start another candidate.
 
+For a global implemented-planner inventory, run the strategy exhaustion audit:
+
+```bash
+python3 -m autoalphafold3.agent strategy-exhaustion-audit \
+  --bench-readiness-review runs/autoresearch/bench_readiness_review/T176-bench-blocked-with-no-go-post-pr115.json \
+  --output runs/autoresearch/strategy_exhaustion_audit/T176-global-implemented-planner-audit.json
+```
+
+This command is offline only. It scans local review and diagnosis evidence
+under `runs/autoresearch/`, refuses any evidence that claims search, ledger,
+Discovery Ledger, or official benchmark authority, and reports which
+implemented planner families remain unexhausted. It does not approve live
+execution. If it emits `NO_IMPLEMENTED_PLANNER_REMAINING`, the next step is new
+strategy design outside the existing implemented planner catalog, followed by a
+new dry-run planner PR and a fresh bench-readiness-review.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

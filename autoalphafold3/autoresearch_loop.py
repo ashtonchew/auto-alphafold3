@@ -421,6 +421,7 @@ def run_autoresearch_loop(
         "diffusion_data_scale_diagnostic",
         "pairformer_attention_diagnostic",
         "auxiliary_contact_loss_diagnostic",
+        "feature_ref_pos_scale_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
@@ -1053,6 +1054,15 @@ def _planned_candidates(
         )
     if planner == "auxiliary_contact_loss_diagnostic":
         return _auxiliary_contact_loss_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
+    if planner == "feature_ref_pos_scale_diagnostic":
+        return _feature_ref_pos_scale_diagnostic_candidates(
             root=root,
             start_trial_id=start_trial_id,
             max_candidates=max_candidates,
@@ -1941,6 +1951,97 @@ def _auxiliary_contact_loss_diagnostic_candidates(
                 config_path=config_path,
                 config=config,
                 candidate_intent="bounded auxiliary contact-loss diagnostic",
+            ),
+        }
+    ]
+
+
+def _feature_ref_pos_scale_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("feature_ref_pos_scale_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("feature_ref_pos_scale_diagnostic planner requires --diagnostic-report")
+    review = _surface_design_review_summary(
+        root=root,
+        diagnostic_report=diagnostic_report,
+        approved_surface="feature_handling",
+        approved_planner="feature_ref_pos_scale_diagnostic",
+    )
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_feature_ref_pos_scale_diagnostic.json"
+    config_payload = _feature_ref_pos_scale_diagnostic_config_payload(root)
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.FEATURE_HANDLING,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded feature-handling diagnostic should test whether the short-training "
+            "coordinate explosion is amplified by oversized synthetic reference-position "
+            "features entering the atom encoder. This NanoFold-style AlphaFold3-lite move "
+            "changes only the random reference-position translation scale used while parsing "
+            "features for training, preserving labels, cached Arrow features, manifests, "
+            "fingerprints, templates, scorer, sampler policy, diffusion data scale, model "
+            "capacity, Modal resources, and ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "feature-ref-pos-scale-diagnostic-planner"
+    trial["seed"] = 99200 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.STABILITY_COMPUTE.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="reduced_ref_pos_translation_scale",
+        predicted_axis=FalsificationAxis.STABILITY_COMPUTE,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.006),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.feature_ref_pos_scale_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "source_surface_design_review": str(diagnostic_report),
+        "source_surface_strategy_review": review["source_surface_strategy_review"],
+        "approved_next_surface": review["approved_next_surface"],
+        "approved_planner": review["approved_planner"],
+        "exhausted_surfaces": review["exhausted_surfaces"],
+        "reference_trial_id": "",
+        "candidate_trial_ids": [],
+        "worst_targets": [],
+        "config_payload_overrides": {
+            "ref_pos_translation_scale": config_payload["ref_pos_translation_scale"],
+            "max_templates": config_payload["max_templates"],
+        },
+        "failed_shapes_avoided": review["exhausted_surfaces"],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded feature reference-position scale diagnostic",
             ),
         }
     ]
@@ -3107,6 +3208,20 @@ def _auxiliary_contact_loss_diagnostic_config_payload(root: Path) -> dict[str, o
     payload["contact_auxiliary_min_sequence_separation"] = 8
     payload["distogram_loss_weight"] = 0.03
     payload["local_calpha_geometry_loss_weight"] = 0.0
+    return payload
+
+
+def _feature_ref_pos_scale_diagnostic_config_payload(root: Path) -> dict[str, object]:
+    config_path = root / "configs" / "nanofold_dev_cpu_smoke.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError("feature_ref_pos_scale_diagnostic planner requires dev CPU smoke config") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("dev CPU smoke config must be a JSON object")
+    payload = dict(payload)
+    payload["max_templates"] = 0
+    payload["ref_pos_translation_scale"] = 10.0
     return payload
 
 

@@ -721,6 +721,55 @@ def _write_auxiliary_surface_design_review_inputs(tmp_path: Path) -> Path:
     return report.relative_to(tmp_path)
 
 
+def _write_feature_ref_pos_surface_design_review_inputs(tmp_path: Path) -> Path:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.joinpath("nanofold_dev_cpu_smoke.json").write_text(
+        (REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    report = tmp_path / "runs/autoresearch/surface_design_review/T174-feature-ref-pos-scale.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.surface_design_review.v1",
+                "status": "PASS",
+                "decision": "APPROVE_DRY_RUN_PLANNER_IMPLEMENTATION_ONLY",
+                "approved_next_surface": "feature_handling",
+                "approved_planner": "feature_ref_pos_scale_diagnostic",
+                "candidate_limit": 1,
+                "may_start_live_candidate": False,
+                "may_start_open_ended_loop": False,
+                "bench_blocked_reason": "new planner must be dry-run validated",
+                "consumed_strategy_review": "runs/autoresearch/surface_strategy_review/T173-blocked.json",
+                "exhausted_surfaces": [
+                    "sampler_coordinate_scale",
+                    "sampler_geometry_selection",
+                    "sampler_low_noise",
+                    "diffusion_data_scale",
+                    "pairformer_attention",
+                    "auxiliary_loss",
+                ],
+                "required_next_pr": {
+                    "planner": "feature_ref_pos_scale_diagnostic",
+                    "candidate_limit": 1,
+                    "mode_before_merge": "dry-run",
+                    "candidate_budget": "trial",
+                    "must_consume_review": True,
+                },
+                "design_rationale": "Feature reference-position scale remains non-overlapping.",
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
 def _write_prediction_geometry_audit_inputs(
     tmp_path: Path,
     *,
@@ -2142,6 +2191,77 @@ def test_auxiliary_contact_loss_diagnostic_requires_design_review(tmp_path: Path
         )
 
     assert not (tmp_path / "runs/autoresearch/auxiliary-contact-loss-wrong-review").exists()
+
+
+def test_feature_ref_pos_scale_diagnostic_plans_one_non_overlapping_candidate(tmp_path: Path) -> None:
+    report = _write_feature_ref_pos_surface_design_review_inputs(tmp_path)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="feature-ref-pos-scale-diagnostic",
+        mode="dry-run",
+        planner="feature_ref_pos_scale_diagnostic",
+        start_trial_id="T174",
+        max_candidates=1,
+        candidate_budget="trial",
+        diagnostic_report=report,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T174"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T174"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "training"
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["move_family"] == "feature_handling"
+    assert trial["diagnostic_target"] == "stability_compute"
+    assert trial["prediction"]["causal_component"] == "reduced_ref_pos_translation_scale"
+    assert trial["config_path"] == "configs/experiments/T174_feature_ref_pos_scale_diagnostic.json"
+    assert trial["config_payload"]["max_templates"] == 0
+    assert trial["config_payload"]["ref_pos_translation_scale"] == pytest.approx(10.0)
+    assert "sampler_coordinate_scale" not in trial
+    assert "diffusion_data_std_dev" not in trial["config_payload"]
+    assert trial["config_payload"]["num_pairformer_blocks"] == 3
+    assert trial["config_payload"]["num_triangular_attention_channels"] == 16
+    assert config["schema_version"] == "autoaf3.feature_ref_pos_scale_diagnostic_plan.v1"
+    assert config["source_surface_design_review"] == str(report)
+    assert config["approved_next_surface"] == "feature_handling"
+    assert config["approved_planner"] == "feature_ref_pos_scale_diagnostic"
+    assert config["config_payload_overrides"] == {
+        "max_templates": 0,
+        "ref_pos_translation_scale": 10.0,
+    }
+    assert config["writes_ledger"] is False
+    assert config["writes_discovery_ledger"] is False
+    assert "configs/experiments/T174_feature_ref_pos_scale_diagnostic.json" in patch_text
+    assert "bounded feature reference-position scale diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_feature_ref_pos_scale_diagnostic_requires_design_review(tmp_path: Path) -> None:
+    report = _write_auxiliary_surface_design_review_inputs(tmp_path)
+
+    with pytest.raises(AutoresearchLoopError, match="did not approve feature_handling"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="feature-ref-pos-wrong-review",
+            mode="dry-run",
+            planner="feature_ref_pos_scale_diagnostic",
+            start_trial_id="T174",
+            max_candidates=1,
+            candidate_budget="trial",
+            diagnostic_report=report,
+        )
+
+    assert not (tmp_path / "runs/autoresearch/feature-ref-pos-wrong-review").exists()
 
 
 def test_deterministic_sampler_checkpoint_follows_start_trial_id(tmp_path: Path) -> None:

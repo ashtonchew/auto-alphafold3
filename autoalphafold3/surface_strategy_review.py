@@ -78,6 +78,9 @@ IMPLEMENTED_PLANNER_SURFACES: dict[str, frozenset[str]] = {
     "auxiliary_contact_loss_diagnostic": frozenset(
         {"auxiliary_loss", "auxiliary_contact_loss", "auxiliary_contact_loss_diagnostic"}
     ),
+    "feature_ref_pos_scale_diagnostic": frozenset(
+        {"feature_handling", "ref_pos_scale", "feature_ref_pos_scale_diagnostic"}
+    ),
 }
 
 UNIMPLEMENTED_ALLOWED_SURFACES = (

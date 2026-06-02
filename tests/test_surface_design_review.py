@@ -58,6 +58,29 @@ def test_surface_design_approves_auxiliary_loss_after_blocked_strategy(tmp_path:
     assert payload["required_next_pr"]["planner"] == "auxiliary_contact_loss_diagnostic"
 
 
+def test_surface_design_approves_feature_handling_after_blocked_strategy(tmp_path: Path) -> None:
+    strategy = _write_strategy_review(
+        tmp_path,
+        unimplemented_candidate_surfaces=["feature_handling", "memory_runtime"],
+        exhausted_surfaces=["auxiliary_loss", "pairformer_attention"],
+    )
+
+    report = review_surface_design(
+        repo_root=tmp_path,
+        strategy_review=strategy,
+        proposed_surface="feature_handling",
+    )
+
+    payload = report.to_dict()
+    assert payload["decision"] == "APPROVE_DRY_RUN_PLANNER_IMPLEMENTATION_ONLY"
+    assert payload["approved_next_surface"] == "feature_handling"
+    assert payload["approved_planner"] == "feature_ref_pos_scale_diagnostic"
+    assert payload["candidate_limit"] == 1
+    assert payload["may_start_live_candidate"] is False
+    assert payload["may_start_open_ended_loop"] is False
+    assert payload["required_next_pr"]["planner"] == "feature_ref_pos_scale_diagnostic"
+
+
 def test_surface_design_refuses_exhausted_or_unlisted_surface(tmp_path: Path) -> None:
     exhausted = _write_strategy_review(
         tmp_path,
@@ -95,6 +118,19 @@ def test_surface_design_refuses_exhausted_or_unlisted_surface(tmp_path: Path) ->
             repo_root=tmp_path,
             strategy_review=exhausted_alias,
             proposed_surface="auxiliary_loss",
+        )
+
+    exhausted_feature_alias = _write_strategy_review(
+        tmp_path,
+        name="exhausted-feature-alias.json",
+        unimplemented_candidate_surfaces=["feature_handling"],
+        exhausted_surfaces=["ref_pos_scale"],
+    )
+    with pytest.raises(SurfaceDesignReviewError, match="already exhausted"):
+        review_surface_design(
+            repo_root=tmp_path,
+            strategy_review=exhausted_feature_alias,
+            proposed_surface="feature_handling",
         )
 
 

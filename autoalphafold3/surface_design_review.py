@@ -12,6 +12,7 @@ SCHEMA_VERSION = "autoaf3.surface_design_review.v1"
 ALLOWED_DESIGN_SURFACES: dict[str, str] = {
     "pairformer_attention": "pairformer_attention_diagnostic",
     "auxiliary_loss": "auxiliary_contact_loss_diagnostic",
+    "feature_handling": "feature_ref_pos_scale_diagnostic",
 }
 
 
@@ -137,6 +138,8 @@ def _surface_exhausted(proposed_surface: str, exhausted: list[str]) -> bool:
     aliases = {proposed_surface, ALLOWED_DESIGN_SURFACES[proposed_surface]}
     if proposed_surface == "auxiliary_loss":
         aliases.add("auxiliary_contact_loss")
+    if proposed_surface == "feature_handling":
+        aliases.add("ref_pos_scale")
     return bool(aliases.intersection(set(exhausted)))
 
 
@@ -152,5 +155,13 @@ def _design_rationale(proposed_surface: str) -> str:
             "A contact-focused auxiliary distogram loss is a canonical allowed loss-family move and remains "
             "non-overlapping with exhausted sampler, locality, optimizer, capacity, recycling, curriculum, "
             "diffusion data-scale, and Pairformer attention capacity surfaces."
+        )
+    if proposed_surface == "feature_handling":
+        return (
+            "A reference-position feature scale diagnostic is a canonical allowed feature-handling move and "
+            "remains non-overlapping with exhausted sampler, locality, optimizer, capacity, recycling, "
+            "curriculum, diffusion data-scale, Pairformer attention, and auxiliary-loss surfaces because it "
+            "changes only synthetic reference-position feature interpretation, not labels, cached features, "
+            "manifests, templates, sampler policy, diffusion noise, or model capacity."
         )
     raise SurfaceDesignReviewError(f"unsupported proposed surface: {proposed_surface}")

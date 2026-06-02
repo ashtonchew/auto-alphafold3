@@ -751,6 +751,39 @@ sampler coordinate overrides, no diffusion data-scale overrides, no Pairformer
 capacity overrides, no Modal resource edits, no ledger writes, and no Discovery
 Ledger writes.
 
+If T173 is scored and discarded with `SHORT_TRAINING_FAMILY_SCORER_COLLAPSE`,
+and `surface-strategy-review` reports `feature_handling` as the next
+unimplemented available surface, approve only the dry-run planner
+implementation step:
+
+```bash
+python3 -m autoalphafold3.agent surface-design-review \
+  --strategy-review runs/autoresearch/surface_strategy_review/T173-auxiliary-contact-loss-blocked.json \
+  --proposed-surface feature_handling \
+  --output runs/autoresearch/surface_design_review/T174-feature-ref-pos-scale.json
+```
+
+After the `feature_ref_pos_scale_diagnostic` planner PR exists, dry-run exactly
+one candidate before any Modal spend:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner feature_ref_pos_scale_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/surface_design_review/T174-feature-ref-pos-scale.json \
+  --run-id feature-ref-pos-scale-diagnostic-001-dry-run \
+  --start-trial-id T174 \
+  --max-candidates 1
+```
+
+Review the generated `T174` envelope. It must remain a single
+NanoFold-style AlphaFold3-lite trial-budget training candidate with
+`diagnostic_target=stability_compute`, `move_family=feature_handling`,
+`max_templates=0`, `ref_pos_translation_scale=10.0`, no sampler coordinate
+overrides, no diffusion data-scale overrides, no Pairformer capacity overrides,
+no Modal resource edits, no ledger writes, and no Discovery Ledger writes.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

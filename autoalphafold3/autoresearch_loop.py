@@ -202,6 +202,7 @@ def run_autoresearch_loop(
         str(root / "runs" / "autoresearch" / run_id / "summary.json"),
         str(root / "runs" / "autoresearch" / run_id / "results.tsv"),
     ]
+    matched_budget_results: dict[str, AutoFoldResult] = {}
     for candidate in planned:
         trial = candidate["trial"]
         envelope = create_candidate_envelope(
@@ -245,9 +246,13 @@ def run_autoresearch_loop(
                 trial=trial,
                 modal_env=modal_env,
                 modal_client=modal_client,
+                matched_budget_result=matched_budget_results.get(str(trial["budget"])),
             )
             decisions[-1].update(live["decision"])
             wrote_files.extend(live["wrote_files"])
+            result = live.get("result")
+            if isinstance(result, AutoFoldResult) and result.status == TrialStatus.SCORED:
+                matched_budget_results.setdefault(str(trial["budget"]), result)
     _write_planned_candidate_index(root=root, run_id=run_id, records=decisions)
     return AutoresearchLoopResult(
         status="PASS" if mode == "modal" else "PLANNED",
@@ -275,6 +280,7 @@ def _run_modal_candidate_smoke(
     trial: dict[str, object],
     modal_env: str | None,
     modal_client: TrustedAutoresearchClient | None,
+    matched_budget_result: AutoFoldResult | None,
 ) -> dict[str, object]:
     checked = AutoFoldTrial.model_validate(trial)
     if checked.trial_kind != TrialKind.TRAINING:
@@ -304,6 +310,7 @@ def _run_modal_candidate_smoke(
         envelope=envelope,
         payload=payload,
         decision_overrides=decision_overrides,
+        matched_budget_result=matched_budget_result,
     )
     scored["wrote_files"] = [*wrote_files, *scored["wrote_files"]]
     return scored
@@ -357,6 +364,7 @@ def _record_modal_candidate_payload(
     envelope,
     payload: dict[str, object],
     decision_overrides: dict[str, object] | None = None,
+    matched_budget_result: AutoFoldResult | None = None,
 ) -> dict[str, object]:
     del run_id
     trial_id = envelope.trial_id
@@ -386,7 +394,7 @@ def _record_modal_candidate_payload(
             comparison = compare_and_write_candidate_decision(
                 envelope,
                 candidate_result=result,
-                matched_budget_result=None,
+                matched_budget_result=matched_budget_result,
                 repo_root=root,
                 baseline_dir="runs/baseline",
                 ledger_path="runs/ledger.jsonl",
@@ -396,7 +404,7 @@ def _record_modal_candidate_payload(
         wrote_files.extend([str(envelope.metrics_path), str(envelope.decision_path), str(envelope.postmortem_path)])
         decision.update(comparison.to_dict())
         decision["decision_path"] = str(envelope.decision_path)
-        return {"decision": decision, "wrote_files": wrote_files}
+        return {"decision": decision, "wrote_files": wrote_files, "result": result}
     if result.status in {TrialStatus.FAIL, TrialStatus.INFRA_FAIL}:
         wrote_files.extend(write_candidate_evidence(envelope, error_report=payload))
         write_candidate_decision(

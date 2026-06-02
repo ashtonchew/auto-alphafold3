@@ -164,12 +164,29 @@ def test_short_training_payload_can_request_post_training_predictions() -> None:
         seed=0,
         predict_after_training=True,
         sampler_coordinate_normalization="ca_bond",
+        sampler_coordinate_scale=13.126698,
     )
 
     assert payload["predict_after_training"] is True
     assert payload["sampler_coordinate_normalization"] == "ca_bond"
+    assert payload["sampler_coordinate_scale"] == pytest.approx(13.126698)
     assert payload["max_templates"] == 0
     assert payload["runner_mode"] == "short_training"
+
+
+def test_short_training_payload_rejects_coordinate_scale_without_ca_bond() -> None:
+    with pytest.raises(ShortTrainingError, match="sampler_coordinate_scale requires"):
+        short_training_payload(
+            trial_id="T120",
+            candidate_id="T120",
+            config_path="configs/nanofold_dev_cpu_smoke.json",
+            features_path="tiny_features.arrow",
+            max_steps=1,
+            budget="smoke",
+            seed=0,
+            predict_after_training=True,
+            sampler_coordinate_scale=2.0,
+        )
 
 
 def test_short_training_refuses_unsafe_feature_paths(tmp_path: Path) -> None:

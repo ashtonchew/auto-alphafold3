@@ -117,6 +117,7 @@ def test_modal_authority_writes_readiness_proof_from_live_payload(tmp_path: Path
     assert result.wrote_files == [str(output)]
     assert payload["trusted_orchestrator"] is True
     assert payload["runtime_capabilities"]["post_training_sampler_coordinate_normalization"] is True
+    assert payload["runtime_capabilities"]["post_training_sampler_coordinate_scale"] is True
     assert payload["starts_search"] is False
 
 

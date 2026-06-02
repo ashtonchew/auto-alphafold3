@@ -841,6 +841,7 @@ def modal_event_authority_health() -> dict[str, Any]:
     contract = event_search_readiness_contract()
     runtime_capabilities = {
         "post_training_sampler_coordinate_normalization": True,
+        "post_training_sampler_coordinate_scale": True,
     }
     return {
         "status": "PASS",

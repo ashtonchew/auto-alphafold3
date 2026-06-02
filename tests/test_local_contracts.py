@@ -146,11 +146,17 @@ def test_autofold_trial_requires_structured_prediction() -> None:
 
 def test_training_trial_accepts_post_training_sampler_coordinate_normalization() -> None:
     trial = AutoFoldTrial.model_validate(
-        valid_trial_dict(sampler_coordinate_normalization="ca_bond")
+        valid_trial_dict(sampler_coordinate_normalization="ca_bond", sampler_coordinate_scale=13.126698)
     )
 
     assert trial.trial_kind.value == "training"
     assert trial.sampler_coordinate_normalization == "ca_bond"
+    assert trial.sampler_coordinate_scale == pytest.approx(13.126698)
+
+
+def test_training_trial_rejects_sampler_coordinate_scale_without_ca_bond() -> None:
+    with pytest.raises(ValidationError, match="sampler_coordinate_scale requires"):
+        AutoFoldTrial.model_validate(valid_trial_dict(sampler_coordinate_scale=2.0))
 
 
 def test_autofold_trial_requires_prediction_axis_to_match_diagnostic_target() -> None:

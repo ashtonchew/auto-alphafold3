@@ -39,7 +39,10 @@ class FakeTrustedAutoresearchClient:
         self.payload = payload
         self.score_payload = score_payload
         self.authority_payload: dict[str, object] = {
-            "runtime_capabilities": {"post_training_sampler_coordinate_normalization": True}
+            "runtime_capabilities": {
+                "post_training_sampler_coordinate_normalization": True,
+                "post_training_sampler_coordinate_scale": True,
+            }
         }
         self.submitted_trials: list[dict[str, object]] = []
         self.scored_trials: list[str] = []
@@ -60,7 +63,10 @@ class FakeSequencedTrustedAutoresearchClient:
     def __init__(self, scores: dict[str, float]) -> None:
         self.scores = scores
         self.authority_payload: dict[str, object] = {
-            "runtime_capabilities": {"post_training_sampler_coordinate_normalization": True}
+            "runtime_capabilities": {
+                "post_training_sampler_coordinate_normalization": True,
+                "post_training_sampler_coordinate_scale": True,
+            }
         }
         self.submitted_trials: list[dict[str, object]] = []
         self.scored_trials: list[str] = []
@@ -82,7 +88,10 @@ class FakeSequencedTrustedAutoresearchClient:
 class FakeSequencedFailingTrustedAutoresearchClient:
     def __init__(self) -> None:
         self.authority_payload: dict[str, object] = {
-            "runtime_capabilities": {"post_training_sampler_coordinate_normalization": True}
+            "runtime_capabilities": {
+                "post_training_sampler_coordinate_normalization": True,
+                "post_training_sampler_coordinate_scale": True,
+            }
         }
         self.submitted_trials: list[dict[str, object]] = []
         self.scored_trials: list[str] = []
@@ -657,6 +666,53 @@ def _write_prediction_geometry_audit_inputs(
                     "status": "REVIEW_REQUIRED",
                     "flags": scale_flags,
                     "next_goal": "Review prediction geometry scale before another live candidate.",
+                    "stop_live_trial_budget": True,
+                    "do_not_start_open_ended_loop": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
+def _write_collapsed_prediction_geometry_audit_inputs(tmp_path: Path) -> Path:
+    config_dir = tmp_path / "configs/experiments"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.joinpath("local_calpha_geometry_smoke.json").write_text(
+        (REPO_ROOT / "configs/experiments/local_calpha_geometry_smoke.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    flags = [
+        "adjacent_ca_distance_collapsed",
+        "reference_pair_distance_shift_gt_20A",
+        "reference_radius_scale_shift",
+    ]
+    report = tmp_path / "runs/autoresearch/prediction_geometry/T167-vs-T088.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.prediction_geometry_audit.v1",
+                "official_benchmark_result": False,
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "reference": {"trial_id": "T088", "split": "public_val_small"},
+                "artifacts": [{"trial_id": "T167", "split": "public_val_small", "scale_flags": flags}],
+                "reference_deltas": [
+                    {
+                        "reference_trial_id": "T088",
+                        "candidate_trial_id": "T167",
+                        "mean_radius_scale_ratio": 0.07618059739178347,
+                        "mean_pair_distance_delta": -45.5238705754392,
+                        "candidate_flags": flags,
+                    }
+                ],
+                "recommendation": {
+                    "status": "REVIEW_REQUIRED",
+                    "flags": flags,
+                    "next_goal": "Review collapsed coordinate scale before another live candidate.",
                     "stop_live_trial_budget": True,
                     "do_not_start_open_ended_loop": True,
                 },
@@ -1397,6 +1453,93 @@ def test_coordinate_normalized_sampler_diagnostic_requires_geometry_scale_audit(
     assert not (tmp_path / "runs/autoresearch/coordinate-normalized-missing-report").exists()
     assert not (tmp_path / "runs/autoresearch/coordinate-normalized-weak-report").exists()
     assert not (tmp_path / "runs/autoresearch/coordinate-normalized-unsafe-report").exists()
+
+
+def test_calibrated_coordinate_normalized_sampler_diagnostic_plans_scaled_candidate(tmp_path: Path) -> None:
+    report = _write_collapsed_prediction_geometry_audit_inputs(tmp_path)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="calibrated-coordinate-normalized-sampler-diagnostic",
+        mode="dry-run",
+        planner="calibrated_coordinate_normalized_sampler_diagnostic",
+        start_trial_id="T168",
+        max_candidates=1,
+        candidate_budget="trial",
+        diagnostic_report=report,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T168"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T168"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "training"
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["sampler_coordinate_normalization"] == "ca_bond"
+    assert trial["sampler_coordinate_scale"] == pytest.approx(13.126698)
+    assert trial["prediction"]["causal_component"] == "calibrated_ca_bond_sampler_coordinate_scale"
+    assert trial["prediction"]["predicted_axis"] == "distogram_vs_3d"
+    assert trial["config_path"] == "configs/experiments/T168_calibrated_coordinate_normalized_sampler_diagnostic.json"
+    assert config["schema_version"] == "autoaf3.calibrated_coordinate_normalized_sampler_diagnostic_plan.v1"
+    assert config["reference_trial_id"] == "T088"
+    assert config["candidate_trial_ids"] == ["T167"]
+    assert config["sampler_coordinate_normalization"] == "ca_bond"
+    assert config["sampler_coordinate_scale"] == pytest.approx(13.126698)
+    assert config["calibration_rule"] == "inverse_mean_radius_scale_ratio"
+    assert "adjacent_ca_distance_collapsed" in config["scale_flags"]
+    assert "configs/experiments/T168_calibrated_coordinate_normalized_sampler_diagnostic.json" in patch_text
+    assert "bounded calibrated coordinate-normalized sampler diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_calibrated_coordinate_normalized_sampler_diagnostic_requires_collapsed_geometry(tmp_path: Path) -> None:
+    report = _write_prediction_geometry_audit_inputs(tmp_path)
+
+    with pytest.raises(AutoresearchLoopError, match="collapsed coordinate-scale evidence"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="calibrated-coordinate-normalized-wrong-geometry",
+            mode="dry-run",
+            planner="calibrated_coordinate_normalized_sampler_diagnostic",
+            start_trial_id="T168",
+            max_candidates=1,
+            candidate_budget="trial",
+            diagnostic_report=report,
+        )
+
+
+def test_calibrated_coordinate_normalized_sampler_diagnostic_requires_scale_runtime_capability(tmp_path: Path) -> None:
+    _write_baseline_lock(tmp_path, score=0.08)
+    report = _write_collapsed_prediction_geometry_audit_inputs(tmp_path)
+    client = FakeTrustedAutoresearchClient(_short_training_manifest("T168"))
+    client.authority_payload = {
+        "runtime_capabilities": {"post_training_sampler_coordinate_normalization": True}
+    }
+
+    with pytest.raises(AutoresearchLoopError, match="post_training_sampler_coordinate_scale"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="calibrated-coordinate-normalized-stale-modal",
+            mode="modal",
+            planner="calibrated_coordinate_normalized_sampler_diagnostic",
+            start_trial_id="T168",
+            max_candidates=1,
+            candidate_budget="trial",
+            diagnostic_report=report,
+            approval=APPROVAL_TEXT,
+            modal_client=client,
+        )
+
+    assert client.submitted_trials == []
+    assert client.scored_trials == []
 
 
 def test_deterministic_sampler_checkpoint_follows_start_trial_id(tmp_path: Path) -> None:

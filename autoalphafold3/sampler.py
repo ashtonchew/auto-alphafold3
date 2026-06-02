@@ -373,7 +373,11 @@ def _sample_selected_ca_coordinates(
     candidates: list[tuple[float, int, list[list[float]]]] = []
     for sample_index in range(num_samples):
         raw_ca = _sample_ca_coordinates(model, features, sampler_settings=sampler_settings)
-        ca = _normalize_ca_coordinates(raw_ca, policy=coordinate_normalization)
+        ca = _normalize_ca_coordinates(
+            raw_ca,
+            policy=coordinate_normalization,
+            coordinate_scale=float(sampler_settings["sampler_coordinate_scale"]),
+        )
         quality = _label_free_ca_quality(ca, policy=policy)
         candidates.append((quality, sample_index, ca))
         if policy == "first":
@@ -490,6 +494,7 @@ def _sampler_settings(trial_json: dict[str, Any]) -> dict[str, object]:
             trial_json.get("sampler_selection_policy", DEFAULT_SAMPLER_SELECTION_POLICY)
         ),
         "sampler_coordinate_normalization": str(trial_json.get("sampler_coordinate_normalization", "none")),
+        "sampler_coordinate_scale": float(trial_json.get("sampler_coordinate_scale", 1.0)),
     }
     _validate_sampler_settings(settings)
     return settings
@@ -510,23 +515,39 @@ def _validate_sampler_settings(settings: dict[str, object]) -> None:
         raise SamplerError("sampler_selection_policy must be first, geometry, or compact_geometry")
     if str(settings["sampler_coordinate_normalization"]) not in SAMPLER_COORDINATE_NORMALIZATION_POLICIES:
         raise SamplerError("sampler_coordinate_normalization must be none or ca_bond")
+    if not 0.0 < float(settings["sampler_coordinate_scale"]) <= 20.0:
+        raise SamplerError("sampler_coordinate_scale must be in (0, 20]")
+    if (
+        float(settings["sampler_coordinate_scale"]) != 1.0
+        and str(settings["sampler_coordinate_normalization"]) != "ca_bond"
+    ):
+        raise SamplerError("sampler_coordinate_scale requires sampler_coordinate_normalization=ca_bond")
 
 
-def _normalize_ca_coordinates(ca: list[list[float]], *, policy: str) -> list[list[float]]:
+def _normalize_ca_coordinates(
+    ca: list[list[float]],
+    *,
+    policy: str,
+    coordinate_scale: float = 1.0,
+) -> list[list[float]]:
+    if not 0.0 < coordinate_scale <= 20.0:
+        raise SamplerError("sampler_coordinate_scale must be in (0, 20]")
     if policy == "none":
+        if coordinate_scale != 1.0:
+            raise SamplerError("sampler_coordinate_scale requires sampler_coordinate_normalization=ca_bond")
         return ca
     if policy != "ca_bond":
         raise SamplerError("unsupported sampler coordinate normalization policy")
     if len(ca) < 2:
-        return ca
+        return [[float(coord) * coordinate_scale for coord in row] for row in ca]
     center = [sum(row[axis] for row in ca) / len(ca) for axis in range(3)]
     centered = [[float(row[axis]) - center[axis] for axis in range(3)] for row in ca]
     distances = [_distance(centered[index], centered[index - 1]) for index in range(1, len(centered))]
     positive_distances = [distance for distance in distances if math.isfinite(distance) and distance > 0.0]
     if not positive_distances:
-        return centered
+        return [[coord * coordinate_scale for coord in row] for row in centered]
     scale = 3.8 / (sum(positive_distances) / len(positive_distances))
-    return [[coord * scale for coord in row] for row in centered]
+    return [[coord * scale * coordinate_scale for coord in row] for row in centered]
 
 
 def _label_free_ca_quality(ca: list[list[float]], *, policy: str) -> float:

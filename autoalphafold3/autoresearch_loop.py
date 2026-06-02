@@ -208,6 +208,8 @@ class PlannerTrial(BaseModel):
     cost_cap: float
     timeout_cap: int
     artifact_dir: str
+    sampler_coordinate_normalization: str | None = None
+    sampler_coordinate_scale: float | None = None
     checkpoint_path: None
 
 
@@ -408,6 +410,7 @@ def run_autoresearch_loop(
         "feature_curriculum_diagnostic",
         "coordinate_scale_locality_diagnostic",
         "coordinate_normalized_sampler_diagnostic",
+        "calibrated_coordinate_normalized_sampler_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
@@ -555,6 +558,11 @@ def _run_modal_candidate_smoke(
         _require_deployed_runtime_capability(
             client,
             capability="post_training_sampler_coordinate_normalization",
+        )
+    if checked.sampler_coordinate_scale is not None and checked.sampler_coordinate_scale != 1.0:
+        _require_deployed_runtime_capability(
+            client,
+            capability="post_training_sampler_coordinate_scale",
         )
     try:
         payload = client.submit_and_poll_trial(_modal_trial_payload(checked))
@@ -879,6 +887,7 @@ def _modal_short_training_payload(trial: AutoFoldTrial) -> dict[str, object]:
         predict_after_training=True,
         config_payload=trial.config_payload,
         sampler_coordinate_normalization=trial.sampler_coordinate_normalization,
+        sampler_coordinate_scale=trial.sampler_coordinate_scale,
     )
 
 
@@ -958,6 +967,15 @@ def _planned_candidates(
         )
     if planner == "coordinate_normalized_sampler_diagnostic":
         return _coordinate_normalized_sampler_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
+    if planner == "calibrated_coordinate_normalized_sampler_diagnostic":
+        return _calibrated_coordinate_normalized_sampler_diagnostic_candidates(
             root=root,
             start_trial_id=start_trial_id,
             max_candidates=max_candidates,
@@ -1643,6 +1661,134 @@ def _coordinate_normalized_sampler_diagnostic_candidates(
             ),
         }
     ]
+
+
+def _calibrated_coordinate_normalized_sampler_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("calibrated_coordinate_normalized_sampler_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError(
+            "calibrated_coordinate_normalized_sampler_diagnostic planner requires --diagnostic-report"
+        )
+    geometry = _prediction_geometry_audit_summary(root=root, diagnostic_report=diagnostic_report)
+    if "adjacent_ca_distance_collapsed" not in geometry["scale_flags"]:
+        raise AutoresearchLoopError(
+            "calibrated_coordinate_normalized_sampler_diagnostic requires collapsed coordinate-scale evidence"
+        )
+    scale = _calibrated_sampler_coordinate_scale(geometry)
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_calibrated_coordinate_normalized_sampler_diagnostic.json"
+    config_payload = _coordinate_scale_locality_diagnostic_config_payload(root)
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.DIFFUSION_SAMPLER_GOLF,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded calibrated coordinate-normalized sampler diagnostic should test whether "
+            "the T167 gain can be moved closer to the locked baseline by preserving the label-free "
+            "C-alpha normalization while restoring global fold scale from the T167-vs-T088 geometry "
+            "audit. It keeps labels, manifests, scorer, templates, Modal resources, and ledger "
+            "authority unchanged."
+        ),
+    )
+    trial["agent_session_id"] = "calibrated-coordinate-normalized-sampler-diagnostic-planner"
+    trial["seed"] = 97000 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.DISTOGRAM_GOOD_LDDT_FLAT.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["sampler_coordinate_normalization"] = "ca_bond"
+    trial["sampler_coordinate_scale"] = scale
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="calibrated_ca_bond_sampler_coordinate_scale",
+        predicted_axis=FalsificationAxis.DISTOGRAM_VS_3D,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.012),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.calibrated_coordinate_normalized_sampler_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "source_geometry_audit": str(diagnostic_report),
+        "source_verdict": geometry["recommendation_status"],
+        "reference_trial_id": geometry["reference_trial_id"],
+        "candidate_trial_ids": geometry["candidate_trial_ids"],
+        "scale_flags": geometry["scale_flags"],
+        "reference_deltas": geometry["reference_deltas"],
+        "worst_targets": [],
+        "sampler_coordinate_normalization": "ca_bond",
+        "sampler_coordinate_scale": scale,
+        "calibration_rule": "inverse_mean_radius_scale_ratio",
+        "config_payload_overrides": {
+            "residue_crop_size": config_payload["residue_crop_size"],
+            "num_msa_samples": config_payload["num_msa_samples"],
+            "learning_rate": config_payload["learning_rate"],
+            "lr_start_factor": config_payload["lr_start_factor"],
+            "lr_warmup": config_payload["lr_warmup"],
+            "clip_norm": config_payload["clip_norm"],
+            "diffusion_loss_weight": config_payload["diffusion_loss_weight"],
+            "distogram_loss_weight": config_payload["distogram_loss_weight"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+            "diffusion_steps": config_payload["diffusion_steps"],
+        },
+        "failed_shapes_avoided": [
+            "unbounded live search",
+            "hard ca_bond normalization without fold-scale calibration",
+            "scorer, label, manifest, fingerprint, baseline, Modal resource, or ledger edits",
+        ],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded calibrated coordinate-normalized sampler diagnostic",
+            ),
+        }
+    ]
+
+
+def _calibrated_sampler_coordinate_scale(geometry: dict[str, object]) -> float:
+    deltas = geometry.get("reference_deltas")
+    if not isinstance(deltas, list) or not deltas:
+        raise AutoresearchLoopError("calibrated coordinate-normalized sampler diagnostic requires reference deltas")
+    ratios = []
+    for delta in deltas:
+        if not isinstance(delta, dict):
+            continue
+        ratio = delta.get("mean_radius_scale_ratio")
+        if isinstance(ratio, int | float) and ratio > 0:
+            ratios.append(float(ratio))
+    if not ratios:
+        raise AutoresearchLoopError("calibrated coordinate-normalized sampler diagnostic requires radius scale ratios")
+    mean_ratio = sum(ratios) / len(ratios)
+    if mean_ratio >= 0.5:
+        raise AutoresearchLoopError(
+            "calibrated coordinate-normalized sampler diagnostic requires strongly collapsed radius scale"
+        )
+    return round(min(20.0, max(1.0, 1.0 / mean_ratio)), 6)
 
 
 def _manual_candidates(*, root: Path, candidate_plan: str | Path | None) -> list[dict[str, object]]:

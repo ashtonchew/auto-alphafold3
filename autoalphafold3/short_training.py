@@ -50,6 +50,7 @@ def short_training_payload(
     predict_after_training: bool = False,
     config_payload: dict[str, object] | None = None,
     sampler_coordinate_normalization: str | None = None,
+    sampler_coordinate_scale: float | None = None,
 ) -> dict[str, object]:
     """Return a JSON-friendly bounded short-training payload."""
 
@@ -80,6 +81,13 @@ def short_training_payload(
         if sampler_coordinate_normalization not in {"none", "ca_bond"}:
             raise ShortTrainingError("sampler_coordinate_normalization must be none or ca_bond")
         payload["sampler_coordinate_normalization"] = sampler_coordinate_normalization
+    if sampler_coordinate_scale is not None:
+        scale = float(sampler_coordinate_scale)
+        if not 0.0 < scale <= 20.0:
+            raise ShortTrainingError("sampler_coordinate_scale must be in (0, 20]")
+        if sampler_coordinate_normalization != "ca_bond":
+            raise ShortTrainingError("sampler_coordinate_scale requires sampler_coordinate_normalization=ca_bond")
+        payload["sampler_coordinate_scale"] = scale
     return payload
 
 

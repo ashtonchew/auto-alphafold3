@@ -135,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
             "feature_curriculum_diagnostic",
             "coordinate_scale_locality_diagnostic",
             "coordinate_normalized_sampler_diagnostic",
+            "calibrated_coordinate_normalized_sampler_diagnostic",
             "llm",
         ),
         default="deterministic",

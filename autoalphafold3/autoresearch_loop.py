@@ -395,7 +395,7 @@ def run_autoresearch_loop(
         raise AutoresearchLoopError("candidate_budget must be smoke or trial")
     if mode not in {"dry-run", "modal"}:
         raise AutoresearchLoopError(f"unsupported autoresearch mode: {mode}")
-    if planner not in {"manual", "deterministic", "targeted_diagnostic", "schedule_diagnostic", "llm"}:
+    if planner not in {"manual", "deterministic", "targeted_diagnostic", "schedule_diagnostic", "capacity_diagnostic", "llm"}:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
     if mode == "modal":
         if approval != APPROVAL_TEXT:
@@ -873,6 +873,15 @@ def _planned_candidates(
             candidate_budget=candidate_budget,
             diagnostic_report=diagnostic_report,
         )
+    if planner == "capacity_diagnostic":
+        return _capacity_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
     if planner == "llm":
         return _llm_candidates(
             root=root,
@@ -1081,6 +1090,99 @@ def _schedule_diagnostic_candidates(
                 config_path=config_path,
                 config=config,
                 candidate_intent="bounded optimizer/schedule training diagnostic",
+            ),
+        }
+    ]
+
+
+def _capacity_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("capacity_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("capacity_diagnostic planner requires --diagnostic-report")
+    target_summary = _targeted_diagnostic_summary(root=root, diagnostic_report=diagnostic_report)
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_capacity_diagnostic.json"
+    config_payload = _capacity_diagnostic_config_payload(root)
+    worst_targets = target_summary["worst_targets"]
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.WIDTH_DEPTH,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded model-capacity diagnostic should test whether the repeated all-target "
+            f"regressions ({', '.join(worst_targets)}) reflect insufficient tiny-model capacity "
+            "rather than sampler tuning or stronger local-geometry pressure, while preserving "
+            "labels, manifests, scorer, templates, Modal resources, and ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "capacity-diagnostic-planner"
+    trial["seed"] = 92000 + _trial_number(trial_id)
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="bounded_width_depth_capacity",
+        predicted_axis=FalsificationAxis.LOCAL_GEOMETRY,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.01),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.capacity_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "reference_trial_id": target_summary["reference_trial_id"],
+        "candidate_trial_ids": target_summary["candidate_trial_ids"],
+        "worst_targets": worst_targets,
+        "target_loss_summary": target_summary["target_loss_summary"],
+        "config_payload_overrides": {
+            "single_embedding_size": config_payload["single_embedding_size"],
+            "pair_embedding_size": config_payload["pair_embedding_size"],
+            "msa_embedding_size": config_payload["msa_embedding_size"],
+            "token_embedding_size": config_payload["token_embedding_size"],
+            "atom_embedding_size": config_payload["atom_embedding_size"],
+            "num_pairformer_blocks": config_payload["num_pairformer_blocks"],
+            "num_diffusion_transformer_blocks": config_payload["num_diffusion_transformer_blocks"],
+            "learning_rate": config_payload["learning_rate"],
+            "lr_start_factor": config_payload["lr_start_factor"],
+            "lr_warmup": config_payload["lr_warmup"],
+            "clip_norm": config_payload["clip_norm"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+        },
+        "failed_shapes_avoided": [
+            "T160 stronger local-geometry pressure",
+            "T161 optimizer/schedule backoff",
+            "T113 sampler-only pivot",
+        ],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded model-capacity training diagnostic",
             ),
         }
     ]
@@ -1432,6 +1534,32 @@ def _schedule_diagnostic_config_payload(root: Path) -> dict[str, object]:
     payload["clip_norm"] = 3.0
     payload["distogram_loss_weight"] = 0.03
     payload["local_calpha_geometry_loss_weight"] = 0.1
+    return payload
+
+
+def _capacity_diagnostic_config_payload(root: Path) -> dict[str, object]:
+    config_path = root / "configs" / "experiments" / "local_calpha_geometry_smoke.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError("capacity_diagnostic planner requires local_calpha_geometry_smoke config") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("local_calpha_geometry_smoke config must be a JSON object")
+    payload = dict(payload)
+    payload["max_templates"] = 0
+    payload["single_embedding_size"] = 16
+    payload["pair_embedding_size"] = 4
+    payload["msa_embedding_size"] = 12
+    payload["token_embedding_size"] = 21
+    payload["atom_embedding_size"] = 12
+    payload["num_pairformer_blocks"] = 4
+    payload["num_diffusion_transformer_blocks"] = 4
+    payload["learning_rate"] = 0.0009
+    payload["lr_start_factor"] = 0.01
+    payload["lr_warmup"] = 250
+    payload["clip_norm"] = 3.0
+    payload["distogram_loss_weight"] = 0.03
+    payload["local_calpha_geometry_loss_weight"] = 0.05
     return payload
 
 

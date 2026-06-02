@@ -77,6 +77,21 @@ def review_next_surface(
         and exact_collapse_broken
         and feature_curriculum_exhausted
     )
+    sampler_scale_exhausted = {
+        "sampler_coordinate_scale",
+        "sampler_geometry_selection",
+        "sampler_low_noise",
+    }.issubset(set(exhausted))
+    mixed_after_sampler_scale = (
+        verdict == "MIXED_EVIDENCE_REVIEW_REQUIRED"
+        and stop_live
+        and do_not_loop
+        and all_changed
+        and exact_collapse_broken
+        and sampler_scale_exhausted
+        and per_target.get("negative_delta_count", 0) > 0
+        and per_target.get("positive_delta_count", 0) > 0
+    )
     if mixed_after_feature_curriculum:
         decision = "APPROVE_OFFLINE_PLANNER_PR_ONLY"
         approved_surface = "coordinate_scale_locality_diagnostic"
@@ -86,6 +101,37 @@ def review_next_surface(
         )
         required_next_pr = {
             "planner": "coordinate_scale_locality_diagnostic",
+            "candidate_limit": 1,
+            "mode_before_merge": "dry-run",
+            "candidate_budget": "trial",
+            "must_consume_review": True,
+            "forbidden_edits": [
+                "scorer",
+                "benchmark_contract",
+                "public_manifests",
+                "fingerprints",
+                "Modal resources",
+                "templates",
+                "baselines",
+                "canonical_ledger",
+                "Discovery Ledger",
+            ],
+            "stop_conditions": [
+                "dry-run envelope plans more than one candidate",
+                "review verdict is not MIXED_EVIDENCE_REVIEW_REQUIRED",
+                "candidate writes ledger or Discovery Ledger",
+                "readiness is not autonomous_search_ready=true after merge",
+            ],
+        }
+    elif mixed_after_sampler_scale:
+        decision = "APPROVE_OFFLINE_PLANNER_PR_ONLY"
+        approved_surface = "diffusion_data_scale_diagnostic"
+        allowed_next_step = (
+            "Implement one dry-run-only planner for a diffusion data-scale diagnostic; "
+            "merge source behavior and rerun readiness before any live candidate."
+        )
+        required_next_pr = {
+            "planner": "diffusion_data_scale_diagnostic",
             "candidate_limit": 1,
             "mode_before_merge": "dry-run",
             "candidate_budget": "trial",

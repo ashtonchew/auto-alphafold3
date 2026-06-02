@@ -560,6 +560,13 @@ def _write_coordinate_scale_locality_review_inputs(
     *,
     decision: str = "APPROVE_OFFLINE_PLANNER_PR_ONLY",
     approved_surface: str | None = "coordinate_scale_locality_diagnostic",
+    report_name: str = "T164-mixed-evidence.json",
+    source_diagnosis: str = "runs/autoresearch/post_discard_diagnosis/T113-T162-T163-T164.json",
+    rejected_surfaces: list[str] | None = None,
+    candidate_trial_ids: list[str] | None = None,
+    negative_delta_count: int = 64,
+    positive_delta_count: int = 0,
+    worst_delta: float = -0.0213496566139146,
 ) -> Path:
     config_dir = tmp_path / "configs/experiments"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -567,18 +574,19 @@ def _write_coordinate_scale_locality_review_inputs(
         (REPO_ROOT / "configs/experiments/local_calpha_geometry_smoke.json").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    report = tmp_path / "runs/autoresearch/next_surface_review/T164-mixed-evidence.json"
+    planner = approved_surface or "coordinate_scale_locality_diagnostic"
+    report = tmp_path / "runs/autoresearch/next_surface_review" / report_name
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(
         json.dumps(
             {
                 "schema_version": "autoaf3.next_surface_review.v1",
                 "status": "PASS",
-                "source_diagnosis": "runs/autoresearch/post_discard_diagnosis/T113-T162-T163-T164.json",
+                "source_diagnosis": source_diagnosis,
                 "source_verdict": "MIXED_EVIDENCE_REVIEW_REQUIRED",
                 "decision": decision,
                 "approved_next_surface": approved_surface,
-                "rejected_surfaces": [
+                "rejected_surfaces": rejected_surfaces or [
                     "sampler",
                     "local_geometry",
                     "optimizer_schedule",
@@ -588,17 +596,17 @@ def _write_coordinate_scale_locality_review_inputs(
                 ],
                 "evidence_summary": {
                     "reference_trial_id": "T088",
-                    "candidate_trial_ids": ["T113", "T162", "T163", "T164"],
-                    "all_candidate_per_target_deltas_negative": True,
-                    "negative_delta_count": 64,
-                    "positive_delta_count": 0,
+                    "candidate_trial_ids": candidate_trial_ids or ["T113", "T162", "T163", "T164"],
+                    "all_candidate_per_target_deltas_negative": positive_delta_count == 0,
+                    "negative_delta_count": negative_delta_count,
+                    "positive_delta_count": positive_delta_count,
                     "worst_target": "1MBD_A",
-                    "worst_delta": -0.0213496566139146,
+                    "worst_delta": worst_delta,
                     "all_comparisons_changed": True,
                     "comparison_count": 4,
                 },
                 "required_next_pr": {
-                    "planner": "coordinate_scale_locality_diagnostic",
+                    "planner": planner,
                     "candidate_limit": 1,
                     "mode_before_merge": "dry-run",
                     "candidate_budget": "trial",
@@ -1810,6 +1818,93 @@ def test_calibrated_sampler_low_noise_diagnostic_requires_schedule_runtime_capab
 
     assert client.submitted_trials == []
     assert client.scored_trials == []
+
+
+def test_diffusion_data_scale_diagnostic_plans_one_model_scale_candidate(tmp_path: Path) -> None:
+    report = _write_coordinate_scale_locality_review_inputs(
+        tmp_path,
+        approved_surface="diffusion_data_scale_diagnostic",
+        report_name="T170-mixed-evidence.json",
+        source_diagnosis="runs/autoresearch/post_discard_diagnosis/T170-vs-T169-T168-T088.json",
+        rejected_surfaces=[
+            "sampler_coordinate_scale",
+            "sampler_geometry_selection",
+            "sampler_low_noise",
+        ],
+        candidate_trial_ids=["T168", "T169", "T170"],
+        negative_delta_count=27,
+        positive_delta_count=20,
+        worst_delta=-0.018736936398925055,
+    )
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="diffusion-data-scale-diagnostic",
+        mode="dry-run",
+        planner="diffusion_data_scale_diagnostic",
+        start_trial_id="T171",
+        max_candidates=1,
+        candidate_budget="trial",
+        diagnostic_report=report,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T171"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T171"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "training"
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["move_family"] == "diffusion_schedule"
+    assert trial["diagnostic_target"] == "distogram_good_lddt_flat"
+    assert trial["sampler_coordinate_normalization"] == "ca_bond"
+    assert trial["sampler_coordinate_scale"] == pytest.approx(13.126702)
+    assert trial["sampler_num_samples"] == 1
+    assert trial["sampler_selection_policy"] == "first"
+    assert trial["prediction"]["causal_component"] == "diffusion_data_std_dev_scale"
+    assert trial["config_path"] == "configs/experiments/T171_diffusion_data_scale_diagnostic.json"
+    assert trial["config_payload"]["max_templates"] == 0
+    assert trial["config_payload"]["diffusion_data_std_dev"] == pytest.approx(8.0)
+    assert trial["config_payload"]["diffusion_gamma_0"] == pytest.approx(0.6)
+    assert config["schema_version"] == "autoaf3.diffusion_data_scale_diagnostic_plan.v1"
+    assert config["source_next_surface_review"] == str(report)
+    assert config["candidate_trial_ids"] == ["T168", "T169", "T170"]
+    assert config["rejected_surfaces"] == [
+        "sampler_coordinate_scale",
+        "sampler_geometry_selection",
+        "sampler_low_noise",
+    ]
+    assert config["config_payload_overrides"]["diffusion_data_std_dev"] == pytest.approx(8.0)
+    assert config["writes_ledger"] is False
+    assert config["writes_discovery_ledger"] is False
+    assert "configs/experiments/T171_diffusion_data_scale_diagnostic.json" in patch_text
+    assert "bounded diffusion data-scale diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_diffusion_data_scale_diagnostic_requires_matching_next_surface_review(tmp_path: Path) -> None:
+    report = _write_coordinate_scale_locality_review_inputs(tmp_path)
+
+    with pytest.raises(AutoresearchLoopError, match="diffusion_data_scale_diagnostic"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="diffusion-data-scale-wrong-review",
+            mode="dry-run",
+            planner="diffusion_data_scale_diagnostic",
+            start_trial_id="T171",
+            max_candidates=1,
+            candidate_budget="trial",
+            diagnostic_report=report,
+        )
+
+    assert not (tmp_path / "runs/autoresearch/diffusion-data-scale-wrong-review").exists()
 
 
 def test_deterministic_sampler_checkpoint_follows_start_trial_id(tmp_path: Path) -> None:

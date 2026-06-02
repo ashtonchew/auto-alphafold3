@@ -419,6 +419,7 @@ def run_autoresearch_loop(
         "calibrated_sampler_locality_selection_diagnostic",
         "calibrated_sampler_low_noise_diagnostic",
         "diffusion_data_scale_diagnostic",
+        "pairformer_attention_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
@@ -1033,6 +1034,15 @@ def _planned_candidates(
         )
     if planner == "diffusion_data_scale_diagnostic":
         return _diffusion_data_scale_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
+    if planner == "pairformer_attention_diagnostic":
+        return _pairformer_attention_diagnostic_candidates(
             root=root,
             start_trial_id=start_trial_id,
             max_candidates=max_candidates,
@@ -1726,6 +1736,104 @@ def _diffusion_data_scale_diagnostic_candidates(
                 config_path=config_path,
                 config=config,
                 candidate_intent="bounded diffusion data-scale diagnostic",
+            ),
+        }
+    ]
+
+
+def _pairformer_attention_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("pairformer_attention_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("pairformer_attention_diagnostic planner requires --diagnostic-report")
+    review = _surface_design_review_summary(
+        root=root,
+        diagnostic_report=diagnostic_report,
+        approved_surface="pairformer_attention",
+        approved_planner="pairformer_attention_diagnostic",
+    )
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_pairformer_attention_diagnostic.json"
+    config_payload = _pairformer_attention_diagnostic_config_payload(root)
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.PAIRFORMER_ATTENTION,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded Pairformer triangular-attention diagnostic should test whether the remaining "
+            "NanoFold-style AlphaFold3-lite scorer gap is caused by weak pair-representation topology "
+            "updates rather than the exhausted sampler, geometry, optimizer, capacity, recycling, "
+            "curriculum, coordinate-scale, or diffusion data-scale surfaces. It raises only Pairformer "
+            "attention/transition capacity while preserving labels, manifests, scorer, templates, "
+            "Modal resources, sampler policy, and ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "pairformer-attention-diagnostic-planner"
+    trial["seed"] = 98000 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.LONG_RANGE_TOPOLOGY_WEAK.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="pairformer_triangle_attention_capacity",
+        predicted_axis=FalsificationAxis.LONG_RANGE_TOPOLOGY,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.006),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.pairformer_attention_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "source_surface_design_review": str(diagnostic_report),
+        "source_surface_strategy_review": review["source_surface_strategy_review"],
+        "approved_next_surface": review["approved_next_surface"],
+        "approved_planner": review["approved_planner"],
+        "exhausted_surfaces": review["exhausted_surfaces"],
+        "reference_trial_id": "",
+        "candidate_trial_ids": [],
+        "worst_targets": [],
+        "config_payload_overrides": {
+            "num_triangular_attention_channels": config_payload["num_triangular_attention_channels"],
+            "num_triangular_attention_heads": config_payload["num_triangular_attention_heads"],
+            "num_pair_heads": config_payload["num_pair_heads"],
+            "pairformer_transition_multiplier": config_payload["pairformer_transition_multiplier"],
+            "learning_rate": config_payload["learning_rate"],
+            "lr_start_factor": config_payload["lr_start_factor"],
+            "lr_warmup": config_payload["lr_warmup"],
+            "clip_norm": config_payload["clip_norm"],
+            "distogram_loss_weight": config_payload["distogram_loss_weight"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+        },
+        "failed_shapes_avoided": review["exhausted_surfaces"],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded Pairformer triangular-attention diagnostic",
             ),
         }
     ]
@@ -2622,6 +2730,50 @@ def _next_surface_review_summary(
     }
 
 
+def _surface_design_review_summary(
+    *,
+    root: Path,
+    diagnostic_report: str | Path,
+    approved_surface: str,
+    approved_planner: str,
+) -> dict[str, object]:
+    path = _diagnostic_report_path(root=root, diagnostic_report=diagnostic_report)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(f"cannot read surface design review: {diagnostic_report}") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("surface design review must be a JSON object")
+    if payload.get("schema_version") != "autoaf3.surface_design_review.v1":
+        raise AutoresearchLoopError(f"{approved_planner} requires a surface design review report")
+    if payload.get("status") != "PASS":
+        raise AutoresearchLoopError("surface design review must have status=PASS")
+    if payload.get("decision") != "APPROVE_DRY_RUN_PLANNER_IMPLEMENTATION_ONLY":
+        raise AutoresearchLoopError(f"{approved_planner} requires APPROVE_DRY_RUN_PLANNER_IMPLEMENTATION_ONLY")
+    if payload.get("approved_next_surface") != approved_surface:
+        raise AutoresearchLoopError(f"surface design review did not approve {approved_surface}")
+    if payload.get("approved_planner") != approved_planner:
+        raise AutoresearchLoopError(f"surface design review did not approve {approved_planner}")
+    if payload.get("candidate_limit") != 1:
+        raise AutoresearchLoopError("surface design review must require candidate_limit=1")
+    for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "official_benchmark_result"):
+        if payload.get(key) is True:
+            raise AutoresearchLoopError(f"surface design review must not claim {key}=true")
+    if payload.get("may_start_live_candidate") is not False or payload.get("may_start_open_ended_loop") is not False:
+        raise AutoresearchLoopError("surface design review must block live candidates and open-ended loop")
+    required = payload.get("required_next_pr") if isinstance(payload.get("required_next_pr"), dict) else {}
+    if required.get("planner") != approved_planner or required.get("candidate_limit") != 1:
+        raise AutoresearchLoopError("surface design review required_next_pr does not match this planner")
+    return {
+        "source_surface_strategy_review": str(payload.get("consumed_strategy_review") or ""),
+        "approved_next_surface": str(payload.get("approved_next_surface") or ""),
+        "approved_planner": str(payload.get("approved_planner") or ""),
+        "exhausted_surfaces": [str(item) for item in payload.get("exhausted_surfaces")]
+        if isinstance(payload.get("exhausted_surfaces"), list)
+        else [],
+    }
+
+
 def _prediction_geometry_audit_summary(
     *,
     root: Path,
@@ -2819,6 +2971,17 @@ def _diffusion_data_scale_diagnostic_config_payload(root: Path) -> dict[str, obj
     payload["diffusion_s_max"] = 120.0
     payload["diffusion_s_min"] = 0.0004
     payload["diffusion_schedule_p"] = 7.0
+    return payload
+
+
+def _pairformer_attention_diagnostic_config_payload(root: Path) -> dict[str, object]:
+    payload = _feature_curriculum_diagnostic_config_payload(root)
+    payload["num_triangular_attention_channels"] = 24
+    payload["num_triangular_attention_heads"] = 2
+    payload["num_pair_heads"] = 3
+    payload["pairformer_transition_multiplier"] = 6
+    payload["distogram_loss_weight"] = 0.05
+    payload["local_calpha_geometry_loss_weight"] = 0.0
     return payload
 
 

@@ -72,6 +72,9 @@ IMPLEMENTED_PLANNER_SURFACES: dict[str, frozenset[str]] = {
     "diffusion_data_scale_diagnostic": frozenset(
         {"diffusion_data_scale", "diffusion_data_scale_diagnostic"}
     ),
+    "pairformer_attention_diagnostic": frozenset(
+        {"pairformer_attention", "pairformer_attention_diagnostic"}
+    ),
 }
 
 UNIMPLEMENTED_ALLOWED_SURFACES = (

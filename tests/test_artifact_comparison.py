@@ -29,6 +29,15 @@ def test_compare_prediction_artifacts_detects_identical_targets_and_metric_delta
     assert report.all_predictions_identical is True
     assert report.identical_targets == ["TARGET_A", "TARGET_B"]
     assert report.changed_targets == []
+    assert report.coordinate_delta_summary == {
+        "target_count": 2,
+        "comparable_target_count": 2,
+        "residue_count_mismatch_targets": [],
+        "mean_target_rmsd": pytest.approx(0.0),
+        "max_target_rmsd": pytest.approx(0.0),
+        "mean_target_mean_abs_coordinate_delta": pytest.approx(0.0),
+    }
+    assert report.coordinate_deltas["TARGET_A"].rmsd == pytest.approx(0.0)
     assert report.metric_deltas == {
         "best_val_calpha_lddt": pytest.approx(0.02),
         "mean_val_calpha_lddt": pytest.approx(0.01),
@@ -57,6 +66,10 @@ def test_compare_prediction_artifacts_detects_changed_and_missing_targets(tmp_pa
     assert report.right_only_targets == ["TARGET_C"]
     assert report.identical_targets == []
     assert report.changed_targets == ["TARGET_A"]
+    assert report.coordinate_deltas["TARGET_A"].rmsd == pytest.approx(1.0)
+    assert report.coordinate_deltas["TARGET_A"].mean_abs_coordinate_delta == pytest.approx(1 / 3)
+    assert report.coordinate_delta_summary["mean_target_rmsd"] == pytest.approx(1.0)
+    assert report.coordinate_delta_summary["max_target_rmsd"] == pytest.approx(1.0)
     assert report.metric_deltas is None
 
 

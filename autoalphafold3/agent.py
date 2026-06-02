@@ -297,6 +297,8 @@ def main(argv: list[str] | None = None) -> int:
     live_smoke_gate_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
     live_smoke_gate_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
     live_smoke_gate_parser.add_argument("--modal-authority-path", default="runs/modal_event_authority.json")
+    live_smoke_gate_parser.add_argument("--post-smoke-strategy-review", default=None)
+    live_smoke_gate_parser.add_argument("--candidate-plan", default=None)
     live_smoke_gate_parser.add_argument("--output", default=None)
 
     live_smoke_result_parser = subparsers.add_parser("live-smoke-result-review")
@@ -704,6 +706,8 @@ def main(argv: list[str] | None = None) -> int:
                 config_path=args.config_path,
                 calibration_path=args.calibration_path,
                 modal_authority_path=args.modal_authority_path,
+                post_smoke_strategy_review=args.post_smoke_strategy_review,
+                candidate_plan=args.candidate_plan,
             )
         except LiveSmokeGateError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))

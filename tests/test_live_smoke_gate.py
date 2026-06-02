@@ -64,6 +64,56 @@ def test_live_smoke_gate_blocks_when_readiness_not_green(
     assert "foundation readiness is not autonomous_search_ready=true" in report.blocked_reasons
 
 
+def test_live_smoke_gate_approves_post_smoke_bound_candidate_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = _write_candidate_implementation_review(tmp_path)
+    strategy = _write_post_smoke_strategy(tmp_path)
+    plan = _write_candidate_plan(tmp_path)
+    monkeypatch.setattr(live_gate, "build_readiness_report", lambda **_: FakeReadiness(ready=True))
+
+    report = review_live_smoke_gate(
+        repo_root=tmp_path,
+        candidate_implementation_review=candidate,
+        post_smoke_strategy_review=strategy,
+        candidate_plan=plan,
+    )
+
+    assert report.decision == "APPROVE_BOUNDED_LIVE_SMOKE_ONLY"
+    assert report.candidate_limit == 1
+    assert report.consumed_post_smoke_strategy_review == str(strategy)
+    assert report.consumed_candidate_plan == str(plan)
+    assert report.may_start_live_candidate is True
+    assert report.may_start_open_ended_loop is False
+    assert report.starts_search is False
+    assert report.writes_ledger is False
+    assert report.official_benchmark_result is False
+
+
+def test_live_smoke_gate_blocks_post_smoke_candidate_plan_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = _write_candidate_implementation_review(tmp_path)
+    strategy = _write_post_smoke_strategy(tmp_path)
+    plan = _write_candidate_plan(tmp_path, sampler_noise_scale=1.0)
+    monkeypatch.setattr(live_gate, "build_readiness_report", lambda **_: FakeReadiness(ready=True))
+
+    report = review_live_smoke_gate(
+        repo_root=tmp_path,
+        candidate_implementation_review=candidate,
+        post_smoke_strategy_review=strategy,
+        candidate_plan=plan,
+    )
+
+    assert report.decision == "BLOCK_LIVE_SMOKE_GATE"
+    assert report.candidate_limit == 0
+    assert report.may_start_live_candidate is False
+    assert "candidate trial sampler_noise_scale does not match post-smoke strategy" in report.blocked_reasons
+    assert "candidate config sampler_noise_scale does not match post-smoke strategy" in report.blocked_reasons
+
+
 def test_live_smoke_gate_refuses_unsafe_paths(tmp_path: Path) -> None:
     with pytest.raises(LiveSmokeGateError, match="repo-relative"):
         review_live_smoke_gate(
@@ -84,6 +134,94 @@ def _write_candidate_implementation_review(tmp_path: Path) -> Path:
                 "approved_candidate": "sampler_locality_guard",
                 "may_start_live_candidate": False,
                 "may_start_open_ended_loop": False,
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path.relative_to(tmp_path)
+
+
+def _write_post_smoke_strategy(tmp_path: Path) -> Path:
+    path = tmp_path / "runs/autoresearch/post_smoke_strategy_review/review.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.post_smoke_strategy_review.v1",
+                "status": "PASS",
+                "decision": "APPROVE_NEXT_BOUNDED_CANDIDATE_PLAN_ONLY",
+                "reviewed_trial_id": "T179",
+                "reviewed_run_dir": "runs/autoresearch/T179-smoke",
+                "approved_strategy_family": "sampler_low_noise_locality_refinement",
+                "approved_next_candidate": "sampler_low_noise_locality_refinement",
+                "approved_next_planner": "manual_sampler_low_noise_locality_refinement",
+                "candidate_limit": 1,
+                "next_candidate_plan": {
+                    "source_trial_id": "T179",
+                    "candidate_limit": 1,
+                    "approved_planner": "manual_sampler_low_noise_locality_refinement",
+                    "approved_strategy_family": "sampler_low_noise_locality_refinement",
+                    "required_sampler_settings": {
+                        "sampler_locality_guard": "reject_exploded",
+                        "sampler_coordinate_normalization": "ca_bond",
+                        "sampler_coordinate_scale": 1.0,
+                        "sampler_selection_policy": "geometry",
+                        "sampler_num_samples": 4,
+                        "sampler_noise_scale": 0.6,
+                        "max_templates": 0,
+                    },
+                },
+                "may_start_live_candidate": False,
+                "may_start_open_ended_loop": False,
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path.relative_to(tmp_path)
+
+
+def _write_candidate_plan(tmp_path: Path, *, sampler_noise_scale: float = 0.6) -> Path:
+    path = tmp_path / "configs/experiments/T180_low_noise_locality_refinement.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "trial": {
+                    "trial_id": "T180",
+                    "trial_kind": "sampler",
+                    "sampler_locality_guard": "reject_exploded",
+                    "sampler_coordinate_normalization": "ca_bond",
+                    "sampler_coordinate_scale": 1.0,
+                    "sampler_selection_policy": "geometry",
+                    "sampler_num_samples": 4,
+                    "sampler_noise_scale": sampler_noise_scale,
+                    "max_templates": 0,
+                    "checkpoint_path": "runs/trials/T010/checkpoint.pt",
+                },
+                "config": {
+                    "approved_strategy_family": "sampler_low_noise_locality_refinement",
+                    "candidate_limit": 1,
+                    "source_trial_id": "T179",
+                    "sampler_locality_guard": "reject_exploded",
+                    "sampler_coordinate_normalization": "ca_bond",
+                    "sampler_coordinate_scale": 1.0,
+                    "sampler_selection_policy": "geometry",
+                    "sampler_num_samples": 4,
+                    "sampler_noise_scale": sampler_noise_scale,
+                    "max_templates": 0,
+                    "starts_search": False,
+                    "writes_ledger": False,
+                    "writes_discovery_ledger": False,
+                    "official_benchmark_result": False,
+                },
                 "starts_search": False,
                 "writes_ledger": False,
                 "writes_discovery_ledger": False,

@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
+from autoalphafold3 import agent
 from autoalphafold3.autoresearch_loop import (
     APPROVAL_TEXT,
     AutoresearchCandidatePlan,
@@ -619,6 +621,9 @@ def test_autoresearch_loop_modal_uses_trusted_client_and_records_training_eviden
     assert result.generated_trials == ["T130"]
     assert client.submitted_trials[0]["trial_id"] == "T130"
     assert client.submitted_trials[0]["trial_kind"] == "training"
+    assert client.submitted_trials[0]["runner_mode"] == "short_training"
+    assert client.submitted_trials[0]["features_path"] == "nanofold_event_small_no_templates.arrow"
+    assert client.submitted_trials[0]["short_training_approval"] == "I_APPROVE_SHORT_TRAINING_TRIAL"
     run_manifest = json.loads((tmp_path / "runs/autoresearch/live/run_manifest.json").read_text(encoding="utf-8"))
     assert run_manifest["live_modal_execution"] is True
     assert run_manifest["starts_search"] is True
@@ -684,6 +689,22 @@ def test_autoresearch_loop_modal_requires_one_candidate_before_artifacts(tmp_pat
         )
 
     assert not (tmp_path / "runs/autoresearch/live-two").exists()
+
+
+def test_autoresearch_loop_modal_reexecs_through_repo_venv_when_needed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    venv_python = tmp_path / ".venv/bin/python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("#!/usr/bin/env python\n", encoding="utf-8")
+    monkeypatch.setattr(agent, "_current_python_can_import_modal", lambda: False)
+    monkeypatch.setattr(agent, "_python_can_import_modal", lambda python: python == venv_python)
+    monkeypatch.setattr(agent.sys, "executable", "/usr/bin/python3")
+
+    reexec = agent._modal_venv_reexec_argv(
+        Namespace(command="autoresearch-loop", mode="modal", repo_root=str(tmp_path)),
+        ["autoresearch-loop", "--mode", "modal"],
+    )
+
+    assert reexec == [str(venv_python), "-m", "autoalphafold3.agent", "autoresearch-loop", "--mode", "modal"]
 
 
 def test_autoresearch_loop_cli_dry_run_is_structured_json(tmp_path: Path) -> None:

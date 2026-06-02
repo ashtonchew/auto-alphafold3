@@ -37,6 +37,8 @@ from autoalphafold3.schema import (
     TrialKind,
     TrialStatus,
 )
+from autoalphafold3.short_training import short_training_payload
+from autoalphafold3.short_training_runner import DEFAULT_MODAL_FEATURES_PATH
 
 APPROVAL_TEXT = "I_APPROVE_AUTORESEARCH_LIVE_SEARCH"
 FORBIDDEN_TRUE_PLAN_FLAGS = {
@@ -276,7 +278,7 @@ def _run_modal_candidate_smoke(
         raise AutoresearchLoopError("live autoresearch smoke currently supports training candidates only")
     client = modal_client if modal_client is not None else DeployedTrustedAutoresearchClient(environment_name=modal_env)
     try:
-        payload = client.submit_and_poll_trial(checked.model_dump(mode="json"))
+        payload = client.submit_and_poll_trial(_modal_short_training_payload(checked))
     except Exception as exc:  # noqa: BLE001 - normalize delegated runner failures.
         raise AutoresearchLoopError(f"live autoresearch trusted-orchestrator trial failed: {exc}") from exc
     return _record_modal_candidate_payload(root=root, run_id=run_id, envelope=envelope, payload=payload)
@@ -393,6 +395,22 @@ def _worker_call_id(payload: dict[str, object]) -> str:
 
 def _is_short_training_manifest(payload: dict[str, object]) -> bool:
     return payload.get("schema_version") == "autoaf3.short_training_manifest.v1"
+
+
+def _modal_short_training_payload(trial: AutoFoldTrial) -> dict[str, object]:
+    if trial.max_steps is None:
+        raise AutoresearchLoopError("live autoresearch smoke training candidates require max_steps")
+    return short_training_payload(
+        trial_id=trial.trial_id,
+        candidate_id=trial.trial_id,
+        config_path=trial.config_path,
+        features_path=DEFAULT_MODAL_FEATURES_PATH,
+        max_steps=trial.max_steps,
+        budget=trial.budget.value,
+        seed=trial.seed,
+        artifact_dir=trial.artifact_dir,
+        local_only=False,
+    )
 
 
 def _planned_candidates(

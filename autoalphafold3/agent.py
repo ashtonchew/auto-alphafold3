@@ -300,6 +300,9 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "autoresearch-loop":
+        reexec_argv = _modal_venv_reexec_argv(args, original_argv)
+        if reexec_argv is not None:
+            os.execv(reexec_argv[0], reexec_argv)
         try:
             result = run_autoresearch_loop(
                 repo_root=args.repo_root,
@@ -375,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "audit-modal-authority":
-        reexec_argv = _modal_authority_venv_reexec_argv(args, original_argv)
+        reexec_argv = _modal_venv_reexec_argv(args, original_argv)
         if reexec_argv is not None:
             os.execv(reexec_argv[0], reexec_argv)
         try:
@@ -422,7 +425,15 @@ def main(argv: list[str] | None = None) -> int:
 def _modal_authority_venv_reexec_argv(args: argparse.Namespace, argv: list[str]) -> list[str] | None:
     """Return a repo-venv re-exec command when live Modal SDK is only there."""
 
-    if getattr(args, "command", None) != "audit-modal-authority" or getattr(args, "mode", None) != "modal":
+    return _modal_venv_reexec_argv(args, argv)
+
+
+def _modal_venv_reexec_argv(args: argparse.Namespace, argv: list[str]) -> list[str] | None:
+    """Return a repo-venv re-exec command for live Modal commands."""
+
+    if getattr(args, "command", None) not in {"audit-modal-authority", "autoresearch-loop"}:
+        return None
+    if getattr(args, "mode", None) != "modal":
         return None
     if _current_python_can_import_modal():
         return None

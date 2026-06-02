@@ -302,6 +302,31 @@ candidate. If predictions differ but metric deltas remain exactly zero, inspect
 the coordinate-delta summary before deciding whether the scorer is saturated or
 the candidate is only moving already-failed geometry.
 
+## Read-Only Scorer Sensitivity
+
+When prediction artifacts differ but aggregate metrics remain pinned, run a
+read-only scorer-only diagnostic before another live trial-budget candidate:
+
+```bash
+python3 -m autoalphafold3.agent scorer-sensitivity \
+  --mode dry-run \
+  --trial-id T150 \
+  --trial-id T157
+
+python3 -m autoalphafold3.agent scorer-sensitivity \
+  --mode modal \
+  --modal-env main \
+  --trial-id T150 \
+  --trial-id T157 \
+  --approve I_APPROVE_SCORER_SENSITIVITY_DIAGNOSTIC \
+  --output runs/autoresearch/scorer_sensitivity/T150-vs-T157.json
+```
+
+This command calls the deployed scorer-only worker for existing trial artifacts
+only. It does not submit trials, start search, write the canonical ledger, write
+the Discovery Ledger, or create candidate promotion evidence. Use it to
+distinguish stale local metrics from true scorer/metric insensitivity.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

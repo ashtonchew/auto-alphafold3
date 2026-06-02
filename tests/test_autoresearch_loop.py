@@ -42,6 +42,7 @@ class FakeTrustedAutoresearchClient:
             "runtime_capabilities": {
                 "post_training_sampler_coordinate_normalization": True,
                 "post_training_sampler_coordinate_scale": True,
+                "post_training_sampler_selection": True,
             }
         }
         self.submitted_trials: list[dict[str, object]] = []
@@ -66,6 +67,7 @@ class FakeSequencedTrustedAutoresearchClient:
             "runtime_capabilities": {
                 "post_training_sampler_coordinate_normalization": True,
                 "post_training_sampler_coordinate_scale": True,
+                "post_training_sampler_selection": True,
             }
         }
         self.submitted_trials: list[dict[str, object]] = []
@@ -91,6 +93,7 @@ class FakeSequencedFailingTrustedAutoresearchClient:
             "runtime_capabilities": {
                 "post_training_sampler_coordinate_normalization": True,
                 "post_training_sampler_coordinate_scale": True,
+                "post_training_sampler_selection": True,
             }
         }
         self.submitted_trials: list[dict[str, object]] = []
@@ -168,6 +171,8 @@ def _sampler_manifest(trial_id: str = "T135", *, checkpoint_path: str = "/mnt/au
         "sampler_schedule_shape": "linear",
         "sampler_num_samples": 1,
         "sampler_selection_policy": "first",
+        "sampler_coordinate_normalization": "ca_bond",
+        "sampler_coordinate_scale": 13.126702,
         "starts_search": False,
         "writes_baseline": False,
         "writes_ledger": False,
@@ -718,6 +723,55 @@ def _write_collapsed_prediction_geometry_audit_inputs(tmp_path: Path) -> Path:
                 },
             }
         ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
+def _write_controlled_scale_prediction_geometry_audit_inputs(tmp_path: Path) -> Path:
+    config_dir = tmp_path / "configs/experiments"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.joinpath("local_calpha_geometry_smoke.json").write_text(
+        (REPO_ROOT / "configs/experiments/local_calpha_geometry_smoke.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    flags = ["adjacent_ca_distance_outlier_gt_30A"]
+    report = tmp_path / "runs/autoresearch/prediction_geometry/T168-vs-T088.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.prediction_geometry_audit.v1",
+                "official_benchmark_result": False,
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "reference": {"trial_id": "T088", "split": "public_val_small"},
+                "artifacts": [{"trial_id": "T168", "split": "public_val_small", "scale_flags": flags}],
+                "reference_deltas": [
+                    {
+                        "reference_trial_id": "T088",
+                        "candidate_trial_id": "T168",
+                        "mean_radius_scale_ratio": 0.995071710549596,
+                        "mean_pair_distance_delta": -0.9456763615706882,
+                        "candidate_flags": flags,
+                    }
+                ],
+                "recommendation": {
+                    "status": "REVIEW_REQUIRED",
+                    "flags": flags,
+                    "next_goal": "Review sampler locality before another live candidate.",
+                    "stop_live_trial_budget": True,
+                    "do_not_start_open_ended_loop": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest_dir = tmp_path / "runs/autoresearch/modal_artifacts/T168"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_dir.joinpath("sampler_manifest.json").write_text(
+        json.dumps(_sampler_manifest("T168", checkpoint_path="/mnt/autoalphafold3/runs/trials/T168/checkpoint.pt")),
         encoding="utf-8",
     )
     return report.relative_to(tmp_path)
@@ -1531,6 +1585,99 @@ def test_calibrated_coordinate_normalized_sampler_diagnostic_requires_scale_runt
             mode="modal",
             planner="calibrated_coordinate_normalized_sampler_diagnostic",
             start_trial_id="T168",
+            max_candidates=1,
+            candidate_budget="trial",
+            diagnostic_report=report,
+            approval=APPROVAL_TEXT,
+            modal_client=client,
+        )
+
+    assert client.submitted_trials == []
+    assert client.scored_trials == []
+
+
+def test_calibrated_sampler_locality_selection_diagnostic_plans_geometry_selected_candidate(tmp_path: Path) -> None:
+    report = _write_controlled_scale_prediction_geometry_audit_inputs(tmp_path)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="calibrated-sampler-locality-selection-diagnostic",
+        mode="dry-run",
+        planner="calibrated_sampler_locality_selection_diagnostic",
+        start_trial_id="T169",
+        max_candidates=1,
+        candidate_budget="trial",
+        diagnostic_report=report,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T169"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T169"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "training"
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["sampler_coordinate_normalization"] == "ca_bond"
+    assert trial["sampler_coordinate_scale"] == pytest.approx(13.126702)
+    assert trial["sampler_num_samples"] == 4
+    assert trial["sampler_selection_policy"] == "geometry"
+    assert trial["prediction"]["causal_component"] == "label_free_sampler_geometry_selection"
+    assert trial["config_path"] == "configs/experiments/T169_calibrated_sampler_locality_selection_diagnostic.json"
+    assert config["schema_version"] == "autoaf3.calibrated_sampler_locality_selection_diagnostic_plan.v1"
+    assert config["source_trial_id"] == "T168"
+    assert config["source_sampler_manifest"] == "runs/autoresearch/modal_artifacts/T168/sampler_manifest.json"
+    assert config["sampler_coordinate_scale"] == pytest.approx(13.126702)
+    assert config["sampler_num_samples"] == 4
+    assert config["sampler_selection_policy"] == "geometry"
+    assert config["reference_deltas"][0]["mean_radius_scale_ratio"] == pytest.approx(0.995071710549596)
+    assert config["writes_ledger"] is False
+    assert config["writes_discovery_ledger"] is False
+    assert "configs/experiments/T169_calibrated_sampler_locality_selection_diagnostic.json" in patch_text
+    assert "bounded calibrated sampler locality-selection diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_calibrated_sampler_locality_selection_diagnostic_requires_resolved_scale(tmp_path: Path) -> None:
+    report = _write_collapsed_prediction_geometry_audit_inputs(tmp_path)
+
+    with pytest.raises(AutoresearchLoopError, match="controlled radius scale"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="calibrated-sampler-locality-selection-unresolved-scale",
+            mode="dry-run",
+            planner="calibrated_sampler_locality_selection_diagnostic",
+            start_trial_id="T169",
+            max_candidates=1,
+            candidate_budget="trial",
+            diagnostic_report=report,
+        )
+
+
+def test_calibrated_sampler_locality_selection_diagnostic_requires_selection_runtime_capability(tmp_path: Path) -> None:
+    _write_baseline_lock(tmp_path, score=0.08)
+    report = _write_controlled_scale_prediction_geometry_audit_inputs(tmp_path)
+    client = FakeTrustedAutoresearchClient(_short_training_manifest("T169"))
+    client.authority_payload = {
+        "runtime_capabilities": {
+            "post_training_sampler_coordinate_normalization": True,
+            "post_training_sampler_coordinate_scale": True,
+        }
+    }
+
+    with pytest.raises(AutoresearchLoopError, match="post_training_sampler_selection"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="calibrated-sampler-locality-selection-stale-modal",
+            mode="modal",
+            planner="calibrated_sampler_locality_selection_diagnostic",
+            start_trial_id="T169",
             max_candidates=1,
             candidate_budget="trial",
             diagnostic_report=report,

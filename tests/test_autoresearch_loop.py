@@ -384,6 +384,40 @@ def _write_schedule_diagnostic_inputs(tmp_path: Path) -> Path:
     return report.relative_to(tmp_path)
 
 
+def _write_capacity_diagnostic_inputs(tmp_path: Path) -> Path:
+    config_dir = tmp_path / "configs/experiments"
+    config_dir.mkdir(parents=True)
+    config_dir.joinpath("local_calpha_geometry_smoke.json").write_text(
+        (REPO_ROOT / "configs/experiments/local_calpha_geometry_smoke.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    report = tmp_path / "runs/autoresearch/scorer_sensitivity/T088-vs-T113.json"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.scorer_sensitivity.v1",
+                "status": "PASS",
+                "reference_trial_id": "T088",
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "per_target_score_deltas_vs_reference": {
+                    "T113": {
+                        "1MBD_A": -0.0213,
+                        "2BP2_A": -0.0188,
+                        "2LZM_A": -0.0156,
+                        "1BP2_A": -0.0147,
+                        "3CHY_A": -0.0145,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
 def test_deterministic_autoresearch_ladder_plans_t120_to_t125(tmp_path: Path) -> None:
     result = run_autoresearch_loop(
         repo_root=tmp_path,
@@ -593,6 +627,93 @@ def test_schedule_diagnostic_autoresearch_requires_single_candidate_and_report(t
 
     assert not (tmp_path / "runs/autoresearch/schedule-too-many").exists()
     assert not (tmp_path / "runs/autoresearch/schedule-missing-report").exists()
+
+
+def test_capacity_diagnostic_autoresearch_plans_one_capacity_candidate(tmp_path: Path) -> None:
+    report = _write_capacity_diagnostic_inputs(tmp_path)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="capacity-diagnostic",
+        mode="dry-run",
+        planner="capacity_diagnostic",
+        start_trial_id="T162",
+        max_candidates=1,
+        candidate_budget="trial",
+        diagnostic_report=report,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T162"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T162"
+    assert str(candidate_dir / "config.json") in result.wrote_files
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "training"
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["max_wall_minutes"] == 45
+    assert trial["timeout_cap"] == 2700
+    assert trial["move_family"] == "width_depth"
+    assert trial["diagnostic_target"] == "local_geometry_weak"
+    assert trial["prediction"]["causal_component"] == "bounded_width_depth_capacity"
+    assert trial["config_path"] == "configs/experiments/T162_capacity_diagnostic.json"
+    assert trial["config_payload"]["max_templates"] == 0
+    assert trial["config_payload"]["single_embedding_size"] == 16
+    assert trial["config_payload"]["pair_embedding_size"] == 4
+    assert trial["config_payload"]["msa_embedding_size"] == 12
+    assert trial["config_payload"]["token_embedding_size"] == 21
+    assert trial["config_payload"]["atom_embedding_size"] == 12
+    assert trial["config_payload"]["num_pairformer_blocks"] == 4
+    assert trial["config_payload"]["num_diffusion_transformer_blocks"] == 4
+    assert trial["config_payload"]["learning_rate"] == pytest.approx(0.0009)
+    assert trial["config_payload"]["local_calpha_geometry_loss_weight"] == pytest.approx(0.05)
+    assert config["schema_version"] == "autoaf3.capacity_diagnostic_plan.v1"
+    assert config["failed_shapes_avoided"] == [
+        "T160 stronger local-geometry pressure",
+        "T161 optimizer/schedule backoff",
+        "T113 sampler-only pivot",
+    ]
+    assert config["worst_targets"][:2] == ["1MBD_A", "2BP2_A"]
+    assert config["writes_ledger"] is False
+    assert config["writes_discovery_ledger"] is False
+    assert "configs/experiments/T162_capacity_diagnostic.json" in patch_text
+    assert "bounded model-capacity training diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_capacity_diagnostic_autoresearch_requires_single_candidate_and_report(tmp_path: Path) -> None:
+    report = _write_capacity_diagnostic_inputs(tmp_path)
+
+    with pytest.raises(AutoresearchLoopError, match="max_candidates=1"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="capacity-too-many",
+            mode="dry-run",
+            planner="capacity_diagnostic",
+            start_trial_id="T162",
+            max_candidates=2,
+            diagnostic_report=report,
+        )
+
+    with pytest.raises(AutoresearchLoopError, match="requires --diagnostic-report"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="capacity-missing-report",
+            mode="dry-run",
+            planner="capacity_diagnostic",
+            start_trial_id="T162",
+            max_candidates=1,
+        )
+
+    assert not (tmp_path / "runs/autoresearch/capacity-too-many").exists()
+    assert not (tmp_path / "runs/autoresearch/capacity-missing-report").exists()
 
 
 def test_deterministic_sampler_checkpoint_follows_start_trial_id(tmp_path: Path) -> None:

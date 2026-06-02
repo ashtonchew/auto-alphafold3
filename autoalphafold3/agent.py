@@ -115,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     autoresearch_loop_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
     autoresearch_loop_parser.add_argument(
         "--planner",
-        choices=("manual", "deterministic", "targeted_diagnostic", "schedule_diagnostic", "llm"),
+        choices=("manual", "deterministic", "targeted_diagnostic", "schedule_diagnostic", "capacity_diagnostic", "llm"),
         default="deterministic",
     )
     autoresearch_loop_parser.add_argument("--start-trial-id", default="T120")

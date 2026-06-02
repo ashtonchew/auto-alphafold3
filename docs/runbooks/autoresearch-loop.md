@@ -422,6 +422,51 @@ python3 -m autoalphafold3.agent autoresearch-loop \
   --approve I_APPROVE_AUTORESEARCH_LIVE_SEARCH
 ```
 
+If the schedule diagnostic and the sampler-only pivot both regress or stay flat
+against the sampler-family ceiling, use `capacity_diagnostic` for one bounded
+model-capacity training candidate. This planner changes only validated inline
+config values for small width/depth capacity plus conservative optimizer
+settings. It does not edit source, scorer, manifests, fingerprints, Modal
+resources, templates, baselines, the canonical ledger, or the Discovery Ledger.
+
+Dry-run the candidate plan first:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner capacity_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/scorer_sensitivity/T088-vs-T113-strategy-pivot.json \
+  --run-id capacity-diagnostic-trial-001 \
+  --start-trial-id T162
+```
+
+Review the generated `T162` envelope. It must remain a single
+NanoFold-style AlphaFold3-lite trial-budget training candidate with
+`max_templates=0`, `budget=trial`, `max_steps=250`, `max_wall_minutes=45`, and
+`timeout_cap=2700`. The diagnostic note should record the failed
+local-geometry, schedule, and sampler-only shapes it is avoiding.
+
+Only after readiness remains green, run at most one live capacity candidate:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode modal \
+  --planner capacity_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/scorer_sensitivity/T088-vs-T113-strategy-pivot.json \
+  --run-id capacity-diagnostic-trial-001-live \
+  --start-trial-id T162 \
+  --modal-env main \
+  --failure-streak-limit 1 \
+  --approve I_APPROVE_AUTORESEARCH_LIVE_SEARCH
+```
+
+If the capacity diagnostic is also `DISCARD`, treat the current tiny-model
+training/sampler evidence as insufficient for broader autonomous search. The
+next step should be a new explicit design review of allowed architecture or
+data/feature surfaces, not another local variant of T160/T161/T113.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

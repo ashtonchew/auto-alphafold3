@@ -716,6 +716,41 @@ NanoFold-style AlphaFold3-lite trial-budget training candidate with
 overrides, no diffusion data-scale overrides, no Modal resource edits, no
 ledger writes, and no Discovery Ledger writes.
 
+After T172 is scored and discarded, consolidate the evidence with
+`surface-strategy-review`. If the report is
+`runs/autoresearch/surface_strategy_review/T172-blocked.json` and lists
+`auxiliary_loss` as available, approve only the next dry-run planner
+implementation step:
+
+```bash
+python3 -m autoalphafold3.agent surface-design-review \
+  --strategy-review runs/autoresearch/surface_strategy_review/T172-blocked.json \
+  --proposed-surface auxiliary_loss \
+  --output runs/autoresearch/surface_design_review/T173-auxiliary-contact-loss.json
+```
+
+After the `auxiliary_contact_loss_diagnostic` planner PR exists, dry-run exactly
+one candidate before any Modal spend:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner auxiliary_contact_loss_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/surface_design_review/T173-auxiliary-contact-loss.json \
+  --run-id auxiliary-contact-loss-diagnostic-001-dry-run \
+  --start-trial-id T173 \
+  --max-candidates 1
+```
+
+Review the generated `T173` envelope. It must remain a single
+NanoFold-style AlphaFold3-lite trial-budget training candidate with
+`diagnostic_target=long_range_topology_weak`, `move_family=auxiliary_loss`,
+`max_templates=0`, contact-focused distogram auxiliary overrides only, no
+sampler coordinate overrides, no diffusion data-scale overrides, no Pairformer
+capacity overrides, no Modal resource edits, no ledger writes, and no Discovery
+Ledger writes.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

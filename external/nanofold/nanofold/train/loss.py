@@ -65,14 +65,40 @@ def extract_calpha_coords(x, atoms_per_residue=3, calpha_index=1):
 
 
 class DistogramLoss(nn.Module):
-    def __init__(self, pair_embedding_size, num_bins, device):
+    def __init__(
+        self,
+        pair_embedding_size,
+        num_bins,
+        device,
+        contact_auxiliary_loss_weight=0.0,
+        contact_auxiliary_distance_cutoff=8.0,
+        contact_auxiliary_min_sequence_separation=8,
+    ):
         super().__init__()
         self.bins = torch.arange(2, 22, 20 / num_bins, device=device)
         self.projection = nn.Linear(pair_embedding_size, len(self.bins))
+        self.contact_auxiliary_loss_weight = float(contact_auxiliary_loss_weight)
+        self.contact_auxiliary_distance_cutoff = float(contact_auxiliary_distance_cutoff)
+        self.contact_auxiliary_min_sequence_separation = int(contact_auxiliary_min_sequence_separation)
 
     def forward(self, pair_rep, coords_truth):
         logits = self.projection(pair_rep + pair_rep.transpose(-3, -2))
         distance_mat = torch.norm(coords_truth.unsqueeze(-2) - coords_truth.unsqueeze(-3), dim=-1)
         index = torch.argmin(torch.abs(distance_mat.unsqueeze(-1) - self.bins), dim=-1)
-        loss = nn.functional.cross_entropy(logits.transpose(-1, 1), index)
-        return loss
+        per_pair_loss = nn.functional.cross_entropy(logits.transpose(-1, 1), index, reduction="none")
+        if self.contact_auxiliary_loss_weight <= 0.0:
+            return per_pair_loss.mean()
+        weight = self._contact_auxiliary_weight(distance_mat)
+        return (per_pair_loss * weight).sum() / weight.sum().clamp_min(1.0)
+
+    def _contact_auxiliary_weight(self, distance_mat):
+        residue_count = distance_mat.shape[-1]
+        residue_index = torch.arange(residue_count, device=distance_mat.device)
+        sequence_separation = torch.abs(residue_index.unsqueeze(0) - residue_index.unsqueeze(1))
+        contact_mask = (
+            (distance_mat <= self.contact_auxiliary_distance_cutoff)
+            & (sequence_separation >= self.contact_auxiliary_min_sequence_separation)
+        )
+        diagonal = torch.eye(residue_count, dtype=torch.bool, device=distance_mat.device)
+        contact_mask = contact_mask & ~diagonal
+        return 1.0 + self.contact_auxiliary_loss_weight * contact_mask.to(distance_mat.dtype)

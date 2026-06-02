@@ -11,6 +11,7 @@ SCHEMA_VERSION = "autoaf3.surface_design_review.v1"
 
 ALLOWED_DESIGN_SURFACES: dict[str, str] = {
     "pairformer_attention": "pairformer_attention_diagnostic",
+    "auxiliary_loss": "auxiliary_contact_loss_diagnostic",
 }
 
 
@@ -60,7 +61,7 @@ def review_surface_design(
     unimplemented = _string_list(payload.get("unimplemented_candidate_surfaces"))
     if payload.get("decision") != "NO_NON_OVERLAPPING_PLANNER_APPROVED":
         raise SurfaceDesignReviewError("strategy review must first block implemented planners")
-    if proposed_surface in set(exhausted):
+    if _surface_exhausted(proposed_surface, exhausted):
         raise SurfaceDesignReviewError(f"proposed surface is already exhausted: {proposed_surface}")
     if proposed_surface not in set(unimplemented):
         raise SurfaceDesignReviewError("proposed surface must be listed as unimplemented and available")
@@ -90,11 +91,7 @@ def review_surface_design(
             "candidate_budget": "trial",
             "must_consume_review": True,
         },
-        design_rationale=(
-            "Pairformer triangular attention is a canonical allowed move family and remains non-overlapping "
-            "with the exhausted sampler, locality, optimizer, capacity, recycling, curriculum, and diffusion "
-            "data-scale surfaces."
-        ),
+        design_rationale=_design_rationale(proposed_surface),
         starts_search=False,
         writes_ledger=False,
         writes_discovery_ledger=False,
@@ -134,3 +131,26 @@ def _safe_evidence_path(*, root: Path, path: str | Path) -> Path:
 
 def _string_list(value: object) -> list[str]:
     return [str(item) for item in value] if isinstance(value, list) else []
+
+
+def _surface_exhausted(proposed_surface: str, exhausted: list[str]) -> bool:
+    aliases = {proposed_surface, ALLOWED_DESIGN_SURFACES[proposed_surface]}
+    if proposed_surface == "auxiliary_loss":
+        aliases.add("auxiliary_contact_loss")
+    return bool(aliases.intersection(set(exhausted)))
+
+
+def _design_rationale(proposed_surface: str) -> str:
+    if proposed_surface == "pairformer_attention":
+        return (
+            "Pairformer triangular attention is a canonical allowed move family and remains non-overlapping "
+            "with the exhausted sampler, locality, optimizer, capacity, recycling, curriculum, and diffusion "
+            "data-scale surfaces."
+        )
+    if proposed_surface == "auxiliary_loss":
+        return (
+            "A contact-focused auxiliary distogram loss is a canonical allowed loss-family move and remains "
+            "non-overlapping with exhausted sampler, locality, optimizer, capacity, recycling, curriculum, "
+            "diffusion data-scale, and Pairformer attention capacity surfaces."
+        )
+    raise SurfaceDesignReviewError(f"unsupported proposed surface: {proposed_surface}")

@@ -41,11 +41,22 @@ def test_scorer_sensitivity_modal_compares_metric_deltas() -> None:
     assert report.scored_trials[0].official_benchmark_result is True
     assert report.scored_trials[0].local_only is False
     assert report.scored_trials[0].fold_cartographer_signature == "toy_geometry_failed"
+    assert report.scored_trials[0].per_target_results == [
+        {
+            "eligible_pair_count": 10,
+            "nan_prediction_residue_count": 0,
+            "score": pytest.approx(0.1),
+            "scored_residue_count": 5,
+            "target_id": "TARGET_A",
+            "threshold_fractions": {"lt_0.5A": pytest.approx(0.1)},
+        }
+    ]
     assert report.metric_deltas_vs_reference["T157"] == {
         "best_val_calpha_lddt": pytest.approx(0.02),
         "mean_val_calpha_lddt": pytest.approx(0.0),
         "num_scored_targets": pytest.approx(0.0),
     }
+    assert report.per_target_score_deltas_vs_reference["T157"] == {"TARGET_A": pytest.approx(0.02)}
     assert report.all_primary_scores_identical is False
 
 
@@ -105,6 +116,16 @@ def _score_payload(trial_id: str, *, score: float, mean: float | None = None) ->
             "num_scored_targets": 16,
         },
         "fold_cartographer": {"signature": "toy_geometry_failed", "summary": {}, "buckets": {}},
+        "per_target_results": [
+            {
+                "target_id": "TARGET_A",
+                "score": score,
+                "eligible_pair_count": 10,
+                "scored_residue_count": 5,
+                "nan_prediction_residue_count": 0,
+                "threshold_fractions": {"lt_0.5A": score},
+            }
+        ],
         "artifacts": {
             "predictions_json": f"/mnt/autoalphafold3/runs/trials/{trial_id}/predictions.json",
             "manifest": "manifests/public_val_small.json",

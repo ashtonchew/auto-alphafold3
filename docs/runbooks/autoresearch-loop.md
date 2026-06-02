@@ -330,6 +330,12 @@ This command calls the deployed scorer-only worker for existing trial artifacts
 only. It does not submit trials, start search, write the canonical ledger, write
 the Discovery Ledger, or create candidate promotion evidence. Use it to
 distinguish stale local metrics from true scorer/metric insensitivity.
+The report includes per-target lDDT details from the scorer payload: target
+score, eligible-pair count, scored-residue count, NaN prediction residue count,
+threshold fractions, and per-target score deltas against the reference trial.
+If aggregate metric deltas stay pinned while pairwise prediction distances
+changed, inspect these per-target fields before running another live
+trial-budget candidate.
 
 ## Review And UI Render
 

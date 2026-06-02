@@ -106,6 +106,7 @@ def score_trial_artifacts(
     aggregate = aggregate_calpha_lddt(results)
     metrics = dict(aggregate["metrics"])
     metrics["num_failed_targets"] = int(metrics["num_failed_targets"]) + len(failed_targets)
+    per_target_results = [result.to_dict() for result in results]
 
     status = "SCORED" if not failed_targets else "FAIL"
     failure_signature = None if not failed_targets else "prediction_target_missing"
@@ -131,6 +132,7 @@ def score_trial_artifacts(
         ),
         "label_hashes": _label_hash_payload(root=root, label_paths=label_paths),
         "metrics": metrics,
+        "per_target_results": per_target_results,
         "quality_gates": {
             "nan_detected": any(result.nan_prediction_residue_count > 0 for result in results),
             "oom_detected": False,

@@ -32,6 +32,7 @@ class ScoredTrialSummary:
     status: str
     score: float | None
     metrics: dict[str, object]
+    per_target_results: list[dict[str, object]]
     fold_cartographer_signature: str | None
     official_benchmark_result: bool
     local_only: bool
@@ -55,6 +56,7 @@ class ScorerSensitivityReport:
     reference_trial_id: str | None
     scored_trials: list[ScoredTrialSummary]
     metric_deltas_vs_reference: dict[str, dict[str, float]]
+    per_target_score_deltas_vs_reference: dict[str, dict[str, float]]
     all_primary_scores_identical: bool | None
     pending_live_action: str | None = None
 
@@ -87,6 +89,7 @@ def run_scorer_sensitivity(
             reference_trial_id=checked_trial_ids[0] if checked_trial_ids else None,
             scored_trials=[],
             metric_deltas_vs_reference={},
+            per_target_score_deltas_vs_reference={},
             all_primary_scores_identical=None,
             pending_live_action=(
                 "Approve read-only live scorer sensitivity diagnostic with "
@@ -110,6 +113,7 @@ def run_scorer_sensitivity(
         reference_trial_id=scored[0].trial_id if scored else None,
         scored_trials=scored,
         metric_deltas_vs_reference=_metric_deltas_vs_reference(scored),
+        per_target_score_deltas_vs_reference=_per_target_score_deltas_vs_reference(scored),
         all_primary_scores_identical=_all_primary_scores_identical(scored),
     )
 
@@ -155,11 +159,13 @@ def _summarize_score_payload(trial_id: str, payload: dict[str, object]) -> Score
         payload.get("fold_cartographer") if isinstance(payload.get("fold_cartographer"), dict) else {}
     )
     artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), dict) else {}
+    per_target_results = payload.get("per_target_results")
     return ScoredTrialSummary(
         trial_id=str(payload.get("trial_id") or trial_id),
         status=str(payload.get("status") or "UNKNOWN"),
         score=_score(metrics),
         metrics=dict(metrics),
+        per_target_results=_summarize_per_target_results(per_target_results),
         fold_cartographer_signature=_optional_str(fold_cartographer.get("signature")),
         official_benchmark_result=payload.get("official_benchmark_result") is True,
         local_only=payload.get("local_only") is True,
@@ -183,12 +189,65 @@ def _metric_deltas_vs_reference(scored: list[ScoredTrialSummary]) -> dict[str, d
     return deltas
 
 
+def _per_target_score_deltas_vs_reference(scored: list[ScoredTrialSummary]) -> dict[str, dict[str, float]]:
+    if not scored:
+        return {}
+    reference = _per_target_scores(scored[0].per_target_results)
+    deltas: dict[str, dict[str, float]] = {}
+    for trial in scored[1:]:
+        scores = _per_target_scores(trial.per_target_results)
+        trial_deltas: dict[str, float] = {}
+        for target_id in sorted(set(reference) & set(scores)):
+            trial_deltas[target_id] = scores[target_id] - reference[target_id]
+        deltas[trial.trial_id] = trial_deltas
+    return deltas
+
+
 def _all_primary_scores_identical(scored: list[ScoredTrialSummary]) -> bool | None:
     scores = [trial.score for trial in scored]
     if not scores or any(score is None for score in scores):
         return None
     reference = float(scores[0])
     return all(math.isclose(float(score), reference, rel_tol=0.0, abs_tol=0.0) for score in scores)
+
+
+def _summarize_per_target_results(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    summaries: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        target_id = _optional_str(item.get("target_id"))
+        score = item.get("score")
+        if target_id is None or isinstance(score, bool) or not isinstance(score, (int, float)):
+            continue
+        summary = {
+            "target_id": target_id,
+            "score": float(score),
+            "eligible_pair_count": _optional_int(item.get("eligible_pair_count")),
+            "scored_residue_count": _optional_int(item.get("scored_residue_count")),
+            "nan_prediction_residue_count": _optional_int(item.get("nan_prediction_residue_count")),
+        }
+        threshold_fractions = item.get("threshold_fractions")
+        if isinstance(threshold_fractions, dict):
+            summary["threshold_fractions"] = {
+                str(key): float(value)
+                for key, value in sorted(threshold_fractions.items())
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            }
+        summaries.append(summary)
+    return summaries
+
+
+def _per_target_scores(results: list[dict[str, object]]) -> dict[str, float]:
+    scores: dict[str, float] = {}
+    for result in results:
+        target_id = result.get("target_id")
+        score = result.get("score")
+        if isinstance(target_id, str) and isinstance(score, (int, float)) and not isinstance(score, bool):
+            scores[target_id] = float(score)
+    return scores
 
 
 def _score(metrics: dict[str, object]) -> float | None:
@@ -203,3 +262,9 @@ def _score(metrics: dict[str, object]) -> float | None:
 
 def _optional_str(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value

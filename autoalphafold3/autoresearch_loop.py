@@ -31,6 +31,7 @@ from autoalphafold3.schema import (
     BudgetTier,
     DiagnosticTarget,
     FalsificationAxis,
+    FoldCartographerReport,
     MoveFamily,
     PredictionDirection,
     RegisteredPrediction,
@@ -81,6 +82,9 @@ class TrustedAutoresearchClient(Protocol):
 
     def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
         """Submit one trial through the trusted orchestrator and poll the spawned worker."""
+
+    def score_trial(self, trial_id: str) -> dict[str, object]:
+        """Score one trial through the scorer-only Modal worker."""
 
 
 class AutoresearchCandidatePlan(BaseModel):
@@ -282,7 +286,29 @@ def _run_modal_candidate_smoke(
         payload = client.submit_and_poll_trial(_modal_short_training_payload(checked))
     except Exception as exc:  # noqa: BLE001 - normalize delegated runner failures.
         raise AutoresearchLoopError(f"live autoresearch trusted-orchestrator trial failed: {exc}") from exc
-    return _record_modal_candidate_payload(root=root, run_id=run_id, envelope=envelope, payload=payload)
+    wrote_files: list[str] = []
+    decision_overrides: dict[str, object] = {}
+    if _is_short_training_manifest(payload):
+        wrote_files.extend(_record_short_training_manifest(envelope=envelope, payload=payload))
+        decision_overrides.update(
+            {
+                "training_manifest_path": str(envelope.training_manifest_path),
+                "training_status": payload.get("status"),
+            }
+        )
+        try:
+            payload = client.score_trial(checked.trial_id)
+        except Exception as exc:  # noqa: BLE001 - normalize scorer failures.
+            raise AutoresearchLoopError(f"live autoresearch scorer failed: {exc}") from exc
+    scored = _record_modal_candidate_payload(
+        root=root,
+        run_id=run_id,
+        envelope=envelope,
+        payload=payload,
+        decision_overrides=decision_overrides,
+    )
+    scored["wrote_files"] = [*wrote_files, *scored["wrote_files"]]
+    return scored
 
 
 class DeployedTrustedAutoresearchClient:
@@ -313,6 +339,18 @@ class DeployedTrustedAutoresearchClient:
             raise AutoresearchLoopError("trusted-orchestrator worker call returned a non-object payload")
         return payload
 
+    def score_trial(self, trial_id: str) -> dict[str, object]:
+        scorer_cls = self._modal.Cls.from_name(
+            APP_NAME,
+            "Scorer",
+            environment_name=self.environment_name,
+        )
+        scorer = scorer_cls()
+        payload = scorer.score.remote(trial_id)
+        if not isinstance(payload, dict):
+            raise AutoresearchLoopError("Scorer.score returned a non-object payload")
+        return payload
+
 
 def _record_modal_candidate_payload(
     *,
@@ -320,6 +358,7 @@ def _record_modal_candidate_payload(
     run_id: str,
     envelope,
     payload: dict[str, object],
+    decision_overrides: dict[str, object] | None = None,
 ) -> dict[str, object]:
     del run_id
     trial_id = envelope.trial_id
@@ -332,19 +371,14 @@ def _record_modal_candidate_payload(
         "writes_discovery_ledger": False,
         "official_benchmark_result": False,
     }
+    decision.update(decision_overrides or {})
     if _is_short_training_manifest(payload):
-        if payload.get("trial_id") != trial_id:
-            raise AutoresearchLoopError("live autoresearch short-training manifest trial_id mismatch")
-        wrote_files.extend(write_candidate_evidence(envelope, training_manifest=payload))
-        decision.update(
-            {
-                "training_manifest_path": str(envelope.training_manifest_path),
-                "benchmark_decision": "NOT_SCORED",
-            }
-        )
+        wrote_files.extend(_record_short_training_manifest(envelope=envelope, payload=payload))
+        decision["training_manifest_path"] = str(envelope.training_manifest_path)
+        decision["benchmark_decision"] = "NOT_SCORED"
         return {"decision": decision, "wrote_files": wrote_files}
     try:
-        result = AutoFoldResult.model_validate(payload)
+        result = _score_payload_to_result(payload)
     except ValueError as exc:
         raise AutoresearchLoopError(f"live autoresearch returned invalid trial payload: {exc}") from exc
     if result.trial_id != trial_id:
@@ -366,7 +400,7 @@ def _record_modal_candidate_payload(
         decision["decision_path"] = str(envelope.decision_path)
         return {"decision": decision, "wrote_files": wrote_files}
     if result.status in {TrialStatus.FAIL, TrialStatus.INFRA_FAIL}:
-        wrote_files.extend(write_candidate_evidence(envelope, error_report=result.model_dump(mode="json")))
+        wrote_files.extend(write_candidate_evidence(envelope, error_report=payload))
         write_candidate_decision(
             envelope,
             status=result.status.value,
@@ -396,6 +430,31 @@ def _worker_call_id(payload: dict[str, object]) -> str:
 
 def _is_short_training_manifest(payload: dict[str, object]) -> bool:
     return payload.get("schema_version") == "autoaf3.short_training_manifest.v1"
+
+
+def _record_short_training_manifest(*, envelope, payload: dict[str, object]) -> list[str]:
+    if payload.get("trial_id") != envelope.trial_id:
+        raise AutoresearchLoopError("live autoresearch short-training manifest trial_id mismatch")
+    return write_candidate_evidence(envelope, training_manifest=payload)
+
+
+def _score_payload_to_result(payload: dict[str, object]) -> AutoFoldResult:
+    if payload.get("schema_version") == "autoaf3.result.v1":
+        return AutoFoldResult.model_validate(payload)
+    status = TrialStatus.SCORED if payload.get("status") == TrialStatus.SCORED.value else TrialStatus.FAIL
+    error_report = payload.get("error_report") if isinstance(payload.get("error_report"), dict) else {}
+    return AutoFoldResult(
+        trial_id=str(payload.get("trial_id", "UNKNOWN")),
+        status=status,
+        candidate_id=str(payload.get("candidate_id", "autoresearch_score")),
+        metrics=dict(payload.get("metrics") or {}),
+        fold_cartographer=FoldCartographerReport.model_validate(payload.get("fold_cartographer") or {"signature": "missing"}),
+        artifacts={key: str(value) for key, value in dict(payload.get("artifacts") or {}).items()},
+        failure_signature=str(error_report.get("failure_signature") or payload.get("failure_signature") or "")
+        if status != TrialStatus.SCORED
+        else None,
+        postmortem=str(error_report.get("reason") or payload.get("postmortem") or ""),
+    )
 
 
 def _modal_short_training_payload(trial: AutoFoldTrial) -> dict[str, object]:
@@ -778,6 +837,7 @@ def _planned_summary_record(record: dict[str, object]) -> dict[str, object]:
     }
     for key in (
         "execution_status",
+        "training_status",
         "training_manifest_path",
         "trial_artifact_dir",
         "benchmark_decision",

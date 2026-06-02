@@ -32,13 +32,19 @@ class FakeLLMPlanner:
 
 
 class FakeTrustedAutoresearchClient:
-    def __init__(self, payload: dict[str, object]) -> None:
+    def __init__(self, payload: dict[str, object], score_payload: dict[str, object] | None = None) -> None:
         self.payload = payload
+        self.score_payload = score_payload
         self.submitted_trials: list[dict[str, object]] = []
+        self.scored_trials: list[str] = []
 
     def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
         self.submitted_trials.append(trial)
         return self.payload
+
+    def score_trial(self, trial_id: str) -> dict[str, object]:
+        self.scored_trials.append(trial_id)
+        return self.score_payload or _scorer_fail_payload(trial_id)
 
 
 SHA = "c" * 64
@@ -92,6 +98,78 @@ def _infra_fail_result(trial_id: str = "T130") -> dict[str, object]:
         "failure_signature": "pytest_modal_worker_failed",
         "postmortem": "Fake Modal worker failure.",
     }
+
+
+def _scorer_fail_payload(trial_id: str = "T130") -> dict[str, object]:
+    return {
+        "schema_version": "autoaf3.metrics.v1",
+        "status": "FAIL",
+        "trial_id": trial_id,
+        "candidate_id": trial_id,
+        "primary_metric": "best_val_calpha_lddt",
+        "metrics": {"best_val_calpha_lddt": 0.0},
+        "fold_cartographer": {"signature": "prediction_artifact_missing", "summary": {"reason": "missing predictions.json"}, "buckets": {}},
+        "error_report": {"failure_signature": "prediction_artifact_missing", "reason": "missing predictions.json", "scorer_only": True},
+        "official_benchmark_result": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "artifacts": {"predictions_json": f"/mnt/autoalphafold3/runs/trials/{trial_id}/predictions.json"},
+    }
+
+
+def _scored_metrics_payload(trial_id: str = "T130", score: float = 0.09) -> dict[str, object]:
+    return {
+        "schema_version": "autoaf3.metrics.v1",
+        "status": "SCORED",
+        "trial_id": trial_id,
+        "candidate_id": trial_id,
+        "primary_metric": "best_val_calpha_lddt",
+        "metrics": {"best_val_calpha_lddt": score},
+        "fold_cartographer": {"signature": "candidate_scored", "summary": {}, "buckets": {}},
+        "error_report": {"failure_signature": None, "failed_targets": [], "scorer_only": True},
+        "official_benchmark_result": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "artifacts": {
+            "predictions_json": f"/mnt/autoalphafold3/runs/trials/{trial_id}/predictions.json",
+            "metrics_json": f"/mnt/autoalphafold3/runs/trials/{trial_id}/metrics.json",
+        },
+    }
+
+
+def _write_baseline_lock(tmp_path: Path, *, score: float = 0.08) -> None:
+    baseline = tmp_path / "runs/baseline"
+    baseline.mkdir(parents=True)
+    metrics = {
+        "schema_version": "autoaf3.metrics.v1",
+        "status": "SCORED",
+        "trial_id": "baseline_auto_tiny",
+        "candidate_id": "baseline_lock",
+        "split": "public_val_small",
+        "official_benchmark_result": True,
+        "primary_metric": "best_val_calpha_lddt",
+        "scorer_version": "calpha_lddt_v1",
+        "max_templates": 0,
+        "manifests": {"train_tiny": SHA, "public_val_small": SHA},
+        "label_hashes": {"public_val_small": SHA},
+        "metrics": {"best_val_calpha_lddt": score},
+        "fold_cartographer": {"signature": "baseline_locked", "summary": {}, "buckets": {}},
+        "artifacts": {"metrics_json": "runs/baseline/metrics.json"},
+    }
+    (baseline / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    (baseline / "error_report.json").write_text(json.dumps({"scorer_only": True}), encoding="utf-8")
+    (baseline / "feature_fingerprints.json").write_text(
+        json.dumps(
+            {
+                "files": {
+                    "features/train_tiny.arrow": SHA,
+                    "features/public_val_small.arrow": SHA,
+                },
+                "max_templates": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _llm_candidate_payload(*, changed_paths: list[str] | None = None) -> dict[str, object]:
@@ -602,7 +680,7 @@ def test_manual_autoresearch_plan_refuses_bad_config_path_and_locked_label_patch
         )
 
 
-def test_autoresearch_loop_modal_uses_trusted_client_and_records_training_evidence(tmp_path: Path) -> None:
+def test_autoresearch_loop_modal_scores_after_training_and_records_scorer_fail(tmp_path: Path) -> None:
     client = FakeTrustedAutoresearchClient(_short_training_manifest("T130"))
 
     result = run_autoresearch_loop(
@@ -626,6 +704,7 @@ def test_autoresearch_loop_modal_uses_trusted_client_and_records_training_eviden
     assert client.submitted_trials[0]["runner_mode"] == "short_training"
     assert client.submitted_trials[0]["features_path"] == "nanofold_event_small_no_templates.arrow"
     assert client.submitted_trials[0]["short_training_approval"] == "I_APPROVE_SHORT_TRAINING_TRIAL"
+    assert client.scored_trials == ["T130"]
     run_manifest = json.loads((tmp_path / "runs/autoresearch/live/run_manifest.json").read_text(encoding="utf-8"))
     assert run_manifest["live_modal_execution"] is True
     assert run_manifest["starts_search"] is True
@@ -634,14 +713,51 @@ def test_autoresearch_loop_modal_uses_trusted_client_and_records_training_eviden
     assert training_manifest["status"] == "SHORT_TRAINING_READY"
     summary = json.loads((tmp_path / "runs/autoresearch/live/summary.json").read_text(encoding="utf-8"))
     candidate = summary["candidates"][0]
-    assert candidate["status"] == "DRAFT"
-    assert candidate["execution_status"] == "SHORT_TRAINING_READY"
-    assert candidate["benchmark_decision"] == "NOT_SCORED"
+    assert candidate["status"] == "FAIL"
+    assert candidate["execution_status"] == "FAIL"
+    assert candidate["training_status"] == "SHORT_TRAINING_READY"
+    assert candidate["training_manifest_path"] == str(candidate_dir / "training_manifest.json")
     assert candidate["official_benchmark_result"] is False
-    assert not (candidate_dir / "decision.json").exists()
+    assert json.loads((candidate_dir / "decision.json").read_text(encoding="utf-8"))["status"] == "FAIL"
+    assert json.loads((candidate_dir / "error_report.json").read_text(encoding="utf-8"))["error_report"]["failure_signature"] == "prediction_artifact_missing"
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
     assert not (tmp_path / "runs/baseline").exists()
+
+
+def test_autoresearch_loop_modal_writes_artifact_only_decision_for_scored_candidate(tmp_path: Path) -> None:
+    _write_baseline_lock(tmp_path, score=0.08)
+    client = FakeTrustedAutoresearchClient(_short_training_manifest("T130"), _scored_metrics_payload("T130", score=0.09))
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="live-scored",
+        mode="modal",
+        planner="deterministic",
+        start_trial_id="T130",
+        max_candidates=1,
+        approval=APPROVAL_TEXT,
+        modal_client=client,
+    )
+
+    assert result.status == "PASS"
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = tmp_path / "runs/autoresearch/live-scored/candidates/T130"
+    decision = json.loads((candidate_dir / "decision.json").read_text(encoding="utf-8"))
+    assert decision["status"] == "KEEP"
+    assert decision["official_benchmark_result"] is False
+    assert decision["global_baseline_delta"] == pytest.approx(0.01)
+    metrics = json.loads((candidate_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["comparison"]["provisional_keep"] is True
+    summary = json.loads((tmp_path / "runs/autoresearch/live-scored/summary.json").read_text(encoding="utf-8"))
+    candidate = summary["candidates"][0]
+    assert candidate["status"] == "KEEP"
+    assert candidate["training_status"] == "SHORT_TRAINING_READY"
+    assert candidate["training_manifest_path"] == str(candidate_dir / "training_manifest.json")
+    assert candidate["official_benchmark_result"] is False
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
 
 
 def test_autoresearch_loop_modal_records_terminal_fail_without_ledger(tmp_path: Path) -> None:

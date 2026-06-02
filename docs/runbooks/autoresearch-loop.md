@@ -221,11 +221,13 @@ python3 -m autoalphafold3.agent autoresearch-loop \
 
 This implemented live path is intentionally narrow: it plans exactly one
 training candidate, submits it through the deployed Modal
-`TrustedOrchestrator`, polls the returned worker call id, and writes only local
-autoresearch candidate artifacts. It does not write the canonical ledger or
-Discovery Ledger. If the worker returns short-training-only evidence, the
-candidate remains `DRAFT` with `benchmark_decision=NOT_SCORED`; it is not a
-`KEEP`/`DISCARD` benchmark decision.
+`TrustedOrchestrator`, polls the returned worker call id, invokes the deployed
+scorer-only worker, and writes only local autoresearch candidate artifacts. It
+does not write the canonical ledger or Discovery Ledger. If the scorer returns
+`SCORED`, the loop writes artifact-only metrics and a provisional `KEEP` or
+`DISCARD` decision. If the scorer returns `FAIL` because required prediction
+artifacts are missing or invalid, the loop records a local candidate
+`error_report.json` and terminal `decision.json` instead of fabricating a score.
 
 LLM-authored candidates for the same path still require a recorded one-candidate
 plan and the same exact approval token:

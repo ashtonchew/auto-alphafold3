@@ -12,6 +12,8 @@ from autoalphafold3 import agent
 from autoalphafold3.autoresearch_loop import (
     APPROVAL_TEXT,
     AutoresearchCandidatePlan,
+    DeployedTrustedAutoresearchClient,
+    MODAL_WORKER_RESULT_TIMEOUT_S,
     AutoresearchLoopError,
     run_autoresearch_loop,
 )
@@ -705,6 +707,50 @@ def test_autoresearch_loop_modal_reexecs_through_repo_venv_when_needed(tmp_path:
     )
 
     assert reexec == [str(venv_python), "-m", "autoalphafold3.agent", "autoresearch-loop", "--mode", "modal"]
+
+
+def test_deployed_trusted_autoresearch_client_waits_for_worker_result() -> None:
+    class FakeSubmit:
+        def remote(self, trial: dict[str, object]) -> dict[str, object]:
+            assert trial["trial_id"] == "T130"
+            return {"status": "SUBMITTED", "artifacts": {"worker_call_id": "fc-123"}}
+
+    class FakeOrchestrator:
+        submit_trial = FakeSubmit()
+
+    class FakeCls:
+        @staticmethod
+        def from_name(app_name: str, class_name: str, environment_name: str | None = None) -> type[FakeOrchestrator]:
+            assert app_name == "autoalphafold3-modal"
+            assert class_name == "TrustedOrchestrator"
+            assert environment_name == "main"
+            return FakeOrchestrator
+
+    class FakeCall:
+        timeout: int | None = None
+
+        def get(self, *, timeout: int) -> dict[str, object]:
+            FakeCall.timeout = timeout
+            return _short_training_manifest("T130")
+
+    class FakeFunctionCall:
+        @staticmethod
+        def from_id(object_id: str) -> FakeCall:
+            assert object_id == "fc-123"
+            return FakeCall()
+
+    class FakeModal:
+        Cls = FakeCls
+        FunctionCall = FakeFunctionCall
+
+    client = DeployedTrustedAutoresearchClient.__new__(DeployedTrustedAutoresearchClient)
+    client.environment_name = "main"
+    client._modal = FakeModal
+
+    payload = client.submit_and_poll_trial({"trial_id": "T130"})
+
+    assert payload["status"] == "SHORT_TRAINING_READY"
+    assert FakeCall.timeout == MODAL_WORKER_RESULT_TIMEOUT_S
 
 
 def test_autoresearch_loop_cli_dry_run_is_structured_json(tmp_path: Path) -> None:

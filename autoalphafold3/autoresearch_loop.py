@@ -41,6 +41,7 @@ from autoalphafold3.short_training import short_training_payload
 from autoalphafold3.short_training_runner import DEFAULT_MODAL_FEATURES_PATH
 
 APPROVAL_TEXT = "I_APPROVE_AUTORESEARCH_LIVE_SEARCH"
+MODAL_WORKER_RESULT_TIMEOUT_S = 900
 FORBIDDEN_TRUE_PLAN_FLAGS = {
     "official_benchmark_result",
     "writes_baseline",
@@ -307,7 +308,7 @@ class DeployedTrustedAutoresearchClient:
             raise AutoresearchLoopError("TrustedOrchestrator.submit_trial returned a non-object payload")
         worker_call_id = _worker_call_id(submitted)
         call = self._modal.FunctionCall.from_id(worker_call_id)
-        payload = call.get(timeout=0)
+        payload = call.get(timeout=MODAL_WORKER_RESULT_TIMEOUT_S)
         if not isinstance(payload, dict):
             raise AutoresearchLoopError("trusted-orchestrator worker call returned a non-object payload")
         return payload

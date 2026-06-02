@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,19 @@ class ArtifactSideSummary:
 
 
 @dataclass(frozen=True)
+class TargetCoordinateDelta:
+    """Coordinate-distance summary for one shared target."""
+
+    target_id: str
+    left_residue_count: int
+    right_residue_count: int
+    comparable_residue_count: int
+    mean_abs_coordinate_delta: float | None
+    max_abs_coordinate_delta: float | None
+    rmsd: float | None
+
+
+@dataclass(frozen=True)
 class PredictionArtifactComparison:
     """JSON-friendly comparison between two prediction artifacts."""
 
@@ -51,6 +65,8 @@ class PredictionArtifactComparison:
     changed_targets: list[str]
     all_common_predictions_identical: bool
     all_predictions_identical: bool
+    coordinate_deltas: dict[str, TargetCoordinateDelta]
+    coordinate_delta_summary: dict[str, object]
     metric_deltas: dict[str, float] | None
 
     def to_dict(self) -> dict[str, object]:
@@ -86,6 +102,7 @@ def compare_prediction_artifacts(
     common = sorted(left_targets & right_targets)
     identical = [target for target in common if left_summary.target_hashes[target] == right_summary.target_hashes[target]]
     changed = [target for target in common if left_summary.target_hashes[target] != right_summary.target_hashes[target]]
+    coordinate_deltas = _coordinate_deltas(left_payload, right_payload, common)
     metric_deltas = _metric_deltas(left_summary.metrics, right_summary.metrics)
     same_target_set = left_targets == right_targets
     all_common_identical = len(identical) == len(common)
@@ -103,6 +120,8 @@ def compare_prediction_artifacts(
         changed_targets=changed,
         all_common_predictions_identical=all_common_identical,
         all_predictions_identical=same_target_set and all_common_identical,
+        coordinate_deltas=coordinate_deltas,
+        coordinate_delta_summary=_coordinate_delta_summary(coordinate_deltas),
         metric_deltas=metric_deltas,
     )
 
@@ -160,6 +179,98 @@ def _target_hashes(predictions: list[object]) -> dict[str, str]:
         target_id = str(prediction["target_id"])
         hashes[target_id] = _sha256_json(prediction)
     return hashes
+
+
+def _coordinate_deltas(
+    left_payload: dict[str, object],
+    right_payload: dict[str, object],
+    common_targets: list[str],
+) -> dict[str, TargetCoordinateDelta]:
+    left_by_target = _predictions_by_target(left_payload)
+    right_by_target = _predictions_by_target(right_payload)
+    return {
+        target_id: _target_coordinate_delta(target_id, left_by_target[target_id], right_by_target[target_id])
+        for target_id in common_targets
+    }
+
+
+def _predictions_by_target(payload: dict[str, object]) -> dict[str, dict[str, object]]:
+    predictions = payload["predictions"]
+    assert isinstance(predictions, list)
+    by_target: dict[str, dict[str, object]] = {}
+    for prediction in predictions:
+        assert isinstance(prediction, dict)
+        by_target[str(prediction["target_id"])] = prediction
+    return by_target
+
+
+def _target_coordinate_delta(
+    target_id: str,
+    left_prediction: dict[str, object],
+    right_prediction: dict[str, object],
+) -> TargetCoordinateDelta:
+    left = _coordinates(left_prediction)
+    right = _coordinates(right_prediction)
+    comparable = min(len(left), len(right))
+    if comparable == 0 or len(left) != len(right):
+        return TargetCoordinateDelta(
+            target_id=target_id,
+            left_residue_count=len(left),
+            right_residue_count=len(right),
+            comparable_residue_count=comparable,
+            mean_abs_coordinate_delta=None,
+            max_abs_coordinate_delta=None,
+            rmsd=None,
+        )
+    abs_deltas: list[float] = []
+    squared_residue_distances: list[float] = []
+    for left_xyz, right_xyz in zip(left, right, strict=True):
+        squared = 0.0
+        for left_coord, right_coord in zip(left_xyz, right_xyz, strict=True):
+            delta = float(right_coord) - float(left_coord)
+            abs_deltas.append(abs(delta))
+            squared += delta * delta
+        squared_residue_distances.append(squared)
+    return TargetCoordinateDelta(
+        target_id=target_id,
+        left_residue_count=len(left),
+        right_residue_count=len(right),
+        comparable_residue_count=comparable,
+        mean_abs_coordinate_delta=sum(abs_deltas) / len(abs_deltas),
+        max_abs_coordinate_delta=max(abs_deltas),
+        rmsd=math.sqrt(sum(squared_residue_distances) / len(squared_residue_distances)),
+    )
+
+
+def _coordinates(prediction: dict[str, object]) -> list[list[float]]:
+    coordinates = prediction["predicted_ca"]
+    assert isinstance(coordinates, list)
+    return [[float(coord) for coord in xyz] for xyz in coordinates if isinstance(xyz, list)]
+
+
+def _coordinate_delta_summary(deltas: dict[str, TargetCoordinateDelta]) -> dict[str, object]:
+    comparable = [delta for delta in deltas.values() if delta.rmsd is not None]
+    mismatched = [
+        delta.target_id
+        for delta in deltas.values()
+        if delta.left_residue_count != delta.right_residue_count or delta.rmsd is None
+    ]
+    rmsds = [float(delta.rmsd) for delta in comparable if delta.rmsd is not None]
+    mean_abs_values = [
+        float(delta.mean_abs_coordinate_delta)
+        for delta in comparable
+        if delta.mean_abs_coordinate_delta is not None
+    ]
+    return {
+        "target_count": len(deltas),
+        "comparable_target_count": len(comparable),
+        "residue_count_mismatch_targets": sorted(mismatched),
+        "mean_target_rmsd": sum(rmsds) / len(rmsds) if rmsds else None,
+        "max_target_rmsd": max(rmsds) if rmsds else None,
+        "mean_target_mean_abs_coordinate_delta": sum(mean_abs_values) / len(mean_abs_values)
+        if mean_abs_values
+        else None,
+    }
 
 
 def _metric_deltas(

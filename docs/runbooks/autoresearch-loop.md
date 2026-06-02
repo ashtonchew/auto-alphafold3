@@ -293,9 +293,14 @@ python3 -m autoalphafold3.agent compare-predictions \
 
 The comparison report is diagnostic evidence only. It does not score a
 candidate, write the canonical ledger, write the Discovery Ledger, or create an
-official benchmark result. If `all_predictions_identical=true`, pause live
-trial-budget autoresearch and diagnose stale artifacts, sampler determinism, or
-candidate patch ineffectiveness before launching another candidate.
+official benchmark result. It includes artifact hashes, per-target prediction
+hashes, optional metric deltas, and target-level coordinate deltas such as RMSD
+and mean absolute coordinate shift. If `all_predictions_identical=true`, pause
+live trial-budget autoresearch and diagnose stale artifacts, sampler
+determinism, or candidate patch ineffectiveness before launching another
+candidate. If predictions differ but metric deltas remain exactly zero, inspect
+the coordinate-delta summary before deciding whether the scorer is saturated or
+the candidate is only moving already-failed geometry.
 
 ## Review And UI Render
 

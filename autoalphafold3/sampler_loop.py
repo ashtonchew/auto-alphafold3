@@ -18,6 +18,7 @@ from autoalphafold3.orchestrator import DEFAULT_KEEP_DELTA, decide_stage_one_res
 from autoalphafold3.schema import AutoFoldResult, AutoFoldTrial, FoldCartographerReport, PRIMARY_METRIC, TrialStatus
 
 APPROVAL_TEXT = "I_APPROVE_AUTONOMOUS_SAMPLER_LOOP"
+SAMPLER_STRATEGY_REGRESSION_LIMIT = 3
 
 _PLANNER_SYSTEM_PROMPT = """You are the NanoFold-style AlphaFold3-lite sampler planner.
 Return exactly one JSON plan matching the provided schema.
@@ -120,6 +121,7 @@ class SamplerPlanner(Protocol):
         prior_decisions: list[dict[str, object]],
         global_current_best: dict[str, object],
         search_reference: dict[str, object],
+        strategy_context: dict[str, object],
     ) -> SamplerCandidatePlan:
         """Plan the next sampler candidate from observed loop state."""
 
@@ -222,6 +224,11 @@ def run_incremental_sampler_loop(
 
     for index in range(max_candidates):
         trial_id = f"T{next_id + index:03d}"
+        strategy_context = _sampler_strategy_context(
+            root=root,
+            ledger_path=ledger_path,
+            prior_decisions=decisions,
+        )
         try:
             plan = active_planner.plan(
                 seed_trial=seed,
@@ -230,9 +237,11 @@ def run_incremental_sampler_loop(
                 prior_decisions=decisions,
                 global_current_best=global_current_best,
                 search_reference=search_reference,
+                strategy_context=strategy_context,
             )
         except Exception as exc:  # noqa: BLE001 - invalid autonomous plans must stop before submit.
             raise SamplerLoopError(f"planner failed for {trial_id}: {exc}") from exc
+        _validate_strategy_gate(plan=plan, strategy_context=strategy_context)
         trial = _candidate_trial(seed, trial_id=trial_id, plan=plan)
         AutoFoldTrial.model_validate(trial)
         trial_path = out / f"{trial_id}.json"
@@ -259,6 +268,7 @@ def run_incremental_sampler_loop(
                     "reason": "dry-run generated candidate only",
                     "global_current_best": global_current_best,
                     "search_reference": search_reference,
+                    "strategy_context": strategy_context,
                 }
             )
             continue
@@ -322,6 +332,7 @@ def run_incremental_sampler_loop(
                     "worker_status": manifest.get("status"),
                     "num_failed_targets": scored.metrics.get("num_failed_targets"),
                     "fold_cartographer": _compact_fold_cartographer(scored.fold_cartographer),
+                    "strategy_context": strategy_context,
                     **comparisons,
                 }
             )
@@ -420,6 +431,7 @@ class DeterministicSamplerPlanner:
         prior_decisions: list[dict[str, object]],
         global_current_best: dict[str, object],
         search_reference: dict[str, object],
+        strategy_context: dict[str, object],
     ) -> SamplerCandidatePlan:
         sampler_steps = _next_sampler_steps(candidate_index, prior_decisions)
         noise_scale, step_scale, schedule_shape, num_samples, selection_policy = _deterministic_sampler_knobs(
@@ -449,7 +461,8 @@ class DeterministicSamplerPlanner:
             rationale=(
                 f"Global best is {global_current_best.get('score')}; "
                 f"search reference is {search_reference.get('score')}; "
-                f"prior decisions count is {len(prior_decisions)}."
+                f"prior decisions count is {len(prior_decisions)}; "
+                f"strategy recommendation is {strategy_context.get('recommendation')}."
             ),
         )
 
@@ -466,6 +479,7 @@ class ReferenceSweepSamplerPlanner:
         prior_decisions: list[dict[str, object]],
         global_current_best: dict[str, object],
         search_reference: dict[str, object],
+        strategy_context: dict[str, object],
     ) -> SamplerCandidatePlan:
         sampler_steps, noise_scale, step_scale, schedule_shape, num_samples, selection_policy = (
             _reference_sweep_sampler_knobs(candidate_index)
@@ -498,6 +512,7 @@ class ReferenceSweepSamplerPlanner:
                 f"Search reference {reference_trial} has score {reference_score}; "
                 f"global best is {global_current_best.get('score')}; "
                 f"prior decisions count is {len(prior_decisions)}. "
+                f"Strategy recommendation is {strategy_context.get('recommendation')}. "
                 "Run a deterministic local sweep before spending a full one-hour search window."
             ),
         )
@@ -519,6 +534,7 @@ class OpenAISamplerPlanner:
         prior_decisions: list[dict[str, object]],
         global_current_best: dict[str, object],
         search_reference: dict[str, object],
+        strategy_context: dict[str, object],
     ) -> SamplerCandidatePlan:
         try:
             from openai import OpenAI
@@ -536,6 +552,7 @@ class OpenAISamplerPlanner:
                     prior_decisions=prior_decisions,
                     global_current_best=global_current_best,
                     search_reference=search_reference,
+                    strategy_context=strategy_context,
                     model=self.model,
                 )
             raise
@@ -547,6 +564,7 @@ class OpenAISamplerPlanner:
             prior_decisions=prior_decisions,
             global_current_best=global_current_best,
             search_reference=search_reference,
+            strategy_context=strategy_context,
         )
         kwargs = self.policy.to_responses_create_kwargs()
         try:
@@ -576,6 +594,7 @@ class OpenAISamplerPlanner:
                     prior_decisions=prior_decisions,
                     global_current_best=global_current_best,
                     search_reference=search_reference,
+                    strategy_context=strategy_context,
                     model=self.model,
                 )
             raise
@@ -799,6 +818,182 @@ def _candidate_comparisons(
     }
 
 
+def _sampler_strategy_context(
+    *,
+    root: Path,
+    ledger_path: str | Path,
+    prior_decisions: list[dict[str, object]],
+) -> dict[str, object]:
+    ceiling = _sampler_family_ceiling(root=root, ledger_path=ledger_path)
+    context: dict[str, object] = {
+        "schema_version": "autoaf3.sampler_strategy_context.v1",
+        "status": "active",
+        "sampler_family_ceiling": ceiling,
+        "regression_limit": SAMPLER_STRATEGY_REGRESSION_LIMIT,
+        "recommendation": "continue_sampler_search",
+        "blocked_neighborhood": None,
+        "evidence": [],
+    }
+    ceiling_score = _maybe_float(ceiling.get("score"))
+    ceiling_trial_id = ceiling.get("trial_id") if isinstance(ceiling.get("trial_id"), str) else None
+    if ceiling_score is None or ceiling_trial_id is None:
+        context["status"] = "insufficient_evidence"
+        context["reason"] = "sampler_family_ceiling_unavailable"
+        return context
+
+    all_target_regressions = _all_target_regression_index(root=root, reference_trial_id=ceiling_trial_id)
+    evidence: list[dict[str, object]] = []
+    for row in prior_decisions:
+        trial_id = row.get("trial_id")
+        score = _maybe_float(row.get("score"))
+        if not isinstance(trial_id, str) or score is None:
+            continue
+        delta = score - ceiling_score
+        if delta >= 0 or not _is_t088_neighborhood_row(row):
+            continue
+        regression = all_target_regressions.get(trial_id)
+        evidence.append(
+            {
+                "trial_id": trial_id,
+                "score": score,
+                "delta_vs_sampler_family_ceiling": delta,
+                "sampler_steps": row.get("sampler_steps"),
+                "sampler_noise_scale": row.get("sampler_noise_scale"),
+                "sampler_step_scale": row.get("sampler_step_scale"),
+                "sampler_schedule_shape": row.get("sampler_schedule_shape"),
+                "sampler_num_samples": row.get("sampler_num_samples"),
+                "sampler_selection_policy": row.get("sampler_selection_policy"),
+                "all_target_regression_vs_ceiling": bool(regression),
+                "scorer_sensitivity_report": regression.get("report_path") if isinstance(regression, dict) else None,
+            }
+        )
+
+    context["evidence"] = evidence[-SAMPLER_STRATEGY_REGRESSION_LIMIT:]
+    all_target_count = sum(1 for row in evidence if row.get("all_target_regression_vs_ceiling") is True)
+    score_regression_count = len(evidence)
+    context["score_regression_count"] = score_regression_count
+    context["all_target_regression_count"] = all_target_count
+    if all_target_count >= SAMPLER_STRATEGY_REGRESSION_LIMIT:
+        context["recommendation"] = "stop_t088_neighborhood"
+        context["blocked_neighborhood"] = "late_refine_compact_geometry_near_t088"
+        context["reason"] = "repeated_all_target_regression_against_sampler_family_ceiling"
+        context["required_pivot"] = (
+            "Do not propose another late-refine compact/geometry T088-neighborhood sampler tweak. "
+            "Choose a distinct sampler mechanism outside this neighborhood, or leave sampler-only "
+            "search for a model-capacity/training-horizon diagnostic."
+        )
+    elif score_regression_count >= SAMPLER_STRATEGY_REGRESSION_LIMIT:
+        context["recommendation"] = "avoid_t088_neighborhood"
+        context["blocked_neighborhood"] = "late_refine_compact_geometry_near_t088"
+        context["reason"] = "repeated_score_regression_against_sampler_family_ceiling"
+        context["required_pivot"] = (
+            "Avoid another local T088-neighborhood sampler tweak unless new scorer-sensitivity "
+            "evidence contradicts the score regressions."
+        )
+    return context
+
+
+def _sampler_family_ceiling(*, root: Path, ledger_path: str | Path) -> dict[str, object]:
+    ledger = root / ledger_path
+    if not ledger.exists():
+        return {"status": "unavailable", "reason": "ledger_missing"}
+    best: AutoFoldResult | None = None
+    best_score: float | None = None
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = AutoFoldResult.model_validate(json.loads(line))
+        except Exception:
+            continue
+        if not str(row.candidate_id).endswith("_sampler"):
+            continue
+        score = _score(row)
+        if score is None:
+            continue
+        if best_score is None or score > best_score:
+            best = row
+            best_score = score
+    if best is None or best_score is None:
+        return {"status": "unavailable", "reason": "sampler_rows_missing"}
+    return {
+        "status": "available",
+        "trial_id": best.trial_id,
+        "candidate_id": best.candidate_id,
+        "score": best_score,
+        "interpretation": "best sampler-family result in the local ledger; not a discovery baseline",
+    }
+
+
+def _all_target_regression_index(*, root: Path, reference_trial_id: str) -> dict[str, dict[str, object]]:
+    reports_dir = root / "runs" / "autoresearch" / "scorer_sensitivity"
+    if not reports_dir.exists():
+        return {}
+    index: dict[str, dict[str, object]] = {}
+    for path in sorted(reports_dir.glob(f"{reference_trial_id}-vs-*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if payload.get("reference_trial_id") != reference_trial_id:
+            continue
+        deltas = payload.get("per_target_score_deltas_vs_reference")
+        if not isinstance(deltas, dict):
+            continue
+        for trial_id, per_target in deltas.items():
+            if not isinstance(trial_id, str) or not isinstance(per_target, dict) or not per_target:
+                continue
+            numeric = [float(value) for value in per_target.values() if isinstance(value, int | float)]
+            if numeric and len(numeric) == len(per_target) and all(value < 0 for value in numeric):
+                index[trial_id] = {
+                    "report_path": str(path),
+                    "target_count": len(numeric),
+                    "min_delta": min(numeric),
+                    "max_delta": max(numeric),
+                }
+    return index
+
+
+def _is_t088_neighborhood_row(row: dict[str, object]) -> bool:
+    steps = _maybe_float(row.get("sampler_steps"))
+    noise = _maybe_float(row.get("sampler_noise_scale"))
+    step_scale = _maybe_float(row.get("sampler_step_scale"))
+    schedule = row.get("sampler_schedule_shape")
+    selection = row.get("sampler_selection_policy")
+    if steps is None or noise is None or step_scale is None:
+        return False
+    return (
+        schedule == "late_refine"
+        and selection in {"compact_geometry", "geometry"}
+        and steps >= 8
+        and noise <= 0.9
+        and step_scale >= 1.2
+    )
+
+
+def _is_t088_neighborhood_plan(plan: SamplerCandidatePlan) -> bool:
+    return (
+        plan.sampler_schedule_shape == "late_refine"
+        and plan.sampler_selection_policy in {"compact_geometry", "geometry"}
+        and plan.sampler_steps >= 8
+        and plan.sampler_noise_scale <= 0.9
+        and plan.sampler_step_scale >= 1.2
+    )
+
+
+def _validate_strategy_gate(*, plan: SamplerCandidatePlan, strategy_context: dict[str, object]) -> None:
+    if (
+        strategy_context.get("recommendation") == "stop_t088_neighborhood"
+        and _is_t088_neighborhood_plan(plan)
+    ):
+        ceiling = strategy_context.get("sampler_family_ceiling")
+        ceiling_trial = ceiling.get("trial_id") if isinstance(ceiling, dict) else "UNKNOWN"
+        raise SamplerLoopError(
+            "sampler strategy gate blocks another late-refine compact/geometry T088-neighborhood "
+            f"candidate after repeated all-target regressions against {ceiling_trial}"
+        )
+
+
 def _prior_decisions_from_ledger(
     *,
     root: Path,
@@ -856,8 +1051,29 @@ def _prior_decisions_from_ledger(
         if row.trial_id in canonical:
             decision.update(canonical[row.trial_id])
             decision["continuation_source"] = "ledger+canonical_sampler_smoke"
+        decision.update(_trial_sampler_knobs(root=root, trial_id=row.trial_id))
         decisions.append(decision)
     return decisions
+
+
+def _trial_sampler_knobs(*, root: Path, trial_id: str) -> dict[str, object]:
+    path = root / "trials" / f"{trial_id}.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    keys = {
+        "sampler_steps",
+        "sampler_noise_scale",
+        "sampler_step_scale",
+        "sampler_schedule_shape",
+        "sampler_num_samples",
+        "sampler_selection_policy",
+        "seed",
+    }
+    return {key: payload[key] for key in keys if key in payload}
 
 
 def _canonical_sampler_smoke_index(root: Path) -> dict[str, dict[str, object]]:
@@ -953,6 +1169,7 @@ def _planner_prompt(
     prior_decisions: list[dict[str, object]],
     global_current_best: dict[str, object],
     search_reference: dict[str, object],
+    strategy_context: dict[str, object] | None = None,
 ) -> str:
     payload = {
         "task": "Plan the next single sampler-only candidate. Do not plan a batch.",
@@ -960,6 +1177,7 @@ def _planner_prompt(
         "candidate_index": candidate_index,
         "global_current_best": global_current_best,
         "search_reference": search_reference,
+        "strategy_context": strategy_context or {},
         "seed_trial": {
             "trial_kind": seed_trial.get("trial_kind"),
             "move_family": seed_trial.get("move_family"),
@@ -1020,6 +1238,7 @@ def _plan_with_modal_harness_secret(
     prior_decisions: list[dict[str, object]],
     global_current_best: dict[str, object],
     search_reference: dict[str, object],
+    strategy_context: dict[str, object],
     model: str,
 ) -> SamplerCandidatePlan:
     try:
@@ -1036,6 +1255,7 @@ def _plan_with_modal_harness_secret(
         "prior_decisions": prior_decisions[-20:],
         "global_current_best": global_current_best,
         "search_reference": search_reference,
+        "strategy_context": strategy_context,
         "model": model,
     }
     orchestrator = modal.Cls.from_name(APP_NAME, TRUSTED_ORCHESTRATOR_CLASS)()

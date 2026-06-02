@@ -149,6 +149,16 @@ results must go through the Falsification Gate.
 The loop stops when it reaches `--max-candidates` or when repeated live failures
 hit `--failure-streak-limit`. It does not keep retrying indefinitely.
 
+The loop also computes a sampler strategy context before each planner turn. It
+finds the best sampler-family result in the local ledger and checks recent
+prior sampler decisions against scorer-sensitivity reports. If at least three
+late-refine compact/geometry neighborhood candidates all regress against that
+sampler-family ceiling on every scored target, the strategy gate blocks another
+candidate from that same neighborhood before writing a trial file. The next
+planner turn must pivot to a distinct sampler mechanism outside the exhausted
+neighborhood or leave sampler-only search for a model-capacity/training-horizon
+diagnostic.
+
 The loop never writes the Discovery Ledger. A stage-one `KEEP` is provisional
 and must still pass the Falsification Gate before any discovery claim.
 

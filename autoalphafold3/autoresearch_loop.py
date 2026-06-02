@@ -8,7 +8,7 @@ import re
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -84,6 +84,118 @@ class AutoresearchPlanner(Protocol):
         """Return one structured autoresearch candidate."""
 
 
+class EmptyManifestHashes(BaseModel):
+    """Strict empty object for early smoke candidates with no manifest hash claims."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PlannerConfigPayload(BaseModel):
+    """Strict NanoFold config payload schema accepted from the LLM planner."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: str
+    device: str
+    use_amp: bool
+    detect_anomaly: bool
+    compile_model: bool
+    use_grad_checkpoint: bool
+    train_split: float
+    residue_crop_size: int
+    num_recycle: int
+    single_embedding_size: int
+    pair_embedding_size: int
+    input_atom_embedding_size: int
+    input_atom_pair_embedding_size: int
+    input_token_embedding_size: int
+    position_bins: int
+    num_atom_transformer_blocks: int
+    num_atom_transformer_heads: int
+    num_atom_transformer_queries: int
+    num_atom_transformer_keys: int
+    product_embedding_size: int
+    num_msa: int
+    num_msa_samples: int
+    num_msa_blocks: int
+    msa_embedding_size: int
+    msa_averaging_embedding_size: int
+    num_msa_heads: int
+    msa_transition_multiplier: int
+    num_triangular_update_channels: int
+    num_triangular_attention_channels: int
+    num_triangular_attention_heads: int
+    num_template_blocks: int
+    max_templates: int = Field(ge=0, le=0)
+    template_embedding_size: int
+    num_pairformer_blocks: int
+    num_pair_heads: int
+    pairformer_transition_multiplier: int
+    diffusion_steps: int
+    diffusion_batch_size: int
+    atom_embedding_size: int
+    atom_pair_embedding_size: int
+    token_embedding_size: int
+    num_diffusion_transformer_blocks: int
+    num_diffusion_transformer_heads: int
+    fourier_embedding_size: int
+    num_distogram_bins: int
+    clip_norm: float
+    learning_rate: float
+    beta1: float
+    beta2: float
+    optimizer_eps: float
+    lr_start_factor: float
+    lr_warmup: int
+    diffusion_loss_weight: float = Field(ge=0)
+    dist_loss_weight: float = Field(ge=0)
+    distogram_loss_weight: float = Field(ge=0)
+    local_calpha_geometry_loss_weight: float = Field(ge=0)
+
+
+class PlannerConfigSummary(BaseModel):
+    """Strict candidate config summary emitted beside the executable trial."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    config_path: str
+    max_templates: int = Field(ge=0, le=0)
+    learning_rate: float
+    local_calpha_geometry_loss_weight: float
+
+
+class PlannerTrial(BaseModel):
+    """Strict LLM-authored training trial shape for one smoke candidate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trial_id: str = Field(pattern=r"^T[0-9]{3,}$")
+    parent_commit: str = Field(min_length=1)
+    agent_session_id: str = Field(min_length=1)
+    trial_kind: Literal["training"]
+    hypothesis: str = Field(min_length=20)
+    move_family: MoveFamily
+    diagnostic_target: DiagnosticTarget
+    prediction: RegisteredPrediction
+    patch_path: None
+    config_path: str
+    config_payload: PlannerConfigPayload
+    budget: Literal["smoke"]
+    seed: int = Field(ge=0)
+    n_res: int = Field(ge=1)
+    max_steps: int = Field(ge=1, le=10)
+    max_wall_minutes: int = Field(ge=1, le=5)
+    manifest_hashes: EmptyManifestHashes
+    scorer_version: Literal["calpha_lddt_v1"]
+    primary_metric: Literal["best_val_calpha_lddt"]
+    param_cap: int = Field(gt=0)
+    gpu_memory_cap: float = Field(gt=0)
+    cost_cap: float = Field(gt=0)
+    timeout_cap: int = Field(gt=0, le=300)
+    artifact_dir: str
+    checkpoint_path: None
+
+
 class TrustedAutoresearchClient(Protocol):
     """Injected trusted-orchestrator client seam for live Modal autoresearch."""
 
@@ -100,9 +212,9 @@ class AutoresearchCandidatePlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     hypothesis: str = Field(min_length=20)
-    trial: dict[str, object]
+    trial: PlannerTrial
     changed_paths: list[str] = Field(min_length=1)
-    config: dict[str, object] | None = None
+    config: PlannerConfigSummary | None = None
     patch_text: str = ""
     rationale: str = Field(min_length=1)
 
@@ -115,13 +227,13 @@ class AutoresearchCandidatePlan(BaseModel):
 
     @model_validator(mode="after")
     def validate_one_move_contract(self) -> "AutoresearchCandidatePlan":
-        if not isinstance(self.trial.get("trial_id"), str):
+        if not self.trial.trial_id:
             raise ValueError("LLM candidate trial must include trial_id")
-        if not isinstance(self.trial.get("move_family"), str):
+        if not self.trial.move_family:
             raise ValueError("LLM candidate trial must include one move_family")
-        if not isinstance(self.trial.get("diagnostic_target"), str):
+        if not self.trial.diagnostic_target:
             raise ValueError("LLM candidate trial must include one diagnostic_target")
-        if self.config is not None and self.config.get("max_templates", 0) != 0:
+        if self.config is not None and self.config.max_templates != 0:
             raise ValueError("LLM candidate config must preserve max_templates=0")
         return self
 
@@ -748,23 +860,28 @@ def _llm_candidates(
             raise AutoresearchLoopError(f"LLM autoresearch planner failed: {exc}") from exc
     try:
         plan = AutoresearchCandidatePlan.model_validate(raw_plan)
-        AutoFoldTrial.model_validate(plan.trial)
+        trial_payload = plan.trial.model_dump(mode="json")
+        inline_config = trial_payload.get("config_payload")
+        if isinstance(inline_config, dict):
+            trial_payload["config_payload"] = {key: value for key, value in inline_config.items() if value is not None}
+        AutoFoldTrial.model_validate(trial_payload)
         validate_patch_scope(plan.changed_paths, repo_root=root, allow_empty=True)
     except (ValueError, PatchPolicyError) as exc:
         raise AutoresearchLoopError(f"invalid LLM autoresearch plan: {exc}") from exc
+    config_payload = plan.config.model_dump(mode="json", exclude_none=True) if plan.config is not None else None
     if plan.config is not None:
-        _refuse_plan_authority_claims(plan.config, "LLM config")
-        _refuse_template_config(plan.config)
+        _refuse_plan_authority_claims(config_payload, "LLM config")
+        _refuse_template_config(config_payload)
     patch_paths = _refuse_unsafe_patch_text(root=root, patch_text=plan.patch_text)
-    if plan.trial["trial_id"] != start_trial_id:
+    if trial_payload["trial_id"] != start_trial_id:
         raise AutoresearchLoopError("LLM candidate trial_id must match start_trial_id")
     if patch_paths != set(plan.changed_paths):
         raise AutoresearchLoopError("LLM patch_text paths must match changed_paths")
     return [
         {
             "hypothesis": plan.hypothesis,
-            "trial": plan.trial,
-            "config": plan.config,
+            "trial": trial_payload,
+            "config": config_payload,
             "patch_text": plan.patch_text,
         }
     ]
@@ -779,8 +896,8 @@ def _autoresearch_planner_prompt(
     base_commit: str,
     policy: dict[str, dict[str, object]],
 ) -> str:
-    base_config = _read_small_json(root / "configs" / "nanofold_dev_cpu_smoke.json")
-    local_geometry_config = _read_small_json(root / "configs" / "experiments" / "local_calpha_geometry_smoke.json")
+    base_config = _planner_reference_config(root / "configs" / "nanofold_dev_cpu_smoke.json")
+    local_geometry_config = _planner_reference_config(root / "configs" / "experiments" / "local_calpha_geometry_smoke.json")
     payload = {
         "task": "Plan the next single bounded autoresearch candidate. Do not plan a batch.",
         "run_id": run_id,
@@ -853,6 +970,15 @@ def _read_small_json(path: Path) -> dict[str, object]:
         return {}
     if not isinstance(payload, dict):
         return {}
+    return payload
+
+
+def _planner_reference_config(path: Path) -> dict[str, object]:
+    payload = _read_small_json(path)
+    payload.setdefault("diffusion_loss_weight", 4.0)
+    payload.setdefault("dist_loss_weight", 0.0)
+    payload.setdefault("distogram_loss_weight", 0.03)
+    payload.setdefault("local_calpha_geometry_loss_weight", 0.0)
     return payload
 
 

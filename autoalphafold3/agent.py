@@ -46,6 +46,10 @@ from autoalphafold3.post_exhaustion_strategy import (
     PostExhaustionStrategyError,
     design_post_exhaustion_strategy,
 )
+from autoalphafold3.post_smoke_strategy_review import (
+    PostSmokeStrategyReviewError,
+    review_post_smoke_strategy,
+)
 from autoalphafold3.prediction_geometry import PredictionGeometryError, audit_prediction_geometry
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.scorer_sensitivity import ScorerSensitivityError, run_scorer_sensitivity
@@ -267,6 +271,12 @@ def main(argv: list[str] | None = None) -> int:
     post_exhaustion_parser.add_argument("--bench-readiness-review", required=True)
     post_exhaustion_parser.add_argument("--strategy-exhaustion-audit", required=True)
     post_exhaustion_parser.add_argument("--output", default=None)
+
+    post_smoke_strategy_parser = subparsers.add_parser("post-smoke-strategy-review")
+    post_smoke_strategy_parser.add_argument("--repo-root", default=".")
+    post_smoke_strategy_parser.add_argument("--live-smoke-result-review", required=True)
+    post_smoke_strategy_parser.add_argument("--bench-readiness-review", required=True)
+    post_smoke_strategy_parser.add_argument("--output", default=None)
 
     evidence_bridge_parser = subparsers.add_parser("evidence-bridge-review")
     evidence_bridge_parser.add_argument("--repo-root", default=".")
@@ -776,6 +786,22 @@ def main(argv: list[str] | None = None) -> int:
                 strategy_exhaustion_audit=args.strategy_exhaustion_audit,
             )
         except PostExhaustionStrategyError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "post-smoke-strategy-review":
+        try:
+            result = review_post_smoke_strategy(
+                repo_root=args.repo_root,
+                live_smoke_result_review=args.live_smoke_result_review,
+                bench_readiness_review=args.bench_readiness_review,
+            )
+        except PostSmokeStrategyReviewError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

@@ -832,8 +832,11 @@ def test_autoresearch_loop_modal_runs_multiple_candidates_without_ledger(tmp_pat
     assert all(trial["predict_after_training"] is True for trial in client.submitted_trials)
     assert client.scored_trials == ["T130", "T131"]
     assert [decision["status"] for decision in result.decisions] == ["DISCARD", "KEEP"]
+    assert result.decisions[0]["matched_budget_delta"] is None
+    assert result.decisions[1]["matched_budget_delta"] == pytest.approx(0.02)
     summary = json.loads((tmp_path / "runs/autoresearch/live-two/summary.json").read_text(encoding="utf-8"))
     assert [candidate["status"] for candidate in summary["candidates"]] == ["DISCARD", "KEEP"]
+    assert summary["candidates"][1]["matched_budget_delta"] == pytest.approx(0.02)
     assert len(result.wrote_files) == len(set(result.wrote_files))
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()

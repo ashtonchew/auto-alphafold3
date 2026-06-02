@@ -214,6 +214,9 @@ class PlannerTrial(BaseModel):
 class TrustedAutoresearchClient(Protocol):
     """Injected trusted-orchestrator client seam for live Modal autoresearch."""
 
+    def authority_health(self) -> dict[str, object]:
+        """Return no-side-effect deployed authority health evidence."""
+
     def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
         """Submit one trial through the trusted orchestrator and poll the spawned worker."""
 
@@ -548,6 +551,11 @@ def _run_modal_candidate_smoke(
     if checked.trial_kind not in {TrialKind.TRAINING, TrialKind.SAMPLER}:
         raise AutoresearchLoopError("live autoresearch currently supports training and sampler candidates only")
     client = modal_client if modal_client is not None else DeployedTrustedAutoresearchClient(environment_name=modal_env)
+    if checked.sampler_coordinate_normalization == "ca_bond":
+        _require_deployed_runtime_capability(
+            client,
+            capability="post_training_sampler_coordinate_normalization",
+        )
     try:
         payload = client.submit_and_poll_trial(_modal_trial_payload(checked))
     except Exception as exc:  # noqa: BLE001 - normalize delegated runner failures.
@@ -595,6 +603,21 @@ def _run_modal_candidate_smoke(
     )
     scored["wrote_files"] = [*wrote_files, *scored["wrote_files"]]
     return scored
+
+
+def _require_deployed_runtime_capability(client: TrustedAutoresearchClient, *, capability: str) -> None:
+    """Require a deployed Modal authority marker before spending live trial budget."""
+
+    try:
+        payload = client.authority_health()
+    except Exception as exc:  # noqa: BLE001 - normalize delegated Modal lookup failures.
+        raise AutoresearchLoopError(f"live autoresearch could not verify Modal runtime capability {capability}: {exc}") from exc
+    capabilities = payload.get("runtime_capabilities")
+    if not isinstance(capabilities, dict) or capabilities.get(capability) is not True:
+        raise AutoresearchLoopError(
+            f"live autoresearch requires deployed Modal runtime capability {capability}; "
+            "redeploy the trusted orchestrator before rerunning this candidate"
+        )
 
 
 def _prior_autoresearch_outcomes(*, root: Path, prior_run_ids: list[str]) -> list[dict[str, object]]:
@@ -665,6 +688,18 @@ class DeployedTrustedAutoresearchClient:
         except ModuleNotFoundError as exc:
             raise AutoresearchLoopError("Modal SDK is required for live Modal autoresearch") from exc
         self._modal = modal
+
+    def authority_health(self) -> dict[str, object]:
+        orchestrator_cls = self._modal.Cls.from_name(
+            APP_NAME,
+            TRUSTED_ORCHESTRATOR_CLASS,
+            environment_name=self.environment_name,
+        )
+        orchestrator = orchestrator_cls()
+        payload = orchestrator.authority_health.remote()
+        if not isinstance(payload, dict):
+            raise AutoresearchLoopError("TrustedOrchestrator.authority_health returned a non-object payload")
+        return payload
 
     def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
         orchestrator_cls = self._modal.Cls.from_name(

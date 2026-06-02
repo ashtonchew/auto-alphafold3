@@ -38,8 +38,14 @@ class FakeTrustedAutoresearchClient:
     def __init__(self, payload: dict[str, object], score_payload: dict[str, object] | None = None) -> None:
         self.payload = payload
         self.score_payload = score_payload
+        self.authority_payload: dict[str, object] = {
+            "runtime_capabilities": {"post_training_sampler_coordinate_normalization": True}
+        }
         self.submitted_trials: list[dict[str, object]] = []
         self.scored_trials: list[str] = []
+
+    def authority_health(self) -> dict[str, object]:
+        return self.authority_payload
 
     def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
         self.submitted_trials.append(trial)
@@ -53,8 +59,14 @@ class FakeTrustedAutoresearchClient:
 class FakeSequencedTrustedAutoresearchClient:
     def __init__(self, scores: dict[str, float]) -> None:
         self.scores = scores
+        self.authority_payload: dict[str, object] = {
+            "runtime_capabilities": {"post_training_sampler_coordinate_normalization": True}
+        }
         self.submitted_trials: list[dict[str, object]] = []
         self.scored_trials: list[str] = []
+
+    def authority_health(self) -> dict[str, object]:
+        return self.authority_payload
 
     def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
         self.submitted_trials.append(trial)
@@ -69,8 +81,14 @@ class FakeSequencedTrustedAutoresearchClient:
 
 class FakeSequencedFailingTrustedAutoresearchClient:
     def __init__(self) -> None:
+        self.authority_payload: dict[str, object] = {
+            "runtime_capabilities": {"post_training_sampler_coordinate_normalization": True}
+        }
         self.submitted_trials: list[dict[str, object]] = []
         self.scored_trials: list[str] = []
+
+    def authority_health(self) -> dict[str, object]:
+        return self.authority_payload
 
     def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
         self.submitted_trials.append(trial)
@@ -1293,6 +1311,30 @@ def test_coordinate_normalized_sampler_diagnostic_plans_one_normalized_candidate
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
     assert not (tmp_path / "runs/trials").exists()
+
+
+def test_coordinate_normalized_sampler_diagnostic_requires_deployed_runtime_capability(tmp_path: Path) -> None:
+    _write_baseline_lock(tmp_path, score=0.08)
+    report = _write_prediction_geometry_audit_inputs(tmp_path)
+    client = FakeTrustedAutoresearchClient(_short_training_manifest("T166"))
+    client.authority_payload = {"runtime_capabilities": {}}
+
+    with pytest.raises(AutoresearchLoopError, match="post_training_sampler_coordinate_normalization"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="coordinate-normalized-stale-modal",
+            mode="modal",
+            planner="coordinate_normalized_sampler_diagnostic",
+            start_trial_id="T166",
+            max_candidates=1,
+            candidate_budget="trial",
+            diagnostic_report=report,
+            approval=APPROVAL_TEXT,
+            modal_client=client,
+        )
+
+    assert client.submitted_trials == []
+    assert client.scored_trials == []
 
 
 def test_coordinate_normalized_sampler_diagnostic_requires_geometry_scale_audit(tmp_path: Path) -> None:

@@ -839,12 +839,16 @@ def modal_event_authority_health() -> dict[str, Any]:
     """No-side-effect proof payload for deployed Modal event authority."""
 
     contract = event_search_readiness_contract()
+    runtime_capabilities = {
+        "post_training_sampler_coordinate_normalization": True,
+    }
     return {
         "status": "PASS",
         "app_name": APP_NAME,
         "authority_class": TRUSTED_ORCHESTRATOR_CLASS,
         "trusted_orchestrator": True,
         "can_submit_trials": True,
+        "runtime_capabilities": runtime_capabilities,
         "starts_search": False,
         "writes_baseline": False,
         "writes_ledger": False,

@@ -22,6 +22,7 @@ from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_n
 from autoalphafold3.llm_policy import DEFAULT_LLM_MODEL, AgentSearchPhase, default_llm_phase_policies, default_llm_phase_policy
 from autoalphafold3.modal_authority import ModalAuthorityError, audit_modal_event_authority
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
+from autoalphafold3.scorer_sensitivity import ScorerSensitivityError, run_scorer_sensitivity
 from autoalphafold3.sampler_loop import APPROVAL_TEXT as SAMPLER_LOOP_APPROVAL_TEXT
 from autoalphafold3.sampler_loop import SamplerLoopError, run_incremental_sampler_loop
 from autoalphafold3.short_training_runner import ShortTrainingRunError, run_short_training
@@ -129,6 +130,13 @@ def main(argv: list[str] | None = None) -> int:
     compare_predictions_parser.add_argument("--left-metrics", default=None)
     compare_predictions_parser.add_argument("--right-metrics", default=None)
     compare_predictions_parser.add_argument("--output", default=None)
+
+    scorer_sensitivity_parser = subparsers.add_parser("scorer-sensitivity")
+    scorer_sensitivity_parser.add_argument("--trial-id", action="append", required=True)
+    scorer_sensitivity_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
+    scorer_sensitivity_parser.add_argument("--modal-env", default=None)
+    scorer_sensitivity_parser.add_argument("--approve", default=None)
+    scorer_sensitivity_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -352,6 +360,26 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
+    if args.command == "scorer-sensitivity":
+        reexec_argv = _modal_venv_reexec_argv(args, original_argv)
+        if reexec_argv is not None:
+            os.execv(reexec_argv[0], reexec_argv)
+        try:
+            result = run_scorer_sensitivity(
+                trial_ids=args.trial_id,
+                mode=args.mode,
+                approval=args.approve,
+                modal_env=args.modal_env,
+            )
+        except ScorerSensitivityError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
     if args.command == "autonomous-sampler-loop":
         try:
             result = run_incremental_sampler_loop(
@@ -462,7 +490,7 @@ def _modal_authority_venv_reexec_argv(args: argparse.Namespace, argv: list[str])
 def _modal_venv_reexec_argv(args: argparse.Namespace, argv: list[str]) -> list[str] | None:
     """Return a repo-venv re-exec command for live Modal commands."""
 
-    if getattr(args, "command", None) not in {"audit-modal-authority", "autoresearch-loop"}:
+    if getattr(args, "command", None) not in {"audit-modal-authority", "autoresearch-loop", "scorer-sensitivity"}:
         return None
     if getattr(args, "mode", None) != "modal":
         return None

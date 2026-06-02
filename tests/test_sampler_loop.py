@@ -219,6 +219,32 @@ def test_sampler_loop_dry_run_generates_incremental_trials(tmp_path: Path) -> No
     assert trial["sampler_num_samples"] == 1
 
 
+def test_sampler_loop_reference_sweep_starts_near_recorded_t088_settings(tmp_path: Path) -> None:
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        max_candidates=2,
+        start_trial_id="T120",
+        planner="reference_sweep",
+        search_reference_trial_id="T088",
+    )
+
+    assert result.status == "PASS"
+    assert result.planner == "reference_sweep"
+    assert result.generated_trials == ["T120", "T121"]
+    first = json.loads((tmp_path / "trials/T120.json").read_text())
+    second = json.loads((tmp_path / "trials/T121.json").read_text())
+    assert first["sampler_steps"] == 12
+    assert first["sampler_noise_scale"] == pytest.approx(0.6)
+    assert first["sampler_step_scale"] == pytest.approx(1.5)
+    assert first["sampler_schedule_shape"] == "late_refine"
+    assert first["sampler_num_samples"] == 4
+    assert first["sampler_selection_policy"] == "compact_geometry"
+    assert first["seed"] == 88000
+    assert second["sampler_noise_scale"] == pytest.approx(0.55)
+    assert second["sampler_step_scale"] == pytest.approx(1.6)
+
+
 def test_sampler_loop_modal_requires_exact_approval(tmp_path: Path) -> None:
     with pytest.raises(SamplerLoopError, match=APPROVAL_TEXT):
         run_incremental_sampler_loop(
@@ -279,6 +305,32 @@ def test_sampler_loop_reports_search_reference_separately_from_global_keep(tmp_p
     assert result.decisions[1]["sampler_search_status"] == "SAMPLER_IMPROVED"
     assert result.decisions[1]["search_reference_delta"] == pytest.approx(0.1)
     assert result.decisions[1]["global_delta"] == pytest.approx(-0.22)
+
+
+def test_sampler_loop_reference_sweep_keeps_stage_one_boundaries(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    result = run_incremental_sampler_loop(
+        seed_trial_path=seed_trial(tmp_path),
+        repo_root=tmp_path,
+        mode="modal",
+        approval=APPROVAL_TEXT,
+        max_candidates=1,
+        start_trial_id="T122",
+        planner="reference_sweep",
+        baseline_dir=baseline.relative_to(tmp_path),
+        client=FakeSamplerClient(scores=[0.2]),
+        search_reference_trial_id="T088",
+    )
+
+    assert result.status == "PASS"
+    assert result.scored_trials == ["T122"]
+    assert result.decisions[0]["planner"] == "reference_sweep"
+    assert result.decisions[0]["status"] == "DISCARD"
+    assert result.decisions[0]["beats_global_current_best"] is False
+    assert result.writes_discovery_ledger is False
+    trial = json.loads((tmp_path / "trials/T122.json").read_text())
+    assert trial["sampler_steps"] == 12
+    assert trial["sampler_selection_policy"] == "compact_geometry"
 
 
 def test_sampler_loop_stops_on_repeated_infra_failures(tmp_path: Path) -> None:

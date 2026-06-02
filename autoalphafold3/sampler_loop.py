@@ -176,7 +176,7 @@ def run_incremental_sampler_loop(
         raise SamplerLoopError("failure_streak_limit must be at least 1")
     if mode not in {"dry-run", "modal"}:
         raise SamplerLoopError(f"unsupported mode: {mode}")
-    if planner not in {"deterministic", "llm"}:
+    if planner not in {"deterministic", "reference_sweep", "llm"}:
         raise SamplerLoopError(f"unsupported planner: {planner}")
     if mode == "modal" and approval != APPROVAL_TEXT:
         raise SamplerLoopError(f"modal sampler loop requires --approve {APPROVAL_TEXT}")
@@ -454,6 +454,55 @@ class DeterministicSamplerPlanner:
         )
 
 
+class ReferenceSweepSamplerPlanner:
+    """Deterministic T088-neighborhood sweep for bounded sampler follow-up."""
+
+    def plan(
+        self,
+        *,
+        seed_trial: dict[str, object],
+        trial_id: str,
+        candidate_index: int,
+        prior_decisions: list[dict[str, object]],
+        global_current_best: dict[str, object],
+        search_reference: dict[str, object],
+    ) -> SamplerCandidatePlan:
+        sampler_steps, noise_scale, step_scale, schedule_shape, num_samples, selection_policy = (
+            _reference_sweep_sampler_knobs(candidate_index)
+        )
+        reference_trial = search_reference.get("trial_id") or "unknown"
+        reference_score = search_reference.get("score")
+        return SamplerCandidatePlan(
+            diagnostic_target=str(seed_trial.get("diagnostic_target") or "local_geometry_weak"),
+            hypothesis=(
+                "A T088-neighborhood frozen-checkpoint sampler sweep should test whether the known "
+                "best sampler-family setting is locally improvable without changing training, scorer, "
+                "labels, manifests, Modal resources, or templates."
+            ),
+            intervention=(
+                f"Use sampler_steps={sampler_steps}, noise_scale={noise_scale}, "
+                f"step_scale={step_scale}, schedule={schedule_shape}, samples={num_samples}, "
+                f"selection={selection_policy}; this is a bounded neighborhood around the recorded "
+                "T088 late-refine compact-geometry sampler."
+            ),
+            predicted_direction="up",
+            expected_lddt_delta_band=[0.001, 0.02],
+            sampler_steps=sampler_steps,
+            sampler_noise_scale=noise_scale,
+            sampler_step_scale=step_scale,
+            sampler_schedule_shape=schedule_shape,
+            sampler_num_samples=num_samples,
+            sampler_selection_policy=selection_policy,
+            seed=88000 + candidate_index,
+            rationale=(
+                f"Search reference {reference_trial} has score {reference_score}; "
+                f"global best is {global_current_best.get('score')}; "
+                f"prior decisions count is {len(prior_decisions)}. "
+                "Run a deterministic local sweep before spending a full one-hour search window."
+            ),
+        )
+
+
 class OpenAISamplerPlanner:
     """Structured-output OpenAI planner for one sampler candidate at a time."""
 
@@ -622,6 +671,22 @@ def _deterministic_sampler_knobs(
     return knob_grid[candidate_index % len(knob_grid)]
 
 
+def _reference_sweep_sampler_knobs(candidate_index: int) -> tuple[int, float, float, str, int, str]:
+    """Return bounded sampler settings near the recorded T088 best sampler candidate."""
+
+    knob_grid = [
+        (12, 0.6, 1.5, "late_refine", 4, "compact_geometry"),
+        (12, 0.55, 1.6, "late_refine", 4, "compact_geometry"),
+        (12, 0.65, 1.45, "late_refine", 4, "compact_geometry"),
+        (11, 0.6, 1.5, "late_refine", 4, "compact_geometry"),
+        (12, 0.5, 1.7, "late_refine", 4, "geometry"),
+        (10, 0.6, 1.5, "late_refine", 4, "compact_geometry"),
+        (12, 0.75, 1.35, "late_refine", 4, "compact_geometry"),
+        (11, 0.55, 1.6, "late_refine", 4, "geometry"),
+    ]
+    return knob_grid[candidate_index % len(knob_grid)]
+
+
 def _build_planner(
     planner: str,
     *,
@@ -632,6 +697,8 @@ def _build_planner(
 ) -> SamplerPlanner:
     if planner == "deterministic":
         return DeterministicSamplerPlanner()
+    if planner == "reference_sweep":
+        return ReferenceSweepSamplerPlanner()
     if planner == "llm":
         return OpenAISamplerPlanner(model=model)
     raise SamplerLoopError(f"unsupported planner: {planner}")

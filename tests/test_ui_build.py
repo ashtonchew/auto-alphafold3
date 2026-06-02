@@ -347,11 +347,12 @@ def test_autoresearch_rows_append_to_scored_trials_and_logs(tmp_path: Path) -> N
     state = load_state(runs)
     assert state.best == 0.39
     assert [t.trial_id for t in state.trials] == ["T001", "T130"]
+    assert state.pending_trials == []
     assert state.counts["trials"] == 2
     assert state.counts["keep"] == 1
     assert any(event.trial == "T130" and event.message.startswith("PLANNED") for event in state.logs)
     assert '<span class="v num">2</span><span class="k">candidates</span>' in render_board(state)
-    assert "4 trials (1 scored, 3 pending)." in render_trials(state)
+    assert "2 trials (1 scored, 1 pending)." in render_trials(state)
 
 
 def test_autoresearch_summary_rejects_symlinked_runs(tmp_path: Path) -> None:

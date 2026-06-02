@@ -150,7 +150,11 @@ def main(argv: list[str] | None = None) -> int:
     sampler_loop_parser.add_argument("--poll-interval-s", type=float, default=2.0)
     sampler_loop_parser.add_argument("--per-candidate-timeout-s", type=int, default=180)
     sampler_loop_parser.add_argument("--failure-streak-limit", type=int, default=2)
-    sampler_loop_parser.add_argument("--planner", choices=("deterministic", "llm"), default="deterministic")
+    sampler_loop_parser.add_argument(
+        "--planner",
+        choices=("deterministic", "reference_sweep", "llm"),
+        default="deterministic",
+    )
     sampler_loop_parser.add_argument("--model", default=DEFAULT_LLM_MODEL)
     sampler_loop_parser.add_argument("--search-reference-trial-id", default=None)
     sampler_loop_parser.add_argument("--prior-decision-trial-id", action="append", default=[])

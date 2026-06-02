@@ -109,6 +109,27 @@ class FakeSequencedFailingTrustedAutoresearchClient:
         return _scorer_fail_payload(trial_id)
 
 
+class FakeRaisingTrustedAutoresearchClient:
+    def __init__(self, message: str) -> None:
+        self.message = message
+        self.authority_payload: dict[str, object] = {
+            "runtime_capabilities": _runtime_capabilities()
+        }
+        self.submitted_trials: list[dict[str, object]] = []
+        self.scored_trials: list[str] = []
+
+    def authority_health(self) -> dict[str, object]:
+        return self.authority_payload
+
+    def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
+        self.submitted_trials.append(trial)
+        raise RuntimeError(self.message)
+
+    def score_trial(self, trial_id: str) -> dict[str, object]:
+        self.scored_trials.append(trial_id)
+        return _scored_metrics_payload(trial_id)
+
+
 SHA = "c" * 64
 
 
@@ -3282,6 +3303,39 @@ def test_modal_sampler_locality_guard_requires_deployed_runtime_capability(tmp_p
 
     assert client.submitted_trials == []
     assert client.scored_trials == []
+
+
+def test_modal_sampler_locality_guard_records_worker_exception_as_fail(tmp_path: Path) -> None:
+    candidate_plan = _write_sampler_locality_guard_candidate_plan(tmp_path)
+    live_smoke_gate = _write_live_smoke_gate(tmp_path)
+    client = FakeRaisingTrustedAutoresearchClient(
+        "sampler_locality_guard rejected all samples for label-free geometry collapse"
+    )
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="live-smoke-worker-fail",
+        mode="modal",
+        planner="manual",
+        candidate_plan=candidate_plan,
+        max_candidates=1,
+        approval=APPROVAL_TEXT,
+        live_smoke_gate=live_smoke_gate,
+        modal_client=client,
+    )
+
+    assert result.status == "PASS"
+    assert result.decisions[0]["status"] == "FAIL"
+    assert result.decisions[0]["promotion_status"] == "NOT_ELIGIBLE"
+    assert client.scored_trials == []
+    candidate_dir = tmp_path / "runs/autoresearch/live-smoke-worker-fail/candidates/T178"
+    error_report = json.loads((candidate_dir / "error_report.json").read_text(encoding="utf-8"))
+    decision = json.loads((candidate_dir / "decision.json").read_text(encoding="utf-8"))
+    assert error_report["error_report"]["failure_signature"] == "modal_worker_exception"
+    assert "sampler_locality_guard rejected all samples" in error_report["error_report"]["reason"]
+    assert decision["status"] == "FAIL"
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
 
 
 def test_autoresearch_loop_modal_scores_after_training_and_records_scorer_fail(tmp_path: Path) -> None:

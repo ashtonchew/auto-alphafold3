@@ -606,6 +606,9 @@ def _prior_autoresearch_outcomes(*, root: Path, prior_run_ids: list[str]) -> lis
             trial_payload = _read_small_json(candidate_dir / "trial.json")
             metrics_payload = _read_small_json(candidate_dir / "metrics.json")
             comparison = metrics_payload.get("comparison") if isinstance(metrics_payload.get("comparison"), dict) else {}
+            fold_cartographer = (
+                metrics_payload.get("fold_cartographer") if isinstance(metrics_payload.get("fold_cartographer"), dict) else {}
+            )
             outcomes.append(
                 {
                     "run_id": run_id,
@@ -616,6 +619,10 @@ def _prior_autoresearch_outcomes(*, root: Path, prior_run_ids: list[str]) -> lis
                     "matched_budget_delta": candidate.get("matched_budget_delta"),
                     "global_baseline_delta": candidate.get("global_baseline_delta"),
                     "candidate_score": comparison.get("candidate_score"),
+                    "fold_cartographer_signature": fold_cartographer.get("signature"),
+                    "candidate_artifacts": metrics_payload.get("candidate_artifacts")
+                    if isinstance(metrics_payload.get("candidate_artifacts"), dict)
+                    else {},
                     "hypothesis": _read_prior_hypothesis(candidate_dir / "hypothesis.md"),
                     "move_family": trial_payload.get("move_family"),
                     "diagnostic_target": trial_payload.get("diagnostic_target"),

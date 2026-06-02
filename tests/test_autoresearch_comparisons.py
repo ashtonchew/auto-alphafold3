@@ -53,6 +53,10 @@ def test_autoresearch_comparison_computes_and_writes_delta_axes(tmp_path: Path) 
     assert promotion_plan["writes_discovery_ledger"] is False
     assert promotion_plan["allowed_writer"] == "modal_hosted_trusted_orchestrator"
     assert "confirmed falsification verdict" in promotion_plan["required_evidence"]
+    metrics = json.loads(envelope.metrics_path.read_text(encoding="utf-8"))
+    assert metrics["result_status"] == "SCORED"
+    assert metrics["fold_cartographer"]["signature"] == "comparison_fixture"
+    assert metrics["candidate_artifacts"]["metrics_json"] == "runs/trials/T123/metrics.json"
     summary = json.loads((envelope.root / "summary.json").read_text(encoding="utf-8"))
     assert summary["candidates"][0]["provisional_keep"] is True
     assert summary["candidates"][0]["promotion_status"] == "FALSIFICATION_REQUIRED"
@@ -308,6 +312,7 @@ def _result(trial_id: str, score: float, *, status: TrialStatus = TrialStatus.SC
         candidate_id=f"{trial_id}_candidate",
         metrics={"best_val_calpha_lddt": score},
         fold_cartographer=FoldCartographerReport(signature="comparison_fixture"),
+        artifacts={"metrics_json": f"runs/trials/{trial_id}/metrics.json"},
     )
 
 

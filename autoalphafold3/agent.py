@@ -15,6 +15,7 @@ from autoalphafold3.autoresearch_loop import AutoresearchLoopError, run_autorese
 from autoalphafold3.autoresearch_candidates import CandidateArtifactError
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
 from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
+from autoalphafold3.bench_readiness_review import BenchReadinessReviewError, review_bench_readiness
 from autoalphafold3.checkpoint_runner import CheckpointRunError, run_one_batch_checkpoint
 from autoalphafold3.gate_calibration import GateCalibrationError, calibrate_gate
 from autoalphafold3.gate_calibration_runner import GateCalibrationRunError, run_gate_calibration
@@ -210,6 +211,15 @@ def main(argv: list[str] | None = None) -> int:
     surface_design_parser.add_argument("--strategy-review", required=True)
     surface_design_parser.add_argument("--proposed-surface", required=True)
     surface_design_parser.add_argument("--output", default=None)
+
+    bench_readiness_parser = subparsers.add_parser("bench-readiness-review")
+    bench_readiness_parser.add_argument("--repo-root", default=".")
+    bench_readiness_parser.add_argument("--surface-strategy-review", required=True)
+    bench_readiness_parser.add_argument("--baseline-dir", default="runs/baseline")
+    bench_readiness_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
+    bench_readiness_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
+    bench_readiness_parser.add_argument("--modal-authority-path", default="runs/modal_event_authority.json")
+    bench_readiness_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -546,6 +556,25 @@ def main(argv: list[str] | None = None) -> int:
                 proposed_surface=args.proposed_surface,
             )
         except SurfaceDesignReviewError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "bench-readiness-review":
+        try:
+            result = review_bench_readiness(
+                repo_root=args.repo_root,
+                surface_strategy_review=args.surface_strategy_review,
+                baseline_dir=args.baseline_dir,
+                config_path=args.config_path,
+                calibration_path=args.calibration_path,
+                modal_authority_path=args.modal_authority_path,
+            )
+        except BenchReadinessReviewError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

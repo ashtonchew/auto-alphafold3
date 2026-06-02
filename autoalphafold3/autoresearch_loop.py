@@ -83,6 +83,7 @@ class AutoresearchPlanner(Protocol):
         base_commit: str,
         prior_plans: list[dict[str, object]],
         prior_outcomes: list[dict[str, object]],
+        candidate_budget: str,
     ) -> "AutoresearchCandidatePlan":
         """Return one structured autoresearch candidate."""
 
@@ -271,6 +272,7 @@ class OpenAIAutoresearchPlanner:
         base_commit: str,
         prior_plans: list[dict[str, object]] | None = None,
         prior_outcomes: list[dict[str, object]] | None = None,
+        candidate_budget: str = BudgetTier.SMOKE.value,
     ) -> AutoresearchCandidatePlan:
         del model
         prompt = _autoresearch_planner_prompt(
@@ -282,6 +284,7 @@ class OpenAIAutoresearchPlanner:
             policy=policy,
             prior_plans=prior_plans or [],
             prior_outcomes=prior_outcomes or [],
+            candidate_budget=candidate_budget,
         )
         try:
             from openai import OpenAI
@@ -300,6 +303,7 @@ class OpenAIAutoresearchPlanner:
                     policy=policy,
                     prior_plans=prior_plans or [],
                     prior_outcomes=prior_outcomes or [],
+                    candidate_budget=candidate_budget,
                     model=self.model,
                 )
             raise
@@ -333,6 +337,7 @@ class OpenAIAutoresearchPlanner:
                     policy=policy,
                     prior_plans=prior_plans or [],
                     prior_outcomes=prior_outcomes or [],
+                    candidate_budget=candidate_budget,
                     model=self.model,
                 )
             raise
@@ -379,11 +384,14 @@ def run_autoresearch_loop(
     modal_client: TrustedAutoresearchClient | None = None,
     failure_streak_limit: int = 2,
     prior_run_ids: list[str] | None = None,
+    candidate_budget: str = BudgetTier.SMOKE.value,
 ) -> AutoresearchLoopResult:
     """Plan autoresearch candidates and optionally run one approved Modal candidate."""
 
     if failure_streak_limit < 1:
         raise AutoresearchLoopError("failure_streak_limit must be at least 1")
+    if candidate_budget not in {BudgetTier.SMOKE.value, BudgetTier.TRIAL.value}:
+        raise AutoresearchLoopError("candidate_budget must be smoke or trial")
     if mode not in {"dry-run", "modal"}:
         raise AutoresearchLoopError(f"unsupported autoresearch mode: {mode}")
     if planner not in {"manual", "deterministic", "llm"}:
@@ -408,6 +416,7 @@ def run_autoresearch_loop(
         llm_policy=llm_policy,
         planner_client=planner_client,
         prior_outcomes=prior_outcomes,
+        candidate_budget=candidate_budget,
     )
     for candidate in planned:
         trial = AutoFoldTrial.model_validate(candidate["trial"])
@@ -828,6 +837,7 @@ def _planned_candidates(
     llm_policy: dict[str, dict[str, object]] | None,
     planner_client: AutoresearchPlanner | None,
     prior_outcomes: list[dict[str, object]],
+    candidate_budget: str,
 ) -> list[dict[str, object]]:
     if planner == "manual":
         return _manual_candidates(root=root, candidate_plan=candidate_plan)
@@ -845,6 +855,7 @@ def _planned_candidates(
             llm_policy=llm_policy or {},
             planner_client=planner_client,
             prior_outcomes=prior_outcomes,
+            candidate_budget=candidate_budget,
         )
     raise AutoresearchLoopError(f"unsupported autoresearch planner: {planner}")
 
@@ -929,6 +940,7 @@ def _llm_candidates(
     llm_policy: dict[str, dict[str, object]],
     planner_client: AutoresearchPlanner | None,
     prior_outcomes: list[dict[str, object]],
+    candidate_budget: str,
 ) -> list[dict[str, object]]:
     if max_candidates < 1 or max_candidates > 3:
         raise AutoresearchLoopError("LLM autoresearch max_candidates must be between 1 and 3")
@@ -941,6 +953,7 @@ def _llm_candidates(
                 root=root,
                 raw_plan=raw_plan,
                 expected_trial_id=start_trial_id,
+                expected_budget=candidate_budget,
             )
         ]
     active_planner = planner_client or OpenAIAutoresearchPlanner(repo_root=root, model=model)
@@ -967,6 +980,7 @@ def _llm_candidates(
                     for item in planned
                 ],
                 prior_outcomes=prior_outcomes,
+                candidate_budget=candidate_budget,
             )
         except Exception as exc:  # noqa: BLE001 - planner failures must stop before artifacts.
             raise AutoresearchLoopError(f"LLM autoresearch planner failed: {exc}") from exc
@@ -975,6 +989,7 @@ def _llm_candidates(
                 root=root,
                 raw_plan=raw_plan,
                 expected_trial_id=trial_id,
+                expected_budget=candidate_budget,
             )
         )
     return planned
@@ -985,6 +1000,7 @@ def _validate_llm_candidate_plan(
     root: Path,
     raw_plan: object,
     expected_trial_id: str,
+    expected_budget: str,
 ) -> dict[str, object]:
     try:
         plan = AutoresearchCandidatePlan.model_validate(raw_plan)
@@ -1002,6 +1018,15 @@ def _validate_llm_candidate_plan(
     patch_paths = _refuse_unsafe_patch_text(root=root, patch_text=plan.patch_text)
     if trial_payload["trial_id"] != expected_trial_id:
         raise AutoresearchLoopError("LLM candidate trial_id must match start_trial_id")
+    expected_shape = _candidate_budget_shape(expected_budget)
+    if trial_payload["budget"] != expected_shape["budget"]:
+        raise AutoresearchLoopError(f"LLM candidate budget must be {expected_shape['budget']}")
+    if trial_payload["max_steps"] != expected_shape["max_steps"]:
+        raise AutoresearchLoopError(f"LLM candidate max_steps must be {expected_shape['max_steps']}")
+    if trial_payload["max_wall_minutes"] != expected_shape["max_wall_minutes"]:
+        raise AutoresearchLoopError(f"LLM candidate max_wall_minutes must be {expected_shape['max_wall_minutes']}")
+    if trial_payload["timeout_cap"] != expected_shape["timeout_cap"]:
+        raise AutoresearchLoopError(f"LLM candidate timeout_cap must be {expected_shape['timeout_cap']}")
     if patch_paths != set(plan.changed_paths):
         raise AutoresearchLoopError("LLM patch_text paths must match changed_paths")
     return {
@@ -1022,9 +1047,11 @@ def _autoresearch_planner_prompt(
     policy: dict[str, dict[str, object]],
     prior_plans: list[dict[str, object]],
     prior_outcomes: list[dict[str, object]],
+    candidate_budget: str,
 ) -> str:
     base_config = _planner_reference_config(root / "configs" / "nanofold_dev_cpu_smoke.json")
     local_geometry_config = _planner_reference_config(root / "configs" / "experiments" / "local_calpha_geometry_smoke.json")
+    budget_shape = _candidate_budget_shape(candidate_budget)
     payload = {
         "task": "Plan the next single bounded autoresearch candidate. Do not plan a batch.",
         "run_id": run_id,
@@ -1037,9 +1064,9 @@ def _autoresearch_planner_prompt(
         "prior_candidate_outcomes": prior_outcomes[-10:],
         "allowed_candidate_shape": {
             "trial_kind": "training",
-            "budget": "smoke",
-            "max_steps": 10,
-            "max_wall_minutes": 5,
+            "budget": budget_shape["budget"],
+            "max_steps": budget_shape["max_steps"],
+            "max_wall_minutes": budget_shape["max_wall_minutes"],
             "artifact_dir": f"runs/trials/{trial_id}",
             "checkpoint_path": None,
             "primary_metric": "best_val_calpha_lddt",
@@ -1069,7 +1096,7 @@ def _autoresearch_planner_prompt(
             "param_cap": 176514,
             "gpu_memory_cap": 80.0,
             "cost_cap": 2.0,
-            "timeout_cap": 300,
+            "timeout_cap": budget_shape["timeout_cap"],
         },
         "hard_constraints": [
             "Return exactly one candidate object, not a candidates array.",
@@ -1077,6 +1104,7 @@ def _autoresearch_planner_prompt(
             "Use prior_candidate_outcomes to avoid repeating discarded move families/config changes unless the new candidate isolates a different diagnostic axis.",
             "trial.trial_id must equal the requested trial_id.",
             "trial.artifact_dir must equal runs/trials/<trial_id>.",
+            f"trial.budget, trial.max_steps, trial.max_wall_minutes, and trial.timeout_cap must exactly match {budget_shape}.",
             "trial.config_path must be repo-relative and under configs/experiments/ unless using an allowed existing config.",
             "If trial.config_payload is present, it must preserve max_templates=0 and include every required NanoFold config key.",
             "changed_paths must exactly match patch_text file paths.",
@@ -1092,6 +1120,24 @@ def _autoresearch_planner_prompt(
         },
     }
     return json.dumps(payload, allow_nan=False, sort_keys=True)
+
+
+def _candidate_budget_shape(candidate_budget: str) -> dict[str, object]:
+    if candidate_budget == BudgetTier.SMOKE.value:
+        return {
+            "budget": BudgetTier.SMOKE.value,
+            "max_steps": 10,
+            "max_wall_minutes": 5,
+            "timeout_cap": 300,
+        }
+    if candidate_budget == BudgetTier.TRIAL.value:
+        return {
+            "budget": BudgetTier.TRIAL.value,
+            "max_steps": 250,
+            "max_wall_minutes": 45,
+            "timeout_cap": 2700,
+        }
+    raise AutoresearchLoopError("candidate_budget must be smoke or trial")
 
 
 def _read_small_json(path: Path) -> dict[str, object]:
@@ -1143,6 +1189,7 @@ def _plan_autoresearch_with_modal_harness_secret(
     policy: dict[str, dict[str, object]],
     prior_plans: list[dict[str, object]],
     prior_outcomes: list[dict[str, object]],
+    candidate_budget: str,
     model: str,
 ) -> AutoresearchCandidatePlan:
     try:
@@ -1158,6 +1205,7 @@ def _plan_autoresearch_with_modal_harness_secret(
         "policy": policy,
         "prior_plans": prior_plans[-5:],
         "prior_outcomes": prior_outcomes[-10:],
+        "candidate_budget": candidate_budget,
         "model": model,
     }
     orchestrator = modal.Cls.from_name(APP_NAME, TRUSTED_ORCHESTRATOR_CLASS)()

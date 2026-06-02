@@ -115,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     autoresearch_loop_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
     autoresearch_loop_parser.add_argument(
         "--planner",
-        choices=("manual", "deterministic", "targeted_diagnostic", "llm"),
+        choices=("manual", "deterministic", "targeted_diagnostic", "schedule_diagnostic", "llm"),
         default="deterministic",
     )
     autoresearch_loop_parser.add_argument("--start-trial-id", default="T120")
@@ -340,7 +340,11 @@ def main(argv: list[str] | None = None) -> int:
                 start_trial_id=args.start_trial_id,
                 max_candidates=args.max_candidates
                 if args.max_candidates is not None
-                else (1 if args.mode == "modal" or args.planner in {"llm", "targeted_diagnostic"} else 6),
+                else (
+                    1
+                    if args.mode == "modal" or args.planner in {"llm", "targeted_diagnostic", "schedule_diagnostic"}
+                    else 6
+                ),
                 candidate_plan=args.candidate_plan,
                 approval=args.approve,
                 model=args.model,

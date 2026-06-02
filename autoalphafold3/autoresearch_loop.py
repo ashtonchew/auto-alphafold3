@@ -403,6 +403,7 @@ def run_autoresearch_loop(
         "capacity_diagnostic",
         "topology_recycling_diagnostic",
         "feature_curriculum_diagnostic",
+        "coordinate_scale_locality_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
@@ -909,6 +910,15 @@ def _planned_candidates(
             candidate_budget=candidate_budget,
             diagnostic_report=diagnostic_report,
         )
+    if planner == "coordinate_scale_locality_diagnostic":
+        return _coordinate_scale_locality_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
     if planner == "llm":
         return _llm_candidates(
             root=root,
@@ -1400,6 +1410,97 @@ def _feature_curriculum_diagnostic_candidates(
     ]
 
 
+def _coordinate_scale_locality_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("coordinate_scale_locality_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("coordinate_scale_locality_diagnostic planner requires --diagnostic-report")
+    review = _next_surface_review_summary(root=root, diagnostic_report=diagnostic_report)
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_coordinate_scale_locality_diagnostic.json"
+    config_payload = _coordinate_scale_locality_diagnostic_config_payload(root)
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.DIFFUSION_SCHEDULE,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded coordinate-scale/locality diagnostic should test whether the "
+            "remaining all-target scorer loss comes from diffusion coordinate scale rather "
+            "than the exhausted sampler, geometry-loss, optimizer, capacity, recycling, or "
+            "feature/curriculum surfaces. It reduces diffusion loss dominance and raises "
+            "distogram locality pressure while preserving labels, manifests, scorer, "
+            "templates, Modal resources, and ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "coordinate-scale-locality-diagnostic-planner"
+    trial["seed"] = 95000 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.DISTOGRAM_GOOD_LDDT_FLAT.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="diffusion_loss_scale_distogram_locality",
+        predicted_axis=FalsificationAxis.DISTOGRAM_VS_3D,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.006),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.coordinate_scale_locality_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "source_next_surface_review": str(diagnostic_report),
+        "source_verdict": review["source_verdict"],
+        "reference_trial_id": review["reference_trial_id"],
+        "candidate_trial_ids": review["candidate_trial_ids"],
+        "rejected_surfaces": review["rejected_surfaces"],
+        "worst_targets": [review["worst_target"]] if review["worst_target"] else [],
+        "config_payload_overrides": {
+            "residue_crop_size": config_payload["residue_crop_size"],
+            "num_msa_samples": config_payload["num_msa_samples"],
+            "learning_rate": config_payload["learning_rate"],
+            "lr_start_factor": config_payload["lr_start_factor"],
+            "lr_warmup": config_payload["lr_warmup"],
+            "clip_norm": config_payload["clip_norm"],
+            "diffusion_loss_weight": config_payload["diffusion_loss_weight"],
+            "distogram_loss_weight": config_payload["distogram_loss_weight"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+            "diffusion_steps": config_payload["diffusion_steps"],
+        },
+        "failed_shapes_avoided": review["rejected_surfaces"],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded coordinate-scale/locality diffusion diagnostic",
+            ),
+        }
+    ]
+
+
 def _manual_candidates(*, root: Path, candidate_plan: str | Path | None) -> list[dict[str, object]]:
     if candidate_plan is None:
         raise AutoresearchLoopError("manual planner requires --candidate-plan")
@@ -1743,6 +1844,44 @@ def _post_discard_diagnostic_summary(*, root: Path, diagnostic_report: str | Pat
     }
 
 
+def _next_surface_review_summary(*, root: Path, diagnostic_report: str | Path) -> dict[str, object]:
+    path = _diagnostic_report_path(root=root, diagnostic_report=diagnostic_report)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(f"cannot read next-surface review: {diagnostic_report}") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("next-surface review must be a JSON object")
+    if payload.get("schema_version") != "autoaf3.next_surface_review.v1":
+        raise AutoresearchLoopError("coordinate_scale_locality_diagnostic requires a next-surface review report")
+    if payload.get("status") != "PASS":
+        raise AutoresearchLoopError("next-surface review must have status=PASS")
+    if payload.get("decision") != "APPROVE_OFFLINE_PLANNER_PR_ONLY":
+        raise AutoresearchLoopError("coordinate_scale_locality_diagnostic requires APPROVE_OFFLINE_PLANNER_PR_ONLY")
+    if payload.get("approved_next_surface") != "coordinate_scale_locality_diagnostic":
+        raise AutoresearchLoopError("next-surface review did not approve coordinate_scale_locality_diagnostic")
+    for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "official_benchmark_result"):
+        if payload.get(key) is True:
+            raise AutoresearchLoopError(f"next-surface review must not claim {key}=true")
+    if payload.get("stop_live_trial_budget") is not True or payload.get("do_not_start_open_ended_loop") is not True:
+        raise AutoresearchLoopError("next-surface review must stop live spend and open-ended loop")
+    required = payload.get("required_next_pr") if isinstance(payload.get("required_next_pr"), dict) else {}
+    if required.get("planner") != "coordinate_scale_locality_diagnostic" or required.get("candidate_limit") != 1:
+        raise AutoresearchLoopError("next-surface review required_next_pr does not match this planner")
+    evidence = payload.get("evidence_summary") if isinstance(payload.get("evidence_summary"), dict) else {}
+    return {
+        "source_verdict": str(payload.get("source_verdict") or ""),
+        "reference_trial_id": str(evidence.get("reference_trial_id") or ""),
+        "candidate_trial_ids": [str(item) for item in evidence.get("candidate_trial_ids")]
+        if isinstance(evidence.get("candidate_trial_ids"), list)
+        else [],
+        "rejected_surfaces": [str(item) for item in payload.get("rejected_surfaces")]
+        if isinstance(payload.get("rejected_surfaces"), list)
+        else [],
+        "worst_target": str(evidence.get("worst_target")) if evidence.get("worst_target") else None,
+    }
+
+
 def _diagnostic_report_path(*, root: Path, diagnostic_report: str | Path) -> Path:
     path = Path(diagnostic_report)
     if path.is_absolute() or ".." in path.parts:
@@ -1853,6 +1992,29 @@ def _feature_curriculum_diagnostic_config_payload(root: Path) -> dict[str, objec
     payload["clip_norm"] = 3.0
     payload["distogram_loss_weight"] = 0.03
     payload["local_calpha_geometry_loss_weight"] = 0.0
+    return payload
+
+
+def _coordinate_scale_locality_diagnostic_config_payload(root: Path) -> dict[str, object]:
+    config_path = root / "configs" / "experiments" / "local_calpha_geometry_smoke.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError("coordinate_scale_locality_diagnostic planner requires local_calpha_geometry_smoke config") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("local_calpha_geometry_smoke config must be a JSON object")
+    payload = dict(payload)
+    payload["max_templates"] = 0
+    payload["residue_crop_size"] = 16
+    payload["num_msa_samples"] = 2
+    payload["learning_rate"] = 0.0007
+    payload["lr_start_factor"] = 0.01
+    payload["lr_warmup"] = 250
+    payload["clip_norm"] = 3.0
+    payload["diffusion_loss_weight"] = 1.0
+    payload["distogram_loss_weight"] = 0.08
+    payload["local_calpha_geometry_loss_weight"] = 0.0
+    payload["diffusion_steps"] = 20
     return payload
 
 

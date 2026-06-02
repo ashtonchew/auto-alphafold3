@@ -88,6 +88,38 @@ def test_bench_readiness_consumes_broader_strategy_without_opening_bench(
     assert report.official_benchmark_result is False
 
 
+def test_bench_readiness_consumes_evidence_bridge_as_next_candidate_pr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _write_surface_strategy(
+        tmp_path,
+        may_start_open_ended_loop=False,
+        exhausted_surfaces=["auxiliary_loss", "feature_handling", "memory_runtime"],
+        unimplemented_candidate_surfaces=[],
+    )
+    bridge = _write_evidence_bridge_review(tmp_path)
+    monkeypatch.setattr(bench_review, "build_readiness_report", lambda **_: FakeReadiness(ready=True))
+
+    report = review_bench_readiness(
+        repo_root=tmp_path,
+        surface_strategy_review=strategy,
+        evidence_bridge_review=bridge,
+    )
+
+    assert report.decision == "BLOCK_OPEN_ENDED_BENCH_CANDIDATE_IMPLEMENTATION_REQUIRED"
+    assert report.can_start_open_ended_bench is False
+    assert report.evidence_bridge_decision == "APPROVE_NEXT_CANDIDATE_IMPLEMENTATION_PR_ONLY"
+    assert report.approved_evidence_bridge_planner == "evidence_guided_failure_mode_bridge_diagnostic"
+    assert report.required_objectives[0]["name"] == "implement_evidence_guided_candidate_pr"
+    assert report.roadmap[1]["step"] == "implement_evidence_guided_candidate_pr"
+    assert report.evidence["evidence_bridge_review"] == str(bridge)
+    assert report.starts_search is False
+    assert report.writes_ledger is False
+    assert report.writes_discovery_ledger is False
+    assert report.official_benchmark_result is False
+
+
 def test_bench_readiness_blocks_when_foundation_not_ready(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -158,6 +190,23 @@ def test_bench_readiness_refuses_live_authority_in_broader_strategy(tmp_path: Pa
         )
 
 
+def test_bench_readiness_refuses_live_authority_in_evidence_bridge(tmp_path: Path) -> None:
+    strategy = _write_surface_strategy(
+        tmp_path,
+        may_start_open_ended_loop=False,
+        exhausted_surfaces=["auxiliary_loss", "feature_handling", "memory_runtime"],
+        unimplemented_candidate_surfaces=[],
+    )
+    bridge = _write_evidence_bridge_review(tmp_path, may_start_live_candidate=True)
+
+    with pytest.raises(BenchReadinessReviewError, match="must not authorize live"):
+        review_bench_readiness(
+            repo_root=tmp_path,
+            surface_strategy_review=strategy,
+            evidence_bridge_review=bridge,
+        )
+
+
 def _write_surface_strategy(
     tmp_path: Path,
     *,
@@ -223,6 +272,37 @@ def _write_broader_strategy(
                 "consumed_bench_readiness_review": "runs/autoresearch/bench_readiness_review/review.json",
                 "exhausted_surfaces": ["auxiliary_loss", "feature_handling", "memory_runtime"],
                 "required_next_step": "implement planner",
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path.relative_to(tmp_path)
+
+
+def _write_evidence_bridge_review(
+    tmp_path: Path,
+    *,
+    may_start_live_candidate: bool = False,
+) -> Path:
+    path = tmp_path / "runs/autoresearch/evidence_bridge_review/review.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.evidence_bridge_review.v1",
+                "status": "PASS",
+                "decision": "APPROVE_NEXT_CANDIDATE_IMPLEMENTATION_PR_ONLY",
+                "approved_planner": "evidence_guided_failure_mode_bridge_diagnostic",
+                "approved_strategy_family": "evidence_guided_failure_mode_bridge",
+                "candidate_limit": 1,
+                "reviewed_trial_id": "T177",
+                "blocked_reasons": [],
+                "may_start_live_candidate": may_start_live_candidate,
+                "may_start_open_ended_loop": False,
                 "starts_search": False,
                 "writes_ledger": False,
                 "writes_discovery_ledger": False,

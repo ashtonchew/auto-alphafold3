@@ -45,6 +45,18 @@ NANOFOLD_OPTIONAL_NONNEGATIVE_FLOAT_KEYS = frozenset(
         "dist_loss_weight",
         "distogram_loss_weight",
         "local_calpha_geometry_loss_weight",
+        "diffusion_gamma_0",
+        "diffusion_gamma_min",
+    }
+)
+NANOFOLD_OPTIONAL_POSITIVE_FLOAT_KEYS = frozenset(
+    {
+        "diffusion_noise_scale",
+        "diffusion_step_scale",
+        "diffusion_data_std_dev",
+        "diffusion_s_max",
+        "diffusion_s_min",
+        "diffusion_schedule_p",
     }
 )
 
@@ -121,6 +133,11 @@ def validate_config_payload(data: object, *, source: str = "<inline-config>") ->
         for key in sorted(NANOFOLD_OPTIONAL_NONNEGATIVE_FLOAT_KEYS)
         if not _is_nonnegative_finite_number(data.get(key, 0.0))
     ]
+    invalid_optional.extend(
+        key
+        for key in sorted(NANOFOLD_OPTIONAL_POSITIVE_FLOAT_KEYS)
+        if key in data and not _is_positive_finite_number(data.get(key))
+    )
     if invalid_optional:
         return ConfigValidationResult(
             config_kind="nanofold_training",
@@ -135,3 +152,9 @@ def _is_nonnegative_finite_number(value: object) -> bool:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return False
     return math.isfinite(float(value)) and float(value) >= 0.0
+
+
+def _is_positive_finite_number(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    return math.isfinite(float(value)) and float(value) > 0.0

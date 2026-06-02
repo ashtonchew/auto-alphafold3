@@ -84,6 +84,31 @@ def test_nanofold_get_args_reads_experiment_loss_weights() -> None:
     assert args["local_calpha_geometry_loss_weight"] == 0.25
 
 
+def test_nanofold_get_args_reads_diffusion_data_scale_config() -> None:
+    config = json.loads(
+        (REPO_ROOT / "configs/experiments/local_calpha_geometry_smoke.json").read_text(encoding="utf-8")
+    )
+    config["diffusion_data_std_dev"] = 8.0
+    config["diffusion_gamma_0"] = 0.6
+    config["diffusion_gamma_min"] = 1.0
+    config["diffusion_noise_scale"] = 1.0
+    config["diffusion_step_scale"] = 1.5
+    config["diffusion_s_max"] = 120.0
+    config["diffusion_s_min"] = 0.0004
+    config["diffusion_schedule_p"] = 7.0
+
+    args = Nanofold.get_args(config)
+
+    assert args["diffusion_data_std_dev"] == pytest.approx(8.0)
+    assert args["diffusion_gamma_0"] == pytest.approx(0.6)
+    assert args["diffusion_gamma_min"] == pytest.approx(1.0)
+    assert args["diffusion_noise_scale"] == pytest.approx(1.0)
+    assert args["diffusion_step_scale"] == pytest.approx(1.5)
+    assert args["diffusion_s_max"] == pytest.approx(120.0)
+    assert args["diffusion_s_min"] == pytest.approx(0.0004)
+    assert args["diffusion_schedule_p"] == pytest.approx(7.0)
+
+
 def test_nanofold_config_rejects_invalid_loss_weights(tmp_path: Path) -> None:
     config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
     config["local_calpha_geometry_loss_weight"] = -0.1
@@ -106,6 +131,18 @@ def test_nanofold_config_rejects_invalid_legacy_dist_loss_weight(tmp_path: Path)
 
     assert not result.valid
     assert result.missing_keys == ["dist_loss_weight"]
+
+
+def test_nanofold_config_rejects_invalid_diffusion_data_scale(tmp_path: Path) -> None:
+    config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config["diffusion_data_std_dev"] = 0.0
+    config_path = tmp_path / "bad_diffusion_data_scale.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    result = validate_config_file(config_path)
+
+    assert not result.valid
+    assert result.missing_keys == ["diffusion_data_std_dev"]
 
 
 def test_diffusion_loss_skips_geometry_when_disabled_for_defaults() -> None:

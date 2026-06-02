@@ -51,6 +51,14 @@ class Nanofold(nn.Module):
         diffusion_loss_weight=4.0,
         distogram_loss_weight=0.03,
         local_calpha_geometry_loss_weight=0.0,
+        diffusion_gamma_0=0.8,
+        diffusion_gamma_min=1.0,
+        diffusion_noise_scale=1.003,
+        diffusion_step_scale=1.5,
+        diffusion_data_std_dev=16,
+        diffusion_s_max=160,
+        diffusion_s_min=0.0004,
+        diffusion_schedule_p=7,
     ):
         super().__init__()
 
@@ -118,6 +126,14 @@ class Nanofold(nn.Module):
                 num_diffusion_transformer_blocks,
                 num_diffusion_transformer_heads,
                 position_bins,
+                gamma_0=diffusion_gamma_0,
+                gamma_min=diffusion_gamma_min,
+                noise_scale=diffusion_noise_scale,
+                step_scale=diffusion_step_scale,
+                data_std_dev=diffusion_data_std_dev,
+                s_max=diffusion_s_max,
+                s_min=diffusion_s_min,
+                p=diffusion_schedule_p,
                 compute_local_geometry_loss=local_calpha_geometry_loss_weight != 0.0,
             ),
             disable=not compile_model,
@@ -176,6 +192,14 @@ class Nanofold(nn.Module):
                 config.get("dist_loss_weight", 0.03),
             ),
             "local_calpha_geometry_loss_weight": config.get("local_calpha_geometry_loss_weight", 0.0),
+            "diffusion_gamma_0": config.get("diffusion_gamma_0", 0.8),
+            "diffusion_gamma_min": config.get("diffusion_gamma_min", 1.0),
+            "diffusion_noise_scale": config.get("diffusion_noise_scale", 1.003),
+            "diffusion_step_scale": config.get("diffusion_step_scale", 1.5),
+            "diffusion_data_std_dev": config.get("diffusion_data_std_dev", 16),
+            "diffusion_s_max": config.get("diffusion_s_max", 160),
+            "diffusion_s_min": config.get("diffusion_s_min", 0.0004),
+            "diffusion_schedule_p": config.get("diffusion_schedule_p", 7),
         }
 
     @classmethod

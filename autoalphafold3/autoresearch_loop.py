@@ -418,6 +418,7 @@ def run_autoresearch_loop(
         "calibrated_coordinate_normalized_sampler_diagnostic",
         "calibrated_sampler_locality_selection_diagnostic",
         "calibrated_sampler_low_noise_diagnostic",
+        "diffusion_data_scale_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
@@ -1030,6 +1031,15 @@ def _planned_candidates(
             candidate_budget=candidate_budget,
             diagnostic_report=diagnostic_report,
         )
+    if planner == "diffusion_data_scale_diagnostic":
+        return _diffusion_data_scale_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
     if planner == "llm":
         return _llm_candidates(
             root=root,
@@ -1534,7 +1544,11 @@ def _coordinate_scale_locality_diagnostic_candidates(
         raise AutoresearchLoopError("coordinate_scale_locality_diagnostic planner requires max_candidates=1")
     if diagnostic_report is None:
         raise AutoresearchLoopError("coordinate_scale_locality_diagnostic planner requires --diagnostic-report")
-    review = _next_surface_review_summary(root=root, diagnostic_report=diagnostic_report)
+    review = _next_surface_review_summary(
+        root=root,
+        diagnostic_report=diagnostic_report,
+        approved_surface="coordinate_scale_locality_diagnostic",
+    )
     budget_shape = _candidate_budget_shape(candidate_budget)
     budget = BudgetTier(str(budget_shape["budget"]))
     trial_id = start_trial_id
@@ -1607,6 +1621,111 @@ def _coordinate_scale_locality_diagnostic_candidates(
                 config_path=config_path,
                 config=config,
                 candidate_intent="bounded coordinate-scale/locality diffusion diagnostic",
+            ),
+        }
+    ]
+
+
+def _diffusion_data_scale_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("diffusion_data_scale_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("diffusion_data_scale_diagnostic planner requires --diagnostic-report")
+    review = _next_surface_review_summary(
+        root=root,
+        diagnostic_report=diagnostic_report,
+        approved_surface="diffusion_data_scale_diagnostic",
+    )
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_diffusion_data_scale_diagnostic.json"
+    config_payload = _diffusion_data_scale_diagnostic_config_payload(root)
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.DIFFUSION_SCHEDULE,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded diffusion data-scale diagnostic should test whether the remaining "
+            "adjacent C-alpha outliers after sampler scale, selection, and low-noise controls "
+            "come from the model's diffusion data standard deviation rather than the post-training "
+            "sampler wrapper. It lowers the NanoFold diffusion data scale while preserving labels, "
+            "manifests, scorer, templates, Modal resources, and ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "diffusion-data-scale-diagnostic-planner"
+    trial["seed"] = 97000 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.DISTOGRAM_GOOD_LDDT_FLAT.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["sampler_coordinate_normalization"] = "ca_bond"
+    trial["sampler_coordinate_scale"] = 13.126702
+    trial["sampler_num_samples"] = 1
+    trial["sampler_selection_policy"] = "first"
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="diffusion_data_std_dev_scale",
+        predicted_axis=FalsificationAxis.DISTOGRAM_VS_3D,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.006),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.diffusion_data_scale_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "source_next_surface_review": str(diagnostic_report),
+        "source_verdict": review["source_verdict"],
+        "reference_trial_id": review["reference_trial_id"],
+        "candidate_trial_ids": review["candidate_trial_ids"],
+        "rejected_surfaces": review["rejected_surfaces"],
+        "worst_targets": [review["worst_target"]] if review["worst_target"] else [],
+        "config_payload_overrides": {
+            "residue_crop_size": config_payload["residue_crop_size"],
+            "num_msa_samples": config_payload["num_msa_samples"],
+            "learning_rate": config_payload["learning_rate"],
+            "lr_start_factor": config_payload["lr_start_factor"],
+            "lr_warmup": config_payload["lr_warmup"],
+            "clip_norm": config_payload["clip_norm"],
+            "diffusion_loss_weight": config_payload["diffusion_loss_weight"],
+            "distogram_loss_weight": config_payload["distogram_loss_weight"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+            "diffusion_steps": config_payload["diffusion_steps"],
+            "diffusion_data_std_dev": config_payload["diffusion_data_std_dev"],
+            "diffusion_gamma_0": config_payload["diffusion_gamma_0"],
+            "diffusion_gamma_min": config_payload["diffusion_gamma_min"],
+        },
+        "sampler_coordinate_normalization": "ca_bond",
+        "sampler_coordinate_scale": 13.126702,
+        "sampler_num_samples": 1,
+        "sampler_selection_policy": "first",
+        "failed_shapes_avoided": review["rejected_surfaces"],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded diffusion data-scale diagnostic",
             ),
         }
     ]
@@ -2460,7 +2579,12 @@ def _post_discard_diagnostic_summary(*, root: Path, diagnostic_report: str | Pat
     }
 
 
-def _next_surface_review_summary(*, root: Path, diagnostic_report: str | Path) -> dict[str, object]:
+def _next_surface_review_summary(
+    *,
+    root: Path,
+    diagnostic_report: str | Path,
+    approved_surface: str,
+) -> dict[str, object]:
     path = _diagnostic_report_path(root=root, diagnostic_report=diagnostic_report)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -2469,20 +2593,20 @@ def _next_surface_review_summary(*, root: Path, diagnostic_report: str | Path) -
     if not isinstance(payload, dict):
         raise AutoresearchLoopError("next-surface review must be a JSON object")
     if payload.get("schema_version") != "autoaf3.next_surface_review.v1":
-        raise AutoresearchLoopError("coordinate_scale_locality_diagnostic requires a next-surface review report")
+        raise AutoresearchLoopError(f"{approved_surface} requires a next-surface review report")
     if payload.get("status") != "PASS":
         raise AutoresearchLoopError("next-surface review must have status=PASS")
     if payload.get("decision") != "APPROVE_OFFLINE_PLANNER_PR_ONLY":
-        raise AutoresearchLoopError("coordinate_scale_locality_diagnostic requires APPROVE_OFFLINE_PLANNER_PR_ONLY")
-    if payload.get("approved_next_surface") != "coordinate_scale_locality_diagnostic":
-        raise AutoresearchLoopError("next-surface review did not approve coordinate_scale_locality_diagnostic")
+        raise AutoresearchLoopError(f"{approved_surface} requires APPROVE_OFFLINE_PLANNER_PR_ONLY")
+    if payload.get("approved_next_surface") != approved_surface:
+        raise AutoresearchLoopError(f"next-surface review did not approve {approved_surface}")
     for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "official_benchmark_result"):
         if payload.get(key) is True:
             raise AutoresearchLoopError(f"next-surface review must not claim {key}=true")
     if payload.get("stop_live_trial_budget") is not True or payload.get("do_not_start_open_ended_loop") is not True:
         raise AutoresearchLoopError("next-surface review must stop live spend and open-ended loop")
     required = payload.get("required_next_pr") if isinstance(payload.get("required_next_pr"), dict) else {}
-    if required.get("planner") != "coordinate_scale_locality_diagnostic" or required.get("candidate_limit") != 1:
+    if required.get("planner") != approved_surface or required.get("candidate_limit") != 1:
         raise AutoresearchLoopError("next-surface review required_next_pr does not match this planner")
     evidence = payload.get("evidence_summary") if isinstance(payload.get("evidence_summary"), dict) else {}
     return {
@@ -2682,6 +2806,19 @@ def _coordinate_scale_locality_diagnostic_config_payload(root: Path) -> dict[str
     payload["distogram_loss_weight"] = 0.08
     payload["local_calpha_geometry_loss_weight"] = 0.0
     payload["diffusion_steps"] = 20
+    return payload
+
+
+def _diffusion_data_scale_diagnostic_config_payload(root: Path) -> dict[str, object]:
+    payload = _coordinate_scale_locality_diagnostic_config_payload(root)
+    payload["diffusion_data_std_dev"] = 8.0
+    payload["diffusion_gamma_0"] = 0.6
+    payload["diffusion_gamma_min"] = 1.0
+    payload["diffusion_noise_scale"] = 1.0
+    payload["diffusion_step_scale"] = 1.5
+    payload["diffusion_s_max"] = 120.0
+    payload["diffusion_s_min"] = 0.0004
+    payload["diffusion_schedule_p"] = 7.0
     return payload
 
 

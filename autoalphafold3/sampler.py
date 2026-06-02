@@ -14,6 +14,7 @@ from autoalphafold3.checkpoint_training import DEFAULT_CHECKPOINT_MANIFEST, vali
 from autoalphafold3.nanofold_adapter import NANOFOLD_PATH
 from autoalphafold3.runner import (
     DONE_FILENAME,
+    PREDICTIONS_FILENAME,
     artifact_manifest_shape,
     validate_trial_id,
     write_prediction_artifact,
@@ -169,6 +170,141 @@ def run_sampler_trial(
     (output / "stderr.log").write_text("", encoding="utf-8")
     (output / "patch.diff").write_text("", encoding="utf-8")
     (output / DONE_FILENAME).write_text("frozen_checkpoint_sampler_completed\n", encoding="utf-8")
+    return sampler_manifest
+
+
+def run_checkpoint_prediction_artifacts(
+    trial_json: dict[str, Any],
+    *,
+    features_dir: str | Path,
+    output_dir: str | Path,
+    repo_root: str | Path = ".",
+    split: str = "public_val_small",
+) -> dict[str, object]:
+    """Write scorer-compatible predictions from a trial-scoped checkpoint.
+
+    This is the post-training inference step for bounded short-training trials.
+    It reuses the sampler implementation but does not create a second trial or
+    overwrite training artifacts.
+    """
+
+    import torch
+
+    root = Path(repo_root)
+    trial_id = validate_trial_id(str(trial_json.get("trial_id", "")))
+    output = Path(output_dir)
+    _require_trial_output_dir(output, trial_id)
+    if not output.exists():
+        raise SamplerError(f"checkpoint prediction output does not exist: {output}")
+
+    checkpoint_path = _checkpoint_path(
+        {
+            **trial_json,
+            "checkpoint_path": str(trial_json.get("checkpoint_path") or output / "checkpoint.pt"),
+        }
+    )
+    checkpoint_manifest = _load_and_validate_checkpoint_source_manifest(checkpoint_path)
+    _require_checkpoint_sha(checkpoint_path, str(checkpoint_manifest["checkpoint_sha256"]))
+    _require_checkpoint_matches_trial(checkpoint_manifest, checkpoint_path)
+    if str(checkpoint_manifest["trial_id"]) != trial_id:
+        raise SamplerError("checkpoint prediction trial_id must match checkpoint manifest")
+
+    _ensure_nanofold_import_path(root)
+    from nanofold.train.trainer import Trainer
+
+    started = time.time()
+    torch.manual_seed(int(trial_json.get("seed", checkpoint_manifest.get("seed", 0))))
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    config = dict(checkpoint.get("config") or {})
+    config["device"] = _sampler_device(config)
+    config["max_templates"] = 0
+    _require_checkpoint_config(config)
+
+    feature_file = _sampler_feature_file(
+        features_dir=features_dir,
+        checkpoint_manifest=checkpoint_manifest,
+    )
+    trainer = Trainer(config, loggers=[], checkpoint_save_freq=0, checkpoint=checkpoint)
+    sampler_settings = _sampler_settings(trial_json)
+    predictions = _sample_public_predictions(
+        trainer=trainer,
+        feature_file=feature_file,
+        public_feature_file=Path(features_dir) / f"{split}.arrow",
+        residue_crop_size=int(config["residue_crop_size"]),
+        num_msa=int(config["num_msa_samples"]),
+        sampler_settings=sampler_settings,
+    )
+    prediction_payload = write_prediction_artifact(
+        trial_id=trial_id,
+        split=split,
+        output_dir=output,
+        source="short_training_checkpoint_nanofold_sampler",
+        predictions=predictions,
+    )
+    prediction_payload["candidate_id"] = str(
+        trial_json.get("candidate_id", checkpoint_manifest.get("candidate_id", trial_id))
+    )
+    prediction_payload["max_templates"] = 0
+    _atomic_write_json(output / PREDICTIONS_FILENAME, prediction_payload)
+
+    artifact_manifest_path = output / "artifact_manifest.json"
+    if artifact_manifest_path.exists():
+        artifact_manifest = json.loads(artifact_manifest_path.read_text(encoding="utf-8"))
+    else:
+        artifact_manifest = artifact_manifest_shape(
+            trial_id=trial_id,
+            output_dir=output,
+            features_dir=features_dir,
+            split=split,
+            status="SAMPLER_PREDICTED",
+        )
+    artifacts = dict(artifact_manifest.get("artifacts") or {})
+    artifacts["predictions_json"] = str(output / PREDICTIONS_FILENAME)
+    artifacts["sampler_manifest_json"] = str(output / "sampler_manifest.json")
+    artifact_manifest.update(
+        {
+            "status": "SHORT_TRAINING_PREDICTED",
+            "runner_mode": "short_training_checkpoint_sampler",
+            "split": split,
+            "artifacts": artifacts,
+            "predictions_ready": True,
+            "prediction_source": "short_training_checkpoint_nanofold_sampler",
+            "checkpoint_path": str(checkpoint_path),
+            "checkpoint_sha256": str(checkpoint_manifest["checkpoint_sha256"]),
+            "max_templates": 0,
+            **sampler_settings,
+            "primary_metric": PRIMARY_METRIC,
+            "scorer_version": SCORER_VERSION,
+        }
+    )
+    lifecycle = dict(artifact_manifest.get("lifecycle") or {})
+    lifecycle["predictions_ready"] = True
+    artifact_manifest["lifecycle"] = lifecycle
+    _atomic_write_json(artifact_manifest_path, artifact_manifest)
+
+    sampler_manifest = {
+        "schema_version": SAMPLER_MANIFEST_SCHEMA,
+        "status": "SHORT_TRAINING_PREDICTED",
+        "trial_id": trial_id,
+        "candidate_id": prediction_payload["candidate_id"],
+        "checkpoint_path": str(checkpoint_path),
+        "checkpoint_sha256": str(checkpoint_manifest["checkpoint_sha256"]),
+        "checkpoint_source_trial_id": str(checkpoint_manifest["trial_id"]),
+        "checkpoint_manifest_schema": str(checkpoint_manifest["schema_version"]),
+        "feature_file": str(feature_file),
+        "target_ids": [str(prediction["target_id"]) for prediction in predictions],
+        "prediction_count": len(predictions),
+        "real_training_performed": bool(checkpoint_manifest.get("real_training_performed") is True),
+        "inference_only": True,
+        "max_templates": 0,
+        **sampler_settings,
+        "starts_search": False,
+        "writes_baseline": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "runtime_s": time.time() - started,
+    }
+    _atomic_write_json(output / "sampler_manifest.json", sampler_manifest)
     return sampler_manifest
 
 
@@ -437,6 +573,23 @@ def _load_and_validate_checkpoint_manifest(checkpoint_path: Path) -> dict[str, o
         return validate_checkpoint_manifest(payload)
     except Exception as exc:  # noqa: BLE001 - normalize checkpoint validation failures.
         raise SamplerError(f"checkpoint manifest is invalid: {exc}") from exc
+
+
+def _load_and_validate_checkpoint_source_manifest(checkpoint_path: Path) -> dict[str, object]:
+    checkpoint_manifest_path = checkpoint_path.parent / DEFAULT_CHECKPOINT_MANIFEST
+    if checkpoint_manifest_path.exists():
+        return _load_and_validate_checkpoint_manifest(checkpoint_path)
+
+    from autoalphafold3.short_training import DEFAULT_SHORT_TRAINING_MANIFEST, validate_short_training_manifest
+
+    short_manifest_path = checkpoint_path.parent / DEFAULT_SHORT_TRAINING_MANIFEST
+    if not short_manifest_path.exists():
+        raise SamplerError(f"checkpoint source manifest is missing: {checkpoint_manifest_path}")
+    payload = json.loads(short_manifest_path.read_text(encoding="utf-8"))
+    try:
+        return validate_short_training_manifest(payload)
+    except Exception as exc:  # noqa: BLE001 - normalize checkpoint validation failures.
+        raise SamplerError(f"short-training checkpoint manifest is invalid: {exc}") from exc
 
 
 def _require_checkpoint_sha(path: Path, expected: str) -> None:

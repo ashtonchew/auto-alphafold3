@@ -1168,6 +1168,54 @@ def test_llm_autoresearch_plans_bounded_batch_with_prior_plan_context(tmp_path: 
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
 
 
+def test_llm_autoresearch_planner_receives_prior_run_outcomes(tmp_path: Path) -> None:
+    _write_baseline_lock(tmp_path, score=0.08)
+    prior_client = FakeSequencedTrustedAutoresearchClient({"T130": 0.07})
+    run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="prior-live",
+        mode="modal",
+        planner="deterministic",
+        start_trial_id="T130",
+        max_candidates=1,
+        approval=APPROVAL_TEXT,
+        modal_client=prior_client,
+    )
+    fake = FakeLLMPlanner(_llm_candidate_payload(trial_id="T140"))
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="llm-with-prior",
+        mode="dry-run",
+        planner="llm",
+        start_trial_id="T140",
+        max_candidates=1,
+        planner_client=fake,
+        prior_run_ids=["prior-live"],
+    )
+
+    assert result.generated_trials == ["T140"]
+    prior_outcomes = fake.calls[0]["prior_outcomes"]
+    assert len(prior_outcomes) == 1
+    assert prior_outcomes[0] == {
+        "run_id": "prior-live",
+        "trial_id": "T130",
+        "status": "DISCARD",
+        "promotion_status": "NOT_ELIGIBLE",
+        "provisional_keep": False,
+        "matched_budget_delta": None,
+        "global_baseline_delta": pytest.approx(-0.01),
+        "candidate_score": pytest.approx(0.07),
+        "hypothesis": "Deterministic ladder candidate short_train_baseline_smoke tests bounded local-geometry short-training behavior.",
+        "move_family": "curriculum",
+        "diagnostic_target": "local_geometry_weak",
+        "config_path": "configs/nanofold_dev_cpu_smoke.json",
+        "budget": "smoke",
+    }
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
 def test_llm_autoresearch_rejects_unbounded_batch_before_artifacts(tmp_path: Path) -> None:
     fake = FakeLLMPlanner(_llm_candidate_payload())
 

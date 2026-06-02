@@ -983,14 +983,14 @@ def _is_t088_neighborhood_plan(plan: SamplerCandidatePlan) -> bool:
 
 def _validate_strategy_gate(*, plan: SamplerCandidatePlan, strategy_context: dict[str, object]) -> None:
     if (
-        strategy_context.get("recommendation") == "stop_t088_neighborhood"
+        strategy_context.get("recommendation") in {"stop_t088_neighborhood", "avoid_t088_neighborhood"}
         and _is_t088_neighborhood_plan(plan)
     ):
         ceiling = strategy_context.get("sampler_family_ceiling")
         ceiling_trial = ceiling.get("trial_id") if isinstance(ceiling, dict) else "UNKNOWN"
         raise SamplerLoopError(
             "sampler strategy gate blocks another late-refine compact/geometry T088-neighborhood "
-            f"candidate after repeated all-target regressions against {ceiling_trial}"
+            f"candidate after repeated regressions against {ceiling_trial}"
         )
 
 

@@ -818,6 +818,22 @@ NanoFold-style AlphaFold3-lite trial-budget training candidate with
 overrides, no Pairformer capacity overrides, no loss-shape overrides, no Modal
 resource edits, no ledger writes, and no Discovery Ledger writes.
 
+## Actual Bench Gate
+
+Readiness alone is not enough to start the open-ended autoresearch bench. After
+the latest surface strategy review exists, run the composite bench gate:
+
+```bash
+python3 -m autoalphafold3.agent bench-readiness-review \
+  --surface-strategy-review runs/autoresearch/surface_strategy_review/T173-T175-short-training-collapse-blocked.json \
+  --output runs/autoresearch/bench_readiness_review/T173-T175-bench-blocked.json
+```
+
+The open-ended bench may start only when this report emits
+`can_start_open_ended_bench=true`. If readiness is green but all approved
+surfaces are exhausted, the correct next phase is broader offline strategy
+review, not another live candidate.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

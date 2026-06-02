@@ -67,7 +67,8 @@ def review_next_surface(
     all_negative = score_summary.get("all_candidate_per_target_deltas_negative") is True
     all_changed = artifact_summary.get("all_comparisons_changed") is True
     exact_collapse_broken = score_summary.get("candidate_scores_identical") is False
-    feature_curriculum_exhausted = "feature_curriculum" in exhausted
+    exhausted_set = set(exhausted)
+    feature_curriculum_exhausted = "feature_curriculum" in exhausted_set
     mixed_after_feature_curriculum = (
         verdict == "MIXED_EVIDENCE_REVIEW_REQUIRED"
         and stop_live
@@ -76,12 +77,13 @@ def review_next_surface(
         and all_changed
         and exact_collapse_broken
         and feature_curriculum_exhausted
+        and "coordinate_scale_locality_diagnostic" not in exhausted_set
     )
     sampler_scale_exhausted = {
         "sampler_coordinate_scale",
         "sampler_geometry_selection",
         "sampler_low_noise",
-    }.issubset(set(exhausted))
+    }.issubset(exhausted_set)
     mixed_after_sampler_scale = (
         verdict == "MIXED_EVIDENCE_REVIEW_REQUIRED"
         and stop_live
@@ -89,6 +91,8 @@ def review_next_surface(
         and all_changed
         and exact_collapse_broken
         and sampler_scale_exhausted
+        and "diffusion_data_scale" not in exhausted_set
+        and "diffusion_data_scale_diagnostic" not in exhausted_set
         and per_target.get("negative_delta_count", 0) > 0
         and per_target.get("positive_delta_count", 0) > 0
     )

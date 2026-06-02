@@ -216,6 +216,7 @@ def _write_broader_strategy(
                 "may_start_live_candidate": may_start_live_candidate,
                 "may_start_open_ended_loop": False,
                 "non_overlap_rationale": "model-internal diffusion initial state scale",
+                "blocked_reason": None,
                 "forbidden_edits": ["scorer"],
                 "stop_conditions": ["post-merge readiness is not green"],
                 "consumed_surface_strategy_review": "runs/autoresearch/surface_strategy_review/review.json",

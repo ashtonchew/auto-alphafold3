@@ -34,6 +34,7 @@ def test_broader_strategy_approves_one_non_overlapping_dry_run_planner(tmp_path:
     assert payload["may_start_live_candidate"] is False
     assert payload["may_start_open_ended_loop"] is False
     assert "model-internal diffusion initial state scale" in str(payload["non_overlap_rationale"])
+    assert payload["blocked_reason"] is None
     assert "scorer" in payload["forbidden_edits"]
     assert "post-merge readiness is not green" in payload["stop_conditions"]
     assert payload["starts_search"] is False
@@ -62,6 +63,44 @@ def test_broader_strategy_keeps_blocked_when_readiness_is_not_green(tmp_path: Pa
     assert report.decision == "NO_BROADER_STRATEGY_APPROVED"
     assert report.candidate_limit == 0
     assert report.approved_planner is None
+    assert "Foundation readiness is not green" in str(report.blocked_reason)
+
+
+def test_broader_strategy_no_go_after_diffusion_initialization_is_exhausted(tmp_path: Path) -> None:
+    surface_strategy = _write_surface_strategy(
+        tmp_path,
+        exhausted_surfaces=[
+            "auxiliary_loss",
+            "feature_handling",
+            "memory_runtime",
+            "diffusion_initialization_scale",
+        ],
+    )
+    bench_readiness = _write_bench_readiness(
+        tmp_path,
+        decision="BLOCK_OPEN_ENDED_BENCH_STRATEGY_EXHAUSTED",
+        autonomous_search_ready=True,
+    )
+
+    report = review_broader_strategy(
+        repo_root=tmp_path,
+        surface_strategy_review=surface_strategy,
+        bench_readiness_review=bench_readiness,
+    )
+
+    assert report.decision == "NO_BROADER_STRATEGY_APPROVED"
+    assert report.approved_next_surface is None
+    assert report.approved_planner is None
+    assert report.candidate_limit == 0
+    assert report.may_start_live_candidate is False
+    assert report.may_start_open_ended_loop is False
+    assert "diffusion_initialization_scale" in report.exhausted_surfaces
+    assert "already exhausted" in str(report.blocked_reason)
+    assert "Reapproving it would repeat a discarded surface" in str(report.blocked_reason)
+    assert report.starts_search is False
+    assert report.writes_ledger is False
+    assert report.writes_discovery_ledger is False
+    assert report.official_benchmark_result is False
 
 
 def test_broader_strategy_refuses_authority_claims(tmp_path: Path) -> None:

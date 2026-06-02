@@ -28,6 +28,7 @@ class BroaderStrategyReview:
     may_start_live_candidate: bool
     may_start_open_ended_loop: bool
     non_overlap_rationale: str | None
+    blocked_reason: str | None
     forbidden_edits: list[str]
     stop_conditions: list[str]
     consumed_surface_strategy_review: str
@@ -98,7 +99,15 @@ def review_broader_strategy(
     no_unimplemented = _unique_strings(surface_strategy.get("unimplemented_candidate_surfaces")) == []
     bench_blocked = bench_readiness.get("decision") == "BLOCK_OPEN_ENDED_BENCH_STRATEGY_EXHAUSTED"
     autonomous_ready = bench_readiness.get("autonomous_search_ready") is True
-    if strategy_blocked and no_unimplemented and planned_exhausted and bench_blocked and autonomous_ready:
+    approved_surface_exhausted = APPROVED_SURFACE in exhausted_set
+    if (
+        strategy_blocked
+        and no_unimplemented
+        and planned_exhausted
+        and bench_blocked
+        and autonomous_ready
+        and not approved_surface_exhausted
+    ):
         return BroaderStrategyReview(
             schema_version=SCHEMA_VERSION,
             status="PASS",
@@ -114,6 +123,7 @@ def review_broader_strategy(
                 "scale before denoising, which is separate from post-hoc sampler normalization, "
                 "diffusion data-scale training noise, feature handling, loss weighting, and Modal runtime."
             ),
+            blocked_reason=None,
             forbidden_edits=list(FORBIDDEN_EDITS),
             stop_conditions=list(STOP_CONDITIONS),
             consumed_surface_strategy_review=str(surface_strategy_review),
@@ -138,6 +148,14 @@ def review_broader_strategy(
         may_start_live_candidate=False,
         may_start_open_ended_loop=False,
         non_overlap_rationale=None,
+        blocked_reason=_blocked_reason(
+            autonomous_ready=autonomous_ready,
+            bench_blocked=bench_blocked,
+            strategy_blocked=strategy_blocked,
+            no_unimplemented=no_unimplemented,
+            planned_exhausted=planned_exhausted,
+            approved_surface_exhausted=approved_surface_exhausted,
+        ),
         forbidden_edits=list(FORBIDDEN_EDITS),
         stop_conditions=["no broader non-overlapping dry-run planner was approved"],
         consumed_surface_strategy_review=str(surface_strategy_review),
@@ -176,6 +194,34 @@ def _read_json(
         if payload.get(key) is True:
             raise BroaderStrategyReviewError(f"{label} must not claim {key}=true")
     return payload
+
+
+def _blocked_reason(
+    *,
+    autonomous_ready: bool,
+    bench_blocked: bool,
+    strategy_blocked: bool,
+    no_unimplemented: bool,
+    planned_exhausted: bool,
+    approved_surface_exhausted: bool,
+) -> str:
+    if approved_surface_exhausted:
+        return (
+            "The only built-in broader planner surface, diffusion_initialization_scale, is already "
+            "exhausted by scorer-backed T176 evidence. Reapproving it would repeat a discarded "
+            "surface rather than define a non-overlapping strategy."
+        )
+    if not autonomous_ready:
+        return "Foundation readiness is not green, so broader strategy cannot approve candidate spend."
+    if not bench_blocked:
+        return "Bench readiness is not in the expected strategy-exhausted blocked state."
+    if not strategy_blocked:
+        return "Surface strategy is not in a no-non-overlapping-planner stop state."
+    if not no_unimplemented:
+        return "Surface strategy still reports unimplemented candidate surfaces; consume those first."
+    if not planned_exhausted:
+        return "The planned surface family is not fully exhausted yet."
+    return "No broader non-overlapping dry-run planner was approved."
 
 
 def _safe_evidence_path(*, root: Path, path: str | Path) -> Path:

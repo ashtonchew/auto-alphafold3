@@ -889,6 +889,34 @@ NanoFold-style AlphaFold3-lite trial-budget training candidate with
 reference-position overrides, no auxiliary-loss overrides, no Modal resource
 edits, no ledger writes, and no Discovery Ledger writes.
 
+If the bounded live T176 candidate is scored and discarded, consolidate the
+post-discard evidence and rerun the broader strategy review against the
+post-T176 surface strategy:
+
+```bash
+python3 -m autoalphafold3.agent broader-strategy-review \
+  --surface-strategy-review runs/autoresearch/surface_strategy_review/T176-diffusion-initialization-scale-blocked-full.json \
+  --bench-readiness-review runs/autoresearch/bench_readiness_review/T176-bench-blocked-post-pr113-live.json \
+  --output runs/autoresearch/broader_strategy_review/T176-post-discard-no-go.json
+```
+
+This post-T176 artifact should emit `NO_BROADER_STRATEGY_APPROVED` unless a
+new non-overlapping surface exists. It must not reapprove
+`diffusion_initialization_scale`, because that surface is now exhausted by the
+scorer-backed T176 evidence. Rerun the composite bench gate with the no-go
+artifact:
+
+```bash
+python3 -m autoalphafold3.agent bench-readiness-review \
+  --surface-strategy-review runs/autoresearch/surface_strategy_review/T176-diffusion-initialization-scale-blocked-full.json \
+  --broader-strategy-review runs/autoresearch/broader_strategy_review/T176-post-discard-no-go.json \
+  --output runs/autoresearch/bench_readiness_review/T176-bench-blocked-with-no-go.json
+```
+
+The open-ended bench remains blocked unless this report emits
+`can_start_open_ended_bench=true`. A no-go broader strategy is evidence to stop
+live spend, not permission to start another candidate.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

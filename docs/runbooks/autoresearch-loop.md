@@ -970,8 +970,36 @@ python3 -m autoalphafold3.agent autoresearch-loop \
 The planner is dry-run-only and refuses `--mode modal`. It writes only planning
 artifacts under `runs/autoresearch/<run-id>/`, with `artifact_only=true`,
 `stop_before_live_modal=true`, and no ledger or Discovery Ledger authority. Do
-not run a bounded live smoke until this dry-run envelope has been reviewed and a
-fresh bench-readiness-review explicitly allows at most one live candidate.
+not run a bounded live smoke until this dry-run envelope has been reviewed.
+
+Review the bridge envelope offline:
+
+```bash
+python3 -m autoalphafold3.agent evidence-bridge-review \
+  --post-exhaustion-strategy runs/autoresearch/post_exhaustion_strategy/T176-evidence-guided-failure-mode-bridge-prd-post-pr118.json \
+  --candidate-run-dir runs/autoresearch/evidence-guided-failure-mode-bridge-001-post-pr119 \
+  --output runs/autoresearch/evidence_bridge_review/T177-evidence-guided-failure-mode-bridge-review.json
+```
+
+An approved bridge review emits
+`APPROVE_NEXT_CANDIDATE_IMPLEMENTATION_PR_ONLY`. That still does not authorize a
+live smoke or open-ended bench. It authorizes only the next offline/local
+candidate implementation PR from the reviewed evidence constraints.
+
+Rerun the composite gate with the bridge review attached:
+
+```bash
+python3 -m autoalphafold3.agent bench-readiness-review \
+  --surface-strategy-review runs/autoresearch/surface_strategy_review/T176-diffusion-initialization-scale-blocked-full.json \
+  --broader-strategy-review runs/autoresearch/broader_strategy_review/T176-post-discard-no-go-post-pr115.json \
+  --evidence-bridge-review runs/autoresearch/evidence_bridge_review/T177-evidence-guided-failure-mode-bridge-review.json \
+  --output runs/autoresearch/bench_readiness_review/T177-bridge-aware-candidate-pr-required.json
+```
+
+The expected bridge-aware bench decision is
+`BLOCK_OPEN_ENDED_BENCH_CANDIDATE_IMPLEMENTATION_REQUIRED`. Do not run a bounded
+live smoke until a later fresh bench-readiness-review explicitly allows at most
+one live candidate.
 
 ## Review And UI Render
 

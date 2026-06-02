@@ -1,0 +1,61 @@
+{
+  "hypothesis": "Rejecting exploded post-training sampler samples should prevent label-free geometry collapse without changing locked scorer, manifests, or benchmark assets.",
+  "trial": {
+    "trial_id": "T178",
+    "parent_commit": "963e372",
+    "agent_session_id": "bounded-live-smoke-post-pr124",
+    "trial_kind": "sampler",
+    "hypothesis": "Rejecting exploded post-training sampler samples should prevent label-free geometry collapse without changing locked scorer, manifests, or benchmark assets.",
+    "move_family": "diffusion_sampler_golf",
+    "diagnostic_target": "distogram_good_lddt_flat",
+    "prediction": {
+      "causal_component": "sampler_locality_guard",
+      "predicted_axis": "distogram_vs_3d",
+      "predicted_direction": "up",
+      "expected_lddt_delta_band": [
+        0.0,
+        0.01
+      ]
+    },
+    "patch_path": null,
+    "config_path": "configs/experiments/T178_sampler_locality_guard_live_smoke.json",
+    "budget": "sampler",
+    "seed": 0,
+    "n_res": 32,
+    "sampler_steps": 2,
+    "sampler_noise_scale": 1.0,
+    "sampler_step_scale": 1.0,
+    "sampler_schedule_shape": "linear",
+    "sampler_num_samples": 1,
+    "sampler_selection_policy": "first",
+    "sampler_coordinate_normalization": "ca_bond",
+    "sampler_coordinate_scale": 13.126702,
+    "sampler_locality_guard": "reject_exploded",
+    "max_wall_minutes": 5,
+    "manifest_hashes": {},
+    "scorer_version": "calpha_lddt_v1",
+    "primary_metric": "best_val_calpha_lddt",
+    "param_cap": 176514,
+    "gpu_memory_cap": 80.0,
+    "cost_cap": 2.0,
+    "timeout_cap": 300,
+    "artifact_dir": "runs/trials/T178",
+    "checkpoint_path": "runs/trials/T010/checkpoint.pt"
+  },
+  "config": {
+    "schema_version": "autoaf3.sampler_locality_guard_live_smoke_plan.v1",
+    "candidate_id": "T178",
+    "approved_candidate": "sampler_locality_guard",
+    "checkpoint_source_trial_id": "T010",
+    "sampler_locality_guard": "reject_exploded",
+    "sampler_coordinate_normalization": "ca_bond",
+    "sampler_coordinate_scale": 13.126702,
+    "max_templates": 0,
+    "starts_search": false,
+    "writes_baseline": false,
+    "writes_ledger": false,
+    "writes_discovery_ledger": false,
+    "official_benchmark_result": false
+  },
+  "patch_text": "diff --git a/configs/experiments/T178_sampler_locality_guard_live_smoke.json b/configs/experiments/T178_sampler_locality_guard_live_smoke.json\n--- /dev/null\n+++ b/configs/experiments/T178_sampler_locality_guard_live_smoke.json\n@@ -0,0 +1 @@\n+{\"sampler_locality_guard\":\"reject_exploded\",\"max_templates\":0}\n"
+}

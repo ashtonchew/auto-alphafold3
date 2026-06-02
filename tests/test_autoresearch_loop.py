@@ -3197,6 +3197,25 @@ def test_modal_sampler_locality_guard_consumes_live_smoke_gate(tmp_path: Path) -
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
 
 
+def test_dry_run_sampler_locality_guard_plan_does_not_require_live_smoke_gate(tmp_path: Path) -> None:
+    candidate_plan = _write_sampler_locality_guard_candidate_plan(tmp_path)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="dry-run-locality-guard",
+        mode="dry-run",
+        planner="manual",
+        candidate_plan=candidate_plan,
+        max_candidates=1,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T178"]
+    assert result.starts_search is False
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
 def test_modal_sampler_locality_guard_requires_live_smoke_gate(tmp_path: Path) -> None:
     candidate_plan = _write_sampler_locality_guard_candidate_plan(tmp_path)
     client = FakeTrustedAutoresearchClient(_sampler_manifest("T178"))

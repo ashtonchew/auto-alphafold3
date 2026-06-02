@@ -9,7 +9,14 @@ from autoalphafold3.checkpoint_training import one_batch_checkpoint_payload, run
 from autoalphafold3.local_fixtures import APPROVAL_TOKEN, materialize_local_nanofold_fixture
 from autoalphafold3.runner import validate_prediction_artifact
 from autoalphafold3.runner import validate_artifact_manifest
-from autoalphafold3.sampler import SamplerError, run_checkpoint_prediction_artifacts, run_sampler_trial
+from autoalphafold3.sampler import (
+    SamplerError,
+    _label_free_ca_quality,
+    _normalize_ca_coordinates,
+    _sampler_settings,
+    run_checkpoint_prediction_artifacts,
+    run_sampler_trial,
+)
 from autoalphafold3.short_training import run_short_nanofold_training, short_training_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +63,7 @@ def test_run_sampler_trial_loads_checkpoint_and_writes_predictions(tmp_path: Pat
     assert artifact_manifest["runner_mode"] == "frozen_checkpoint_sampler"
     assert predictions["source"] == "frozen_checkpoint_nanofold_sampler"
     assert predictions["max_templates"] == 0
+    assert manifest["sampler_coordinate_normalization"] == "none"
     assert predictions["predictions"][0]["target_id"] == "TARGET_0_A"
     assert len(predictions["predictions"][0]["predicted_ca"]) > 0
     assert (output / "DONE").exists()
@@ -149,6 +157,27 @@ def test_checkpoint_prediction_artifacts_accept_short_training_checkpoint(tmp_pa
     assert not (tmp_path / "runs/baseline").exists()
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_sampler_ca_bond_coordinate_normalization_rescales_exploded_trace() -> None:
+    exploded = [[0.0, 0.0, 0.0], [380.0, 0.0, 0.0], [760.0, 0.0, 0.0]]
+
+    normalized = _normalize_ca_coordinates(exploded, policy="ca_bond")
+
+    assert normalized[0] == pytest.approx([-3.8, 0.0, 0.0])
+    assert normalized[1] == pytest.approx([0.0, 0.0, 0.0])
+    assert normalized[2] == pytest.approx([3.8, 0.0, 0.0])
+    assert _label_free_ca_quality(normalized, policy="geometry") == pytest.approx(0.0)
+
+
+def test_sampler_rejects_unknown_coordinate_normalization() -> None:
+    with pytest.raises(SamplerError, match="sampler_coordinate_normalization must be none or ca_bond"):
+        _sampler_settings(
+            {
+                "sampler_steps": 1,
+                "sampler_coordinate_normalization": "bad",
+            }
+        )
 
 
 def test_run_sampler_trial_accepts_short_training_checkpoint_manifest(tmp_path: Path) -> None:

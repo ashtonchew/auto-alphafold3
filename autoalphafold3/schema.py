@@ -285,6 +285,7 @@ class AutoFoldTrial(BaseModel):
     sampler_schedule_shape: Literal["linear", "cosine", "late_refine"] | None = None
     sampler_num_samples: int | None = Field(default=None, ge=1, le=4)
     sampler_selection_policy: Literal["first", "geometry", "compact_geometry"] | None = None
+    sampler_coordinate_normalization: Literal["none", "ca_bond"] | None = None
     max_wall_minutes: int = Field(ge=1)
     manifest_hashes: dict[str, str] = Field(default_factory=dict)
     scorer_version: str = SCORER_VERSION
@@ -334,6 +335,13 @@ class AutoFoldTrial(BaseModel):
             present = [name for name, value in sampler_fields.items() if value is not None]
             if present:
                 raise ValueError(f"{self.trial_kind.value} trials must not set sampler-only fields: {present}")
+        if self.sampler_coordinate_normalization is not None and self.trial_kind not in {
+            TrialKind.SAMPLER,
+            TrialKind.TRAINING,
+        }:
+            raise ValueError(
+                f"{self.trial_kind.value} trials must not set sampler_coordinate_normalization"
+            )
         if self.budget == BudgetTier.DRY_RUN and self.gpu_memory_cap != 0.0:
             raise ValueError("dry_run budget must use gpu_memory_cap=0.0")
         return self

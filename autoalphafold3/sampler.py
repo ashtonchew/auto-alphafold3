@@ -29,6 +29,7 @@ DEFAULT_SAMPLER_NUM_SAMPLES = 1
 DEFAULT_SAMPLER_SELECTION_POLICY = "first"
 SAMPLER_SCHEDULE_SHAPES = {"linear", "cosine", "late_refine"}
 SAMPLER_SELECTION_POLICIES = {"first", "geometry", "compact_geometry"}
+SAMPLER_COORDINATE_NORMALIZATION_POLICIES = {"none", "ca_bond"}
 
 
 class SamplerError(RuntimeError):
@@ -368,9 +369,11 @@ def _sample_selected_ca_coordinates(
 ) -> tuple[list[list[float]], dict[str, object]]:
     num_samples = int(sampler_settings["sampler_num_samples"])
     policy = str(sampler_settings["sampler_selection_policy"])
+    coordinate_normalization = str(sampler_settings["sampler_coordinate_normalization"])
     candidates: list[tuple[float, int, list[list[float]]]] = []
     for sample_index in range(num_samples):
-        ca = _sample_ca_coordinates(model, features, sampler_settings=sampler_settings)
+        raw_ca = _sample_ca_coordinates(model, features, sampler_settings=sampler_settings)
+        ca = _normalize_ca_coordinates(raw_ca, policy=coordinate_normalization)
         quality = _label_free_ca_quality(ca, policy=policy)
         candidates.append((quality, sample_index, ca))
         if policy == "first":
@@ -381,6 +384,7 @@ def _sample_selected_ca_coordinates(
         "num_samples": num_samples,
         "selected_index": selected_index,
         "label_free_quality": quality,
+        "coordinate_normalization": coordinate_normalization,
     }
 
 
@@ -485,6 +489,7 @@ def _sampler_settings(trial_json: dict[str, Any]) -> dict[str, object]:
         "sampler_selection_policy": str(
             trial_json.get("sampler_selection_policy", DEFAULT_SAMPLER_SELECTION_POLICY)
         ),
+        "sampler_coordinate_normalization": str(trial_json.get("sampler_coordinate_normalization", "none")),
     }
     _validate_sampler_settings(settings)
     return settings
@@ -503,6 +508,25 @@ def _validate_sampler_settings(settings: dict[str, object]) -> None:
         raise SamplerError("sampler_num_samples must be in [1, 4]")
     if str(settings["sampler_selection_policy"]) not in SAMPLER_SELECTION_POLICIES:
         raise SamplerError("sampler_selection_policy must be first, geometry, or compact_geometry")
+    if str(settings["sampler_coordinate_normalization"]) not in SAMPLER_COORDINATE_NORMALIZATION_POLICIES:
+        raise SamplerError("sampler_coordinate_normalization must be none or ca_bond")
+
+
+def _normalize_ca_coordinates(ca: list[list[float]], *, policy: str) -> list[list[float]]:
+    if policy == "none":
+        return ca
+    if policy != "ca_bond":
+        raise SamplerError("unsupported sampler coordinate normalization policy")
+    if len(ca) < 2:
+        return ca
+    center = [sum(row[axis] for row in ca) / len(ca) for axis in range(3)]
+    centered = [[float(row[axis]) - center[axis] for axis in range(3)] for row in ca]
+    distances = [_distance(centered[index], centered[index - 1]) for index in range(1, len(centered))]
+    positive_distances = [distance for distance in distances if math.isfinite(distance) and distance > 0.0]
+    if not positive_distances:
+        return centered
+    scale = 3.8 / (sum(positive_distances) / len(positive_distances))
+    return [[coord * scale for coord in row] for row in centered]
 
 
 def _label_free_ca_quality(ca: list[list[float]], *, policy: str) -> float:

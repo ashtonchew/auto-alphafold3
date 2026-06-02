@@ -144,6 +144,15 @@ def test_autofold_trial_requires_structured_prediction() -> None:
         AutoFoldTrial.model_validate(valid_trial_dict(prediction="free text is not enough"))
 
 
+def test_training_trial_accepts_post_training_sampler_coordinate_normalization() -> None:
+    trial = AutoFoldTrial.model_validate(
+        valid_trial_dict(sampler_coordinate_normalization="ca_bond")
+    )
+
+    assert trial.trial_kind.value == "training"
+    assert trial.sampler_coordinate_normalization == "ca_bond"
+
+
 def test_autofold_trial_requires_prediction_axis_to_match_diagnostic_target() -> None:
     with pytest.raises(ValidationError, match="predicted_axis must match diagnostic_target"):
         AutoFoldTrial.model_validate(

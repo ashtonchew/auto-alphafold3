@@ -654,6 +654,33 @@ Do not run the live T165 candidate until this planner has merged, readiness is
 still green on `main`, and the dry-run envelope is reviewed. Never start the
 open-ended autoresearch loop from this mixed-evidence state.
 
+## Surface Strategy Review
+
+After a bounded live candidate is scored and discarded, run the post-discard
+diagnosis and next-surface review before approving any more live spend. If the
+latest next-surface review emits `NO_NEXT_SURFACE_APPROVED`, consolidate the
+latest review with the relevant historical diagnoses:
+
+```bash
+python3 -m autoalphafold3.agent surface-strategy-review \
+  --next-surface-review runs/autoresearch/next_surface_review/T171-mixed-evidence.json \
+  --diagnosis runs/autoresearch/post_discard_diagnosis/T113-T162-T163-T164-T165-T166.json \
+  --diagnosis runs/autoresearch/post_discard_diagnosis/T171-vs-T170-T088.json \
+  --output runs/autoresearch/surface_strategy_review/T171-blocked.json
+```
+
+This command is offline only. It consumes review and diagnosis artifacts under
+`runs/autoresearch/`, refuses any source artifact that claims search, ledger,
+Discovery Ledger, or official benchmark authority, and writes a strategy report.
+It does not call Modal, score artifacts, write ledgers, or create benchmark
+claims.
+
+If the strategy review emits `NO_NON_OVERLAPPING_PLANNER_APPROVED`, do not start
+another live candidate and do not start the open-ended bench loop. The next
+allowed action is offline design review for one unimplemented allowed surface,
+followed by a dry-run-only planner PR if the new surface is explicit and
+non-overlapping with the exhausted evidence.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,23 @@ class TargetCoordinateDelta:
 
 
 @dataclass(frozen=True)
+class TargetDistanceDelta:
+    """Pairwise-distance summary for one shared target."""
+
+    target_id: str
+    left_residue_count: int
+    right_residue_count: int
+    comparable_pair_count: int
+    mean_abs_pair_distance_delta: float | None
+    max_abs_pair_distance_delta: float | None
+    pair_distance_rmsd: float | None
+    fraction_lt_0_5A: float | None
+    fraction_lt_1A: float | None
+    fraction_lt_2A: float | None
+    fraction_lt_4A: float | None
+
+
+@dataclass(frozen=True)
 class PredictionArtifactComparison:
     """JSON-friendly comparison between two prediction artifacts."""
 
@@ -67,6 +85,8 @@ class PredictionArtifactComparison:
     all_predictions_identical: bool
     coordinate_deltas: dict[str, TargetCoordinateDelta]
     coordinate_delta_summary: dict[str, object]
+    distance_deltas: dict[str, TargetDistanceDelta]
+    distance_delta_summary: dict[str, object]
     metric_deltas: dict[str, float] | None
 
     def to_dict(self) -> dict[str, object]:
@@ -103,6 +123,7 @@ def compare_prediction_artifacts(
     identical = [target for target in common if left_summary.target_hashes[target] == right_summary.target_hashes[target]]
     changed = [target for target in common if left_summary.target_hashes[target] != right_summary.target_hashes[target]]
     coordinate_deltas = _coordinate_deltas(left_payload, right_payload, common)
+    distance_deltas = _distance_deltas(left_payload, right_payload, common)
     metric_deltas = _metric_deltas(left_summary.metrics, right_summary.metrics)
     same_target_set = left_targets == right_targets
     all_common_identical = len(identical) == len(common)
@@ -122,6 +143,8 @@ def compare_prediction_artifacts(
         all_predictions_identical=same_target_set and all_common_identical,
         coordinate_deltas=coordinate_deltas,
         coordinate_delta_summary=_coordinate_delta_summary(coordinate_deltas),
+        distance_deltas=distance_deltas,
+        distance_delta_summary=_distance_delta_summary(distance_deltas),
         metric_deltas=metric_deltas,
     )
 
@@ -271,6 +294,109 @@ def _coordinate_delta_summary(deltas: dict[str, TargetCoordinateDelta]) -> dict[
         if mean_abs_values
         else None,
     }
+
+
+def _distance_deltas(
+    left_payload: dict[str, object],
+    right_payload: dict[str, object],
+    common_targets: list[str],
+) -> dict[str, TargetDistanceDelta]:
+    left_by_target = _predictions_by_target(left_payload)
+    right_by_target = _predictions_by_target(right_payload)
+    return {
+        target_id: _target_distance_delta(target_id, left_by_target[target_id], right_by_target[target_id])
+        for target_id in common_targets
+    }
+
+
+def _target_distance_delta(
+    target_id: str,
+    left_prediction: dict[str, object],
+    right_prediction: dict[str, object],
+) -> TargetDistanceDelta:
+    left = _coordinates(left_prediction)
+    right = _coordinates(right_prediction)
+    if len(left) < 2 or len(left) != len(right):
+        return TargetDistanceDelta(
+            target_id=target_id,
+            left_residue_count=len(left),
+            right_residue_count=len(right),
+            comparable_pair_count=0,
+            mean_abs_pair_distance_delta=None,
+            max_abs_pair_distance_delta=None,
+            pair_distance_rmsd=None,
+            fraction_lt_0_5A=None,
+            fraction_lt_1A=None,
+            fraction_lt_2A=None,
+            fraction_lt_4A=None,
+        )
+    abs_deltas: list[float] = []
+    for left_index in range(len(left)):
+        for right_index in range(left_index + 1, len(left)):
+            left_distance = _euclidean_distance(left[left_index], left[right_index])
+            right_distance = _euclidean_distance(right[left_index], right[right_index])
+            abs_deltas.append(abs(right_distance - left_distance))
+    return TargetDistanceDelta(
+        target_id=target_id,
+        left_residue_count=len(left),
+        right_residue_count=len(right),
+        comparable_pair_count=len(abs_deltas),
+        mean_abs_pair_distance_delta=sum(abs_deltas) / len(abs_deltas),
+        max_abs_pair_distance_delta=max(abs_deltas),
+        pair_distance_rmsd=math.sqrt(sum(delta * delta for delta in abs_deltas) / len(abs_deltas)),
+        fraction_lt_0_5A=_fraction_below(abs_deltas, 0.5),
+        fraction_lt_1A=_fraction_below(abs_deltas, 1.0),
+        fraction_lt_2A=_fraction_below(abs_deltas, 2.0),
+        fraction_lt_4A=_fraction_below(abs_deltas, 4.0),
+    )
+
+
+def _distance_delta_summary(deltas: dict[str, TargetDistanceDelta]) -> dict[str, object]:
+    comparable = [delta for delta in deltas.values() if delta.pair_distance_rmsd is not None]
+    mismatched = [
+        delta.target_id
+        for delta in deltas.values()
+        if delta.left_residue_count != delta.right_residue_count or delta.pair_distance_rmsd is None
+    ]
+    rmsds = [float(delta.pair_distance_rmsd) for delta in comparable if delta.pair_distance_rmsd is not None]
+    mean_abs_values = [
+        float(delta.mean_abs_pair_distance_delta)
+        for delta in comparable
+        if delta.mean_abs_pair_distance_delta is not None
+    ]
+    max_abs_values = [
+        float(delta.max_abs_pair_distance_delta)
+        for delta in comparable
+        if delta.max_abs_pair_distance_delta is not None
+    ]
+    return {
+        "target_count": len(deltas),
+        "comparable_target_count": len(comparable),
+        "residue_count_mismatch_targets": sorted(mismatched),
+        "mean_target_pair_distance_rmsd": sum(rmsds) / len(rmsds) if rmsds else None,
+        "max_target_pair_distance_rmsd": max(rmsds) if rmsds else None,
+        "mean_target_mean_abs_pair_distance_delta": sum(mean_abs_values) / len(mean_abs_values)
+        if mean_abs_values
+        else None,
+        "max_target_max_abs_pair_distance_delta": max(max_abs_values) if max_abs_values else None,
+        "mean_fraction_lt_0_5A": _mean_optional(delta.fraction_lt_0_5A for delta in comparable),
+        "mean_fraction_lt_1A": _mean_optional(delta.fraction_lt_1A for delta in comparable),
+        "mean_fraction_lt_2A": _mean_optional(delta.fraction_lt_2A for delta in comparable),
+        "mean_fraction_lt_4A": _mean_optional(delta.fraction_lt_4A for delta in comparable),
+    }
+
+
+def _euclidean_distance(left: list[float], right: list[float]) -> float:
+    return math.sqrt(sum((right_coord - left_coord) ** 2 for left_coord, right_coord in zip(left, right, strict=True)))
+
+
+def _fraction_below(values: list[float], threshold: float) -> float:
+    return sum(1 for value in values if value < threshold) / len(values)
+
+
+def _mean_optional(values: Iterable[float | None]) -> float | None:
+    checked = [float(value) for value in values if value is not None]
+    return sum(checked) / len(checked) if checked else None
 
 
 def _metric_deltas(

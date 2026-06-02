@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,8 @@ def test_compare_prediction_artifacts_detects_identical_targets_and_metric_delta
         "max_target_rmsd": pytest.approx(0.0),
         "mean_target_mean_abs_coordinate_delta": pytest.approx(0.0),
     }
+    assert report.distance_delta_summary["mean_target_pair_distance_rmsd"] == pytest.approx(0.0)
+    assert report.distance_delta_summary["mean_fraction_lt_0_5A"] == pytest.approx(1.0)
     assert report.coordinate_deltas["TARGET_A"].rmsd == pytest.approx(0.0)
     assert report.metric_deltas == {
         "best_val_calpha_lddt": pytest.approx(0.02),
@@ -70,7 +73,27 @@ def test_compare_prediction_artifacts_detects_changed_and_missing_targets(tmp_pa
     assert report.coordinate_deltas["TARGET_A"].mean_abs_coordinate_delta == pytest.approx(1 / 3)
     assert report.coordinate_delta_summary["mean_target_rmsd"] == pytest.approx(1.0)
     assert report.coordinate_delta_summary["max_target_rmsd"] == pytest.approx(1.0)
+    assert report.distance_deltas["TARGET_A"].pair_distance_rmsd == pytest.approx(0.0)
+    assert report.distance_delta_summary["mean_target_pair_distance_rmsd"] == pytest.approx(0.0)
     assert report.metric_deltas is None
+
+
+def test_compare_prediction_artifacts_reports_pair_distance_deltas(tmp_path: Path) -> None:
+    left = _write_predictions(tmp_path / "left.json", trial_id="T150", targets=("TARGET_A",), scale=1.0)
+    right = _write_predictions(tmp_path / "right.json", trial_id="T158", targets=("TARGET_A",), scale=2.0)
+
+    report = compare_prediction_artifacts(left_predictions=left, right_predictions=right)
+
+    assert report.coordinate_deltas["TARGET_A"].rmsd == pytest.approx(math.sqrt(0.5))
+    assert report.distance_deltas["TARGET_A"].comparable_pair_count == 1
+    assert report.distance_deltas["TARGET_A"].mean_abs_pair_distance_delta == pytest.approx(1.0)
+    assert report.distance_deltas["TARGET_A"].max_abs_pair_distance_delta == pytest.approx(1.0)
+    assert report.distance_deltas["TARGET_A"].pair_distance_rmsd == pytest.approx(1.0)
+    assert report.distance_deltas["TARGET_A"].fraction_lt_0_5A == pytest.approx(0.0)
+    assert report.distance_deltas["TARGET_A"].fraction_lt_1A == pytest.approx(0.0)
+    assert report.distance_deltas["TARGET_A"].fraction_lt_2A == pytest.approx(1.0)
+    assert report.distance_delta_summary["mean_target_pair_distance_rmsd"] == pytest.approx(1.0)
+    assert report.distance_delta_summary["mean_fraction_lt_0_5A"] == pytest.approx(0.0)
 
 
 def test_compare_prediction_artifacts_rejects_invalid_prediction_schema(tmp_path: Path) -> None:
@@ -88,11 +111,12 @@ def _write_predictions(
     trial_id: str,
     targets: tuple[str, ...] = ("TARGET_A", "TARGET_B"),
     y_offset: float = 0.0,
+    scale: float = 1.0,
 ) -> Path:
     predictions = [
         {
             "target_id": target,
-            "predicted_ca": [[0.0, y_offset + index, 0.0], [1.0, y_offset + index, 0.0]],
+            "predicted_ca": [[0.0, y_offset + index, 0.0], [scale, y_offset + index, 0.0]],
         }
         for index, target in enumerate(targets)
     ]

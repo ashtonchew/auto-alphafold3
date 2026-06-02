@@ -23,6 +23,16 @@ from autoalphafold3.autoresearch_loop import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _runtime_capabilities() -> dict[str, bool]:
+    return {
+        "post_training_sampler_coordinate_normalization": True,
+        "post_training_sampler_coordinate_scale": True,
+        "post_training_sampler_selection": True,
+        "post_training_sampler_schedule": True,
+        "post_training_sampler_locality_guard": True,
+    }
+
+
 class FakeLLMPlanner:
     def __init__(self, payload: dict[str, object] | list[dict[str, object]]) -> None:
         self.payloads = payload if isinstance(payload, list) else [payload]
@@ -39,12 +49,7 @@ class FakeTrustedAutoresearchClient:
         self.payload = payload
         self.score_payload = score_payload
         self.authority_payload: dict[str, object] = {
-            "runtime_capabilities": {
-                "post_training_sampler_coordinate_normalization": True,
-                "post_training_sampler_coordinate_scale": True,
-                "post_training_sampler_selection": True,
-                "post_training_sampler_schedule": True,
-            }
+            "runtime_capabilities": _runtime_capabilities()
         }
         self.submitted_trials: list[dict[str, object]] = []
         self.scored_trials: list[str] = []
@@ -65,12 +70,7 @@ class FakeSequencedTrustedAutoresearchClient:
     def __init__(self, scores: dict[str, float]) -> None:
         self.scores = scores
         self.authority_payload: dict[str, object] = {
-            "runtime_capabilities": {
-                "post_training_sampler_coordinate_normalization": True,
-                "post_training_sampler_coordinate_scale": True,
-                "post_training_sampler_selection": True,
-                "post_training_sampler_schedule": True,
-            }
+            "runtime_capabilities": _runtime_capabilities()
         }
         self.submitted_trials: list[dict[str, object]] = []
         self.scored_trials: list[str] = []
@@ -92,12 +92,7 @@ class FakeSequencedTrustedAutoresearchClient:
 class FakeSequencedFailingTrustedAutoresearchClient:
     def __init__(self) -> None:
         self.authority_payload: dict[str, object] = {
-            "runtime_capabilities": {
-                "post_training_sampler_coordinate_normalization": True,
-                "post_training_sampler_coordinate_scale": True,
-                "post_training_sampler_selection": True,
-                "post_training_sampler_schedule": True,
-            }
+            "runtime_capabilities": _runtime_capabilities()
         }
         self.submitted_trials: list[dict[str, object]] = []
         self.scored_trials: list[str] = []
@@ -176,6 +171,7 @@ def _sampler_manifest(trial_id: str = "T135", *, checkpoint_path: str = "/mnt/au
         "sampler_selection_policy": "first",
         "sampler_coordinate_normalization": "ca_bond",
         "sampler_coordinate_scale": 13.126702,
+        "sampler_locality_guard": "reject_exploded",
         "starts_search": False,
         "writes_baseline": False,
         "writes_ledger": False,
@@ -268,6 +264,96 @@ def _write_baseline_lock(tmp_path: Path, *, score: float = 0.08) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _write_live_smoke_gate(tmp_path: Path, **overrides: object) -> str:
+    path = tmp_path / "runs/autoresearch/live_smoke_gate/live-smoke-approved.json"
+    path.parent.mkdir(parents=True)
+    payload: dict[str, object] = {
+        "schema_version": "autoaf3.live_smoke_gate.v1",
+        "status": "PASS",
+        "decision": "APPROVE_BOUNDED_LIVE_SMOKE_ONLY",
+        "approved_candidate": "sampler_locality_guard",
+        "candidate_limit": 1,
+        "required_approval_token": APPROVAL_TEXT,
+        "may_start_live_candidate": True,
+        "may_start_open_ended_loop": False,
+        "starts_search": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "official_benchmark_result": False,
+    }
+    payload.update(overrides)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return "runs/autoresearch/live_smoke_gate/live-smoke-approved.json"
+
+
+def _write_sampler_locality_guard_candidate_plan(tmp_path: Path) -> str:
+    path = tmp_path / "configs/experiments/T178_sampler_locality_guard_live_smoke.json"
+    path.parent.mkdir(parents=True)
+    trial = {
+        "trial_id": "T178",
+        "parent_commit": "abc1234",
+        "agent_session_id": "pytest-live-smoke",
+        "trial_kind": "sampler",
+        "hypothesis": "Rejecting exploded post-training sampler samples should prevent label-free geometry collapse.",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "distogram_good_lddt_flat",
+        "prediction": {
+            "causal_component": "sampler_locality_guard",
+            "predicted_axis": "distogram_vs_3d",
+            "predicted_direction": "up",
+            "expected_lddt_delta_band": [0.0, 0.01],
+        },
+        "patch_path": None,
+        "config_path": "configs/experiments/T178_sampler_locality_guard_live_smoke.json",
+        "budget": "sampler",
+        "seed": 0,
+        "n_res": 32,
+        "sampler_steps": 2,
+        "sampler_noise_scale": 1.0,
+        "sampler_step_scale": 1.0,
+        "sampler_schedule_shape": "linear",
+        "sampler_num_samples": 1,
+        "sampler_selection_policy": "first",
+        "sampler_coordinate_normalization": "ca_bond",
+        "sampler_coordinate_scale": 13.126702,
+        "sampler_locality_guard": "reject_exploded",
+        "max_wall_minutes": 5,
+        "manifest_hashes": {},
+        "scorer_version": "calpha_lddt_v1",
+        "primary_metric": "best_val_calpha_lddt",
+        "param_cap": 176514,
+        "gpu_memory_cap": 80.0,
+        "cost_cap": 2.0,
+        "timeout_cap": 300,
+        "artifact_dir": "runs/trials/T178",
+        "checkpoint_path": "runs/trials/T010/checkpoint.pt",
+    }
+    payload = {
+        "hypothesis": trial["hypothesis"],
+        "trial": trial,
+        "config": {
+            "schema_version": "autoaf3.sampler_locality_guard_live_smoke_plan.v1",
+            "sampler_locality_guard": "reject_exploded",
+            "sampler_coordinate_normalization": "ca_bond",
+            "sampler_coordinate_scale": 13.126702,
+            "writes_ledger": False,
+            "writes_discovery_ledger": False,
+            "official_benchmark_result": False,
+            "max_templates": 0,
+        },
+        "patch_text": (
+            "diff --git a/configs/experiments/T178_sampler_locality_guard_live_smoke.json "
+            "b/configs/experiments/T178_sampler_locality_guard_live_smoke.json\n"
+            "--- /dev/null\n"
+            "+++ b/configs/experiments/T178_sampler_locality_guard_live_smoke.json\n"
+            "@@ -0,0 +1 @@\n"
+            "+{\"sampler_locality_guard\":\"reject_exploded\",\"max_templates\":0}\n"
+        ),
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return "configs/experiments/T178_sampler_locality_guard_live_smoke.json"
 
 
 def _llm_candidate_payload(
@@ -3072,6 +3158,111 @@ def test_manual_autoresearch_plan_refuses_bad_config_path_and_locked_label_patch
             planner="manual",
             candidate_plan="configs/experiments/candidate.json",
         )
+
+
+def test_modal_sampler_locality_guard_consumes_live_smoke_gate(tmp_path: Path) -> None:
+    _write_baseline_lock(tmp_path, score=0.08)
+    candidate_plan = _write_sampler_locality_guard_candidate_plan(tmp_path)
+    live_smoke_gate = _write_live_smoke_gate(tmp_path)
+    client = FakeTrustedAutoresearchClient(
+        _sampler_manifest("T178", checkpoint_path="/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt"),
+        score_payload=_scored_metrics_payload("T178", score=0.02),
+    )
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="live-smoke-locality-guard",
+        mode="modal",
+        planner="manual",
+        candidate_plan=candidate_plan,
+        max_candidates=1,
+        approval=APPROVAL_TEXT,
+        live_smoke_gate=live_smoke_gate,
+        modal_client=client,
+    )
+
+    assert result.status == "PASS"
+    assert result.generated_trials == ["T178"]
+    assert result.starts_search is True
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    assert client.scored_trials == ["T178"]
+    assert client.submitted_trials[0]["trial_kind"] == "sampler"
+    assert client.submitted_trials[0]["checkpoint_path"] == "/mnt/autoalphafold3/runs/trials/T010/checkpoint.pt"
+    assert client.submitted_trials[0]["sampler_locality_guard"] == "reject_exploded"
+    decision = result.decisions[0]
+    assert decision["status"] == "DISCARD"
+    assert decision["sampler_status"] == "SAMPLER_PREDICTED"
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_modal_sampler_locality_guard_requires_live_smoke_gate(tmp_path: Path) -> None:
+    candidate_plan = _write_sampler_locality_guard_candidate_plan(tmp_path)
+    client = FakeTrustedAutoresearchClient(_sampler_manifest("T178"))
+
+    with pytest.raises(AutoresearchLoopError, match="requires --live-smoke-gate"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="live-smoke-missing-gate",
+            mode="modal",
+            planner="manual",
+            candidate_plan=candidate_plan,
+            max_candidates=1,
+            approval=APPROVAL_TEXT,
+            modal_client=client,
+        )
+
+    assert client.submitted_trials == []
+    assert client.scored_trials == []
+    assert not (tmp_path / "runs/autoresearch/live-smoke-missing-gate").exists()
+
+
+def test_modal_sampler_locality_guard_rejects_bad_live_smoke_gate(tmp_path: Path) -> None:
+    candidate_plan = _write_sampler_locality_guard_candidate_plan(tmp_path)
+    live_smoke_gate = _write_live_smoke_gate(tmp_path, decision="BLOCK_LIVE_SMOKE_GATE")
+    client = FakeTrustedAutoresearchClient(_sampler_manifest("T178"))
+
+    with pytest.raises(AutoresearchLoopError, match="decision='APPROVE_BOUNDED_LIVE_SMOKE_ONLY'"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="live-smoke-bad-gate",
+            mode="modal",
+            planner="manual",
+            candidate_plan=candidate_plan,
+            max_candidates=1,
+            approval=APPROVAL_TEXT,
+            live_smoke_gate=live_smoke_gate,
+            modal_client=client,
+        )
+
+    assert client.submitted_trials == []
+    assert client.scored_trials == []
+
+
+def test_modal_sampler_locality_guard_requires_deployed_runtime_capability(tmp_path: Path) -> None:
+    candidate_plan = _write_sampler_locality_guard_candidate_plan(tmp_path)
+    live_smoke_gate = _write_live_smoke_gate(tmp_path)
+    client = FakeTrustedAutoresearchClient(_sampler_manifest("T178"))
+    capabilities = _runtime_capabilities()
+    capabilities.pop("post_training_sampler_locality_guard")
+    client.authority_payload = {"runtime_capabilities": capabilities}
+
+    with pytest.raises(AutoresearchLoopError, match="post_training_sampler_locality_guard"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="live-smoke-stale-modal",
+            mode="modal",
+            planner="manual",
+            candidate_plan=candidate_plan,
+            max_candidates=1,
+            approval=APPROVAL_TEXT,
+            live_smoke_gate=live_smoke_gate,
+            modal_client=client,
+        )
+
+    assert client.submitted_trials == []
+    assert client.scored_trials == []
 
 
 def test_autoresearch_loop_modal_scores_after_training_and_records_scorer_fail(tmp_path: Path) -> None:

@@ -179,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     autoresearch_loop_parser.add_argument("--diagnostic-report", default=None)
     autoresearch_loop_parser.add_argument("--scorer-report", default=None)
     autoresearch_loop_parser.add_argument("--geometry-report", default=None)
+    autoresearch_loop_parser.add_argument("--live-smoke-gate", default=None)
 
     compare_predictions_parser = subparsers.add_parser("compare-predictions")
     compare_predictions_parser.add_argument("left_predictions")
@@ -501,6 +502,7 @@ def main(argv: list[str] | None = None) -> int:
                 diagnostic_report=args.diagnostic_report,
                 scorer_report=args.scorer_report,
                 geometry_report=args.geometry_report,
+                live_smoke_gate=args.live_smoke_gate,
             )
         except (AutoresearchLoopError, CandidateArtifactError, OSError, ValueError) as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))

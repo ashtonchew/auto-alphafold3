@@ -397,6 +397,8 @@ def run_autoresearch_loop(
     prior_run_ids: list[str] | None = None,
     candidate_budget: str = BudgetTier.SMOKE.value,
     diagnostic_report: str | Path | None = None,
+    scorer_report: str | Path | None = None,
+    geometry_report: str | Path | None = None,
 ) -> AutoresearchLoopResult:
     """Plan autoresearch candidates and optionally run one approved Modal candidate."""
 
@@ -425,9 +427,12 @@ def run_autoresearch_loop(
         "feature_ref_pos_scale_diagnostic",
         "gradient_checkpointing_runtime_diagnostic",
         "diffusion_initialization_scale_diagnostic",
+        "evidence_guided_failure_mode_bridge_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
+    if mode == "modal" and planner == "evidence_guided_failure_mode_bridge_diagnostic":
+        raise AutoresearchLoopError("evidence_guided_failure_mode_bridge_diagnostic is dry-run-only")
     if mode == "modal":
         if approval != APPROVAL_TEXT:
             raise AutoresearchLoopError(f"live autoresearch requires --approve {APPROVAL_TEXT}")
@@ -450,6 +455,8 @@ def run_autoresearch_loop(
         prior_outcomes=prior_outcomes,
         candidate_budget=candidate_budget,
         diagnostic_report=diagnostic_report,
+        scorer_report=scorer_report,
+        geometry_report=geometry_report,
     )
     for candidate in planned:
         trial = AutoFoldTrial.model_validate(candidate["trial"])
@@ -942,6 +949,8 @@ def _planned_candidates(
     prior_outcomes: list[dict[str, object]],
     candidate_budget: str,
     diagnostic_report: str | Path | None,
+    scorer_report: str | Path | None,
+    geometry_report: str | Path | None,
 ) -> list[dict[str, object]]:
     if planner == "manual":
         return _manual_candidates(root=root, candidate_plan=candidate_plan)
@@ -1090,6 +1099,17 @@ def _planned_candidates(
             base_commit=base_commit,
             candidate_budget=candidate_budget,
             diagnostic_report=diagnostic_report,
+        )
+    if planner == "evidence_guided_failure_mode_bridge_diagnostic":
+        return _evidence_guided_failure_mode_bridge_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+            scorer_report=scorer_report,
+            geometry_report=geometry_report,
         )
     if planner == "llm":
         return _llm_candidates(
@@ -2252,6 +2272,119 @@ def _diffusion_initialization_scale_diagnostic_candidates(
     ]
 
 
+def _evidence_guided_failure_mode_bridge_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+    scorer_report: str | Path | None,
+    geometry_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("evidence_guided_failure_mode_bridge_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError(
+            "evidence_guided_failure_mode_bridge_diagnostic planner requires --diagnostic-report"
+        )
+    if scorer_report is None:
+        raise AutoresearchLoopError("evidence_guided_failure_mode_bridge_diagnostic planner requires --scorer-report")
+    if geometry_report is None:
+        raise AutoresearchLoopError("evidence_guided_failure_mode_bridge_diagnostic planner requires --geometry-report")
+    prd = _post_exhaustion_strategy_prd_summary(root=root, diagnostic_report=diagnostic_report)
+    scorer = _scorer_sensitivity_summary(root=root, scorer_report=scorer_report)
+    geometry = _prediction_geometry_audit_summary(
+        root=root,
+        diagnostic_report=geometry_report,
+        require_reference_scale_flags=False,
+    )
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_evidence_guided_failure_mode_bridge_diagnostic.json"
+    config_payload = _evidence_guided_failure_mode_bridge_config_payload(root)
+    target_expectations = _target_level_non_regression_expectations(
+        scorer_targets=scorer["worst_targets"],
+        geometry_flags=geometry["scale_flags"],
+    )
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.DEBUG,
+        budget=budget,
+        move_family=MoveFamily.EVIDENCE_GATE,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A dry-run-only evidence-guided failure-mode bridge should test whether the next "
+            "candidate can be constrained by target-level scorer sensitivity and geometry "
+            "failure modes before any Modal spend. It does not alter scorer math, labels, "
+            "manifests, fingerprints, Modal resources, templates, baselines, or ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "evidence-guided-failure-mode-bridge-planner"
+    trial["seed"] = 99500 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.STABILITY_COMPUTE.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="pre_live_failure_mode_bridge",
+        predicted_axis=FalsificationAxis.STABILITY_COMPUTE,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.0, 0.0001),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.evidence_guided_failure_mode_bridge_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "artifact_only": True,
+        "stop_before_live_modal": True,
+        "source_diagnostic_report": str(diagnostic_report),
+        "source_post_exhaustion_strategy_prd": str(diagnostic_report),
+        "source_scorer_sensitivity": str(scorer_report),
+        "source_geometry_audit": str(geometry_report),
+        "approved_strategy_family": prd["approved_strategy_family"],
+        "approved_planner": prd["approved_planner"],
+        "candidate_limit": prd["candidate_limit"],
+        "exhausted_implemented_planners": prd["exhausted_implemented_planners"],
+        "remaining_implemented_planners": prd["remaining_implemented_planners"],
+        "reference_trial_id": scorer["reference_trial_id"] or geometry["reference_trial_id"],
+        "candidate_trial_ids": sorted(set(scorer["candidate_trial_ids"] + geometry["candidate_trial_ids"])),
+        "worst_targets": scorer["worst_targets"],
+        "target_level_non_regression_expectations": target_expectations,
+        "geometry_failure_modes_to_avoid": geometry["scale_flags"],
+        "scorer_worst_targets": scorer["worst_targets"],
+        "scorer_target_loss_summary": scorer["target_loss_summary"],
+        "geometry_reference_deltas": geometry["reference_deltas"],
+        "forbidden_edit_attestation": {
+            "forbidden_edits": prd["forbidden_edits"],
+            "all_forbidden_edits_unchanged": True,
+        },
+        "config_payload_overrides": {"max_templates": config_payload["max_templates"]},
+        "not_a_benchmark_claim": True,
+        "starts_search": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "official_benchmark_result": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="artifact-only evidence-guided failure-mode bridge diagnostic",
+            ),
+        }
+    ]
+
+
 def _coordinate_normalized_sampler_diagnostic_candidates(
     *,
     root: Path,
@@ -3230,6 +3363,135 @@ def _broader_strategy_review_summary(
     }
 
 
+def _post_exhaustion_strategy_prd_summary(
+    *,
+    root: Path,
+    diagnostic_report: str | Path,
+) -> dict[str, object]:
+    path = _diagnostic_report_path(root=root, diagnostic_report=diagnostic_report)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(f"cannot read post-exhaustion strategy PRD: {diagnostic_report}") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("post-exhaustion strategy PRD must be a JSON object")
+    if payload.get("schema_version") != "autoaf3.post_exhaustion_strategy_prd.v1":
+        raise AutoresearchLoopError(
+            "evidence_guided_failure_mode_bridge_diagnostic requires a post-exhaustion strategy PRD"
+        )
+    if payload.get("status") != "PASS":
+        raise AutoresearchLoopError("post-exhaustion strategy PRD must have status=PASS")
+    if payload.get("decision") != "APPROVE_DRY_RUN_STRATEGY_PRD_ONLY":
+        raise AutoresearchLoopError(
+            "evidence_guided_failure_mode_bridge_diagnostic requires APPROVE_DRY_RUN_STRATEGY_PRD_ONLY"
+        )
+    if payload.get("approved_strategy_family") != "evidence_guided_failure_mode_bridge":
+        raise AutoresearchLoopError("post-exhaustion strategy PRD did not approve evidence_guided_failure_mode_bridge")
+    if payload.get("approved_planner") != "evidence_guided_failure_mode_bridge_diagnostic":
+        raise AutoresearchLoopError(
+            "post-exhaustion strategy PRD did not approve evidence_guided_failure_mode_bridge_diagnostic"
+        )
+    if payload.get("candidate_limit") != 1:
+        raise AutoresearchLoopError("post-exhaustion strategy PRD must require candidate_limit=1")
+    for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "official_benchmark_result"):
+        if payload.get(key) is True:
+            raise AutoresearchLoopError(f"post-exhaustion strategy PRD must not claim {key}=true")
+    if payload.get("may_start_live_candidate") is not False or payload.get("may_start_open_ended_loop") is not False:
+        raise AutoresearchLoopError("post-exhaustion strategy PRD must block live candidates and open-ended loop")
+    return {
+        "approved_strategy_family": str(payload.get("approved_strategy_family") or ""),
+        "approved_planner": str(payload.get("approved_planner") or ""),
+        "candidate_limit": int(payload.get("candidate_limit") or 0),
+        "forbidden_edits": [str(item) for item in payload.get("forbidden_edits")]
+        if isinstance(payload.get("forbidden_edits"), list)
+        else [],
+        "exhausted_implemented_planners": [str(item) for item in payload.get("exhausted_implemented_planners")]
+        if isinstance(payload.get("exhausted_implemented_planners"), list)
+        else [],
+        "remaining_implemented_planners": [str(item) for item in payload.get("remaining_implemented_planners")]
+        if isinstance(payload.get("remaining_implemented_planners"), list)
+        else [],
+    }
+
+
+def _scorer_sensitivity_summary(*, root: Path, scorer_report: str | Path) -> dict[str, object]:
+    path = _diagnostic_report_path(root=root, diagnostic_report=scorer_report)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(f"cannot read scorer sensitivity report: {scorer_report}") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("scorer sensitivity report must be a JSON object")
+    if payload.get("schema_version") != "autoaf3.scorer_sensitivity.v1":
+        raise AutoresearchLoopError(
+            "evidence_guided_failure_mode_bridge_diagnostic requires a scorer sensitivity report"
+        )
+    if payload.get("status") != "PASS":
+        raise AutoresearchLoopError("scorer sensitivity report must have status=PASS")
+    for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "official_benchmark_result"):
+        if payload.get(key) is True:
+            raise AutoresearchLoopError(f"scorer sensitivity report must not claim {key}=true")
+    deltas = payload.get("per_target_score_deltas_vs_reference")
+    if not isinstance(deltas, dict) or not deltas:
+        raise AutoresearchLoopError("scorer sensitivity report must include per-target score deltas")
+    target_stats: dict[str, dict[str, float | int]] = {}
+    candidate_trial_ids: list[str] = []
+    for trial_id, per_target in deltas.items():
+        if not isinstance(per_target, dict):
+            continue
+        candidate_trial_ids.append(str(trial_id))
+        for target_id, raw_delta in per_target.items():
+            if not isinstance(raw_delta, int | float) or isinstance(raw_delta, bool):
+                continue
+            delta = float(raw_delta)
+            stats = target_stats.setdefault(
+                str(target_id),
+                {
+                    "negative_count": 0,
+                    "positive_count": 0,
+                    "sum_delta": 0.0,
+                    "min_delta": 0.0,
+                    "max_delta": 0.0,
+                },
+            )
+            stats["sum_delta"] = float(stats["sum_delta"]) + delta
+            stats["min_delta"] = min(float(stats["min_delta"]), delta)
+            stats["max_delta"] = max(float(stats["max_delta"]), delta)
+            if delta < 0.0:
+                stats["negative_count"] = int(stats["negative_count"]) + 1
+            if delta > 0.0:
+                stats["positive_count"] = int(stats["positive_count"]) + 1
+    if not target_stats:
+        raise AutoresearchLoopError("scorer sensitivity report has no numeric per-target deltas")
+    sorted_targets = sorted(
+        target_stats.items(),
+        key=lambda item: (
+            -int(item[1]["negative_count"]),
+            float(item[1]["min_delta"]),
+            -int(item[1]["positive_count"]),
+            -abs(float(item[1]["sum_delta"])),
+            item[0],
+        ),
+    )
+    selected = sorted_targets[:6]
+    return {
+        "reference_trial_id": str(payload.get("reference_trial_id") or ""),
+        "candidate_trial_ids": candidate_trial_ids,
+        "worst_targets": [target_id for target_id, _stats in selected],
+        "target_loss_summary": [
+            {
+                "target_id": target_id,
+                "negative_count": int(stats["negative_count"]),
+                "positive_count": int(stats["positive_count"]),
+                "sum_delta": float(stats["sum_delta"]),
+                "min_delta": float(stats["min_delta"]),
+                "max_delta": float(stats["max_delta"]),
+            }
+            for target_id, stats in selected
+        ],
+    }
+
+
 def _prediction_geometry_audit_summary(
     *,
     root: Path,
@@ -3430,6 +3692,21 @@ def _diffusion_data_scale_diagnostic_config_payload(root: Path) -> dict[str, obj
     return payload
 
 
+def _evidence_guided_failure_mode_bridge_config_payload(root: Path) -> dict[str, object]:
+    config_path = root / "configs" / "nanofold_dev_cpu_smoke.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(
+            "evidence_guided_failure_mode_bridge_diagnostic planner requires dev CPU smoke config"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("dev CPU smoke config must be a JSON object")
+    payload = dict(payload)
+    payload["max_templates"] = 0
+    return payload
+
+
 def _pairformer_attention_diagnostic_config_payload(root: Path) -> dict[str, object]:
     payload = _feature_curriculum_diagnostic_config_payload(root)
     payload["num_triangular_attention_channels"] = 24
@@ -3439,6 +3716,24 @@ def _pairformer_attention_diagnostic_config_payload(root: Path) -> dict[str, obj
     payload["distogram_loss_weight"] = 0.05
     payload["local_calpha_geometry_loss_weight"] = 0.0
     return payload
+
+
+def _target_level_non_regression_expectations(
+    *,
+    scorer_targets: list[str],
+    geometry_flags: list[str],
+) -> list[dict[str, object]]:
+    expectations: list[dict[str, object]] = []
+    for target_id in scorer_targets:
+        expectations.append(
+            {
+                "target_id": target_id,
+                "expected_score_delta_floor": 0.0,
+                "kill_if_regresses": True,
+                "required_geometry_checks": list(geometry_flags),
+            }
+        )
+    return expectations
 
 
 def _auxiliary_contact_loss_diagnostic_config_payload(root: Path) -> dict[str, object]:

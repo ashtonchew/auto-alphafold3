@@ -47,6 +47,7 @@ class MoveFamily(StrEnum):
     OPTIMIZER_SCHEDULER = "optimizer_scheduler"
     FEATURE_HANDLING = "feature_handling"
     MEMORY_RUNTIME = "memory_runtime"
+    EVIDENCE_GATE = "evidence_gate"
 
 
 class DiagnosticTarget(StrEnum):

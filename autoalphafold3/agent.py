@@ -25,6 +25,7 @@ from autoalphafold3.modal_trial_artifacts import (
     ModalTrialArtifactError,
     fetch_modal_trial_artifacts,
 )
+from autoalphafold3.next_surface_review import NextSurfaceReviewError, review_next_surface
 from autoalphafold3.post_discard_diagnosis import (
     PostDiscardDiagnosisError,
     diagnose_post_discard_evidence,
@@ -131,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
             "capacity_diagnostic",
             "topology_recycling_diagnostic",
             "feature_curriculum_diagnostic",
+            "coordinate_scale_locality_diagnostic",
             "llm",
         ),
         default="deterministic",
@@ -174,6 +176,11 @@ def main(argv: list[str] | None = None) -> int:
     post_discard_parser.add_argument("--prediction-comparison", action="append", required=True)
     post_discard_parser.add_argument("--exhausted-surface", action="append", default=[])
     post_discard_parser.add_argument("--output", default=None)
+
+    next_surface_parser = subparsers.add_parser("next-surface-review")
+    next_surface_parser.add_argument("--repo-root", default=".")
+    next_surface_parser.add_argument("--diagnosis", required=True)
+    next_surface_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -452,6 +459,18 @@ def main(argv: list[str] | None = None) -> int:
                 exhausted_surfaces=args.exhausted_surface,
             )
         except PostDiscardDiagnosisError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "next-surface-review":
+        try:
+            result = review_next_surface(repo_root=args.repo_root, diagnosis_path=args.diagnosis)
+        except NextSurfaceReviewError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

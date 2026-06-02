@@ -588,10 +588,9 @@ python3 -m autoalphafold3.agent autoresearch-loop \
   --approve I_APPROVE_AUTORESEARCH_LIVE_SEARCH
 ```
 
-If this candidate is also `DISCARD` with changed artifacts and another
-same-score collapse, do not run another short-training candidate. Re-run
-`post-discard-diagnosis`, update the next-surface issue, and move to a deeper
-design review of short-training initialization before further live spend.
+If this candidate is also `DISCARD`, do not run another short-training
+candidate. Re-run `post-discard-diagnosis`, update the next-surface issue, and
+move to an offline design review before further live spend.
 
 To prove the T164 artifacts changed, fetch the read-only prediction artifacts
 from the public data Volume and run the local comparison:
@@ -619,6 +618,41 @@ python3 -m autoalphafold3.agent compare-predictions \
 allowlisted trial JSON artifacts, writes only under the chosen local output
 directory, and does not start search, score artifacts, write the canonical
 ledger, write the Discovery Ledger, or write to a Modal Volume.
+
+For the T164 evidence set, run the next-surface review:
+
+```bash
+python3 -m autoalphafold3.agent next-surface-review \
+  --diagnosis runs/autoresearch/post_discard_diagnosis/T113-T162-T163-T164.json \
+  --output runs/autoresearch/next_surface_review/T164-mixed-evidence.json
+```
+
+If the review emits `APPROVE_OFFLINE_PLANNER_PR_ONLY` for
+`coordinate_scale_locality_diagnostic`, implement and merge the planner before
+any more live spend. Dry-run exactly one candidate:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner coordinate_scale_locality_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/next_surface_review/T164-mixed-evidence.json \
+  --run-id coordinate-scale-locality-diagnostic-trial-001 \
+  --start-trial-id T165 \
+  --max-candidates 1
+```
+
+Review the generated `T165` envelope. It must remain a single
+NanoFold-style AlphaFold3-lite trial-budget training candidate with
+`diagnostic_target=distogram_good_lddt_flat`,
+`move_family=diffusion_schedule`, `diffusion_loss_weight=1.0`,
+`distogram_loss_weight=0.08`, `local_calpha_geometry_loss_weight=0.0`,
+`diffusion_steps=20`, `max_templates=0`, `budget=trial`, `max_steps=250`,
+`max_wall_minutes=45`, and `timeout_cap=2700`.
+
+Do not run the live T165 candidate until this planner has merged, readiness is
+still green on `main`, and the dry-run envelope is reviewed. Never start the
+open-ended autoresearch loop from this mixed-evidence state.
 
 ## Review And UI Render
 

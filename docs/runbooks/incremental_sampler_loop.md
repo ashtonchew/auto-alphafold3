@@ -98,6 +98,30 @@ and `compact_geometry` adds a mild compactness penalty. The planner cannot
 author patches, submit directly, score directly, write ledgers, write the
 Discovery Ledger, or change Modal resource policy.
 
+After canonical smoke evidence identifies a same-family sampler reference, use
+`--planner reference_sweep` for a bounded deterministic follow-up around the
+recorded T088 neighborhood before spending a full LLM search window:
+
+```bash
+python -m autoalphafold3.agent autonomous-sampler-loop \
+  --seed-trial trials/T012.json \
+  --max-candidates 4 \
+  --start-trial-id T108 \
+  --mode modal \
+  --planner reference_sweep \
+  --poll-interval-s 2 \
+  --per-candidate-timeout-s 300 \
+  --failure-streak-limit 2 \
+  --search-reference-trial-id T088 \
+  --approve I_APPROVE_AUTONOMOUS_SAMPLER_LOOP
+```
+
+The reference sweep varies only sampler-only frozen-checkpoint settings near
+`T088`: late-refine schedule, high sample count, lower noise, higher step scale,
+and target-blind geometry or compact-geometry selection. It still writes only
+candidate trial files and canonical ledger rows; it does not write the
+Discovery Ledger, change locked assets, or alter Modal resource policy.
+
 The practical one-hour leg is:
 
 ```bash

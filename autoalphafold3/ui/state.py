@@ -300,7 +300,7 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
 
     # Trial specs are real pre-registered hypothesis data — load them whether or
     # not the orchestrator has produced scored output yet.
-    specs = _load_trial_specs(Path("trials"))
+    specs = _load_trial_specs(_trial_specs_dir_for_runs(runs))
     autoresearch_runs = _load_autoresearch_runs(runs / "autoresearch")
 
     trajectory: list[TrialPoint] = []
@@ -857,6 +857,11 @@ def _load_trial_specs(specs_dir: Path) -> list[dict]:
         if isinstance(data, dict) and data.get("trial_id"):
             out.append(data)
     return out
+
+
+def _trial_specs_dir_for_runs(runs: Path) -> Path:
+    """Resolve trial specs in the same workspace as the selected runs dir."""
+    return runs.parent / "trials"
 
 
 def _featured_hypothesis(specs: list[dict], scored_ids: set[str]) -> "Hypothesis | None":

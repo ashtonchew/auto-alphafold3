@@ -271,6 +271,32 @@ python3 -m autoalphafold3.agent autoresearch-loop \
 authority, scorer authority, or promotion rules. Keep this at one candidate per
 live run until the cost and runtime profile are measured.
 
+## Prediction Artifact Comparison
+
+Repeated identical scorer values require artifact evidence before spending more
+trial budget. Download the candidate `predictions.json` files from
+`autoalphafold3-data` first, then compare them locally:
+
+```bash
+modal volume get autoalphafold3-data runs/trials/T150/predictions.json /tmp/T150-predictions.json
+modal volume get autoalphafold3-data runs/trials/T157/predictions.json /tmp/T157-predictions.json
+modal volume get autoalphafold3-data runs/trials/T150/metrics.json /tmp/T150-metrics.json
+modal volume get autoalphafold3-data runs/trials/T157/metrics.json /tmp/T157-metrics.json
+
+python3 -m autoalphafold3.agent compare-predictions \
+  /tmp/T150-predictions.json \
+  /tmp/T157-predictions.json \
+  --left-metrics /tmp/T150-metrics.json \
+  --right-metrics /tmp/T157-metrics.json \
+  --output runs/autoresearch/prediction_comparisons/T150-vs-T157.json
+```
+
+The comparison report is diagnostic evidence only. It does not score a
+candidate, write the canonical ledger, write the Discovery Ledger, or create an
+official benchmark result. If `all_predictions_identical=true`, pause live
+trial-budget autoresearch and diagnose stale artifacts, sampler determinism, or
+candidate patch ineffectiveness before launching another candidate.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

@@ -116,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
     autoresearch_loop_parser.add_argument("--max-candidates", type=int, default=None)
     autoresearch_loop_parser.add_argument("--candidate-plan", default=None)
     autoresearch_loop_parser.add_argument("--model", default=DEFAULT_LLM_MODEL)
+    autoresearch_loop_parser.add_argument("--modal-env", default=None)
     autoresearch_loop_parser.add_argument("--approve", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
@@ -306,10 +307,11 @@ def main(argv: list[str] | None = None) -> int:
                 mode=args.mode,
                 planner=args.planner,
                 start_trial_id=args.start_trial_id,
-                max_candidates=args.max_candidates if args.max_candidates is not None else (1 if args.planner == "llm" else 6),
+                max_candidates=args.max_candidates if args.max_candidates is not None else (1 if args.mode == "modal" or args.planner == "llm" else 6),
                 candidate_plan=args.candidate_plan,
                 approval=args.approve,
                 model=args.model,
+                modal_env=args.modal_env,
             )
         except (AutoresearchLoopError, CandidateArtifactError, OSError, ValueError) as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))

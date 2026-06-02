@@ -27,6 +27,69 @@ class FakeLLMPlanner:
         return AutoresearchCandidatePlan.model_validate(self.payload)
 
 
+class FakeTrustedAutoresearchClient:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+        self.submitted_trials: list[dict[str, object]] = []
+
+    def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
+        self.submitted_trials.append(trial)
+        return self.payload
+
+
+SHA = "c" * 64
+
+
+def _short_training_manifest(trial_id: str = "T130") -> dict[str, object]:
+    return {
+        "schema_version": "autoaf3.short_training_manifest.v1",
+        "status": "SHORT_TRAINING_READY",
+        "trial_id": trial_id,
+        "candidate_id": trial_id,
+        "budget": "smoke",
+        "real_training_performed": True,
+        "local_only": False,
+        "official_benchmark_result": False,
+        "training_steps": 10,
+        "max_steps": 10,
+        "max_templates": 0,
+        "seed": 0,
+        "config_path": "configs/nanofold_dev_cpu_smoke.json",
+        "features_path": "nanofold_event_small_no_templates.arrow",
+        "feature_sha256": SHA,
+        "checkpoint_path": f"/mnt/autoalphafold3/runs/trials/{trial_id}/checkpoint.pt",
+        "checkpoint_sha256": SHA,
+        "checkpoint_size_bytes": 1234,
+        "checkpoint_source": "short_nanofold_training",
+        "loss_history_path": f"/mnt/autoalphafold3/runs/trials/{trial_id}/loss_history.json",
+        "training_log_path": f"/mnt/autoalphafold3/runs/trials/{trial_id}/training_log.json",
+        "artifact_manifest_path": f"/mnt/autoalphafold3/runs/trials/{trial_id}/artifact_manifest.json",
+        "scorer_version": "calpha_lddt_v1",
+        "primary_metric": "best_val_calpha_lddt",
+        "final_losses": {"total_loss": 1.0},
+        "runtime_s": 1.0,
+        "writes_baseline": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "starts_search": False,
+        "reads_locked_labels": False,
+    }
+
+
+def _infra_fail_result(trial_id: str = "T130") -> dict[str, object]:
+    return {
+        "schema_version": "autoaf3.result.v1",
+        "trial_id": trial_id,
+        "status": "INFRA_FAIL",
+        "candidate_id": trial_id,
+        "metrics": {},
+        "fold_cartographer": {"signature": "modal_worker_failed", "summary": {}, "buckets": {}},
+        "artifacts": {},
+        "failure_signature": "pytest_modal_worker_failed",
+        "postmortem": "Fake Modal worker failure.",
+    }
+
+
 def _llm_candidate_payload(*, changed_paths: list[str] | None = None) -> dict[str, object]:
     trial_id = "T120"
     return {
@@ -535,15 +598,67 @@ def test_manual_autoresearch_plan_refuses_bad_config_path_and_locked_label_patch
         )
 
 
-def test_autoresearch_loop_refuses_live_mode_even_with_approval(tmp_path: Path) -> None:
-    with pytest.raises(AutoresearchLoopError, match="not implemented"):
-        run_autoresearch_loop(
-            repo_root=tmp_path,
-            run_id="live",
-            mode="modal",
-            planner="deterministic",
-            approval=APPROVAL_TEXT,
-        )
+def test_autoresearch_loop_modal_uses_trusted_client_and_records_training_evidence(tmp_path: Path) -> None:
+    client = FakeTrustedAutoresearchClient(_short_training_manifest("T130"))
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="live",
+        mode="modal",
+        planner="deterministic",
+        start_trial_id="T130",
+        max_candidates=1,
+        approval=APPROVAL_TEXT,
+        modal_client=client,
+    )
+
+    assert result.status == "PASS"
+    assert result.starts_search is True
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    assert result.generated_trials == ["T130"]
+    assert client.submitted_trials[0]["trial_id"] == "T130"
+    assert client.submitted_trials[0]["trial_kind"] == "training"
+    run_manifest = json.loads((tmp_path / "runs/autoresearch/live/run_manifest.json").read_text(encoding="utf-8"))
+    assert run_manifest["live_modal_execution"] is True
+    assert run_manifest["starts_search"] is True
+    candidate_dir = tmp_path / "runs/autoresearch/live/candidates/T130"
+    training_manifest = json.loads((candidate_dir / "training_manifest.json").read_text(encoding="utf-8"))
+    assert training_manifest["status"] == "SHORT_TRAINING_READY"
+    summary = json.loads((tmp_path / "runs/autoresearch/live/summary.json").read_text(encoding="utf-8"))
+    candidate = summary["candidates"][0]
+    assert candidate["status"] == "DRAFT"
+    assert candidate["execution_status"] == "SHORT_TRAINING_READY"
+    assert candidate["benchmark_decision"] == "NOT_SCORED"
+    assert candidate["official_benchmark_result"] is False
+    assert not (candidate_dir / "decision.json").exists()
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/baseline").exists()
+
+
+def test_autoresearch_loop_modal_records_terminal_fail_without_ledger(tmp_path: Path) -> None:
+    client = FakeTrustedAutoresearchClient(_infra_fail_result("T130"))
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="live-fail",
+        mode="modal",
+        planner="deterministic",
+        start_trial_id="T130",
+        max_candidates=1,
+        approval=APPROVAL_TEXT,
+        modal_client=client,
+    )
+
+    assert result.status == "PASS"
+    candidate_dir = tmp_path / "runs/autoresearch/live-fail/candidates/T130"
+    assert json.loads((candidate_dir / "decision.json").read_text(encoding="utf-8"))["status"] == "INFRA_FAIL"
+    assert json.loads((candidate_dir / "error_report.json").read_text(encoding="utf-8"))["failure_signature"] == "pytest_modal_worker_failed"
+    summary = json.loads((tmp_path / "runs/autoresearch/live-fail/summary.json").read_text(encoding="utf-8"))
+    assert summary["candidates"][0]["status"] == "INFRA_FAIL"
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
 
 
 def test_autoresearch_loop_requires_live_approval(tmp_path: Path) -> None:
@@ -554,6 +669,21 @@ def test_autoresearch_loop_requires_live_approval(tmp_path: Path) -> None:
             mode="modal",
             planner="deterministic",
         )
+
+
+def test_autoresearch_loop_modal_requires_one_candidate_before_artifacts(tmp_path: Path) -> None:
+    with pytest.raises(AutoresearchLoopError, match="exactly one"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="live-two",
+            mode="modal",
+            planner="deterministic",
+            max_candidates=2,
+            approval=APPROVAL_TEXT,
+            modal_client=FakeTrustedAutoresearchClient(_short_training_manifest("T130")),
+        )
+
+    assert not (tmp_path / "runs/autoresearch/live-two").exists()
 
 
 def test_autoresearch_loop_cli_dry_run_is_structured_json(tmp_path: Path) -> None:

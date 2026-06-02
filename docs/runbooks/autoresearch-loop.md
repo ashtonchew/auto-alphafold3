@@ -1001,6 +1001,21 @@ The expected bridge-aware bench decision is
 live smoke until a later fresh bench-readiness-review explicitly allows at most
 one live candidate.
 
+The first offline/local candidate behavior from this bridge is the sampler
+locality guard. Sampler or post-training sampler trials may set:
+
+```json
+{
+  "sampler_locality_guard": "reject_exploded"
+}
+```
+
+The guard is label-free and checks predicted C-alpha geometry before scorer
+input. It rejects samples with adjacent C-alpha distance outliers or exploded
+pair distances, records selected-sample locality flags in sampler selection
+metadata, and preserves the default behavior when unset. It does not score,
+write ledgers, call Modal, or create official benchmark evidence by itself.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

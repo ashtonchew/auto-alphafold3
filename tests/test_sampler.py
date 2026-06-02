@@ -5,14 +5,18 @@ from pathlib import Path
 
 import pytest
 
+import autoalphafold3.sampler as sampler_module
 from autoalphafold3.checkpoint_training import one_batch_checkpoint_payload, run_one_batch_nanofold_checkpoint
 from autoalphafold3.local_fixtures import APPROVAL_TOKEN, materialize_local_nanofold_fixture
 from autoalphafold3.runner import validate_prediction_artifact
 from autoalphafold3.runner import validate_artifact_manifest
+from autoalphafold3.schema import AutoFoldTrial
 from autoalphafold3.sampler import (
     SamplerError,
+    _ca_locality_flags,
     _label_free_ca_quality,
     _normalize_ca_coordinates,
+    _sample_selected_ca_coordinates,
     _sampler_settings,
     run_checkpoint_prediction_artifacts,
     run_sampler_trial,
@@ -196,6 +200,64 @@ def test_sampler_coordinate_scale_requires_ca_bond_normalization() -> None:
         _sampler_settings({"sampler_steps": 1, "sampler_coordinate_scale": 2.0})
 
 
+def test_sampler_locality_guard_rejects_unknown_policy() -> None:
+    with pytest.raises(SamplerError, match="sampler_locality_guard must be none or reject_exploded"):
+        _sampler_settings({"sampler_steps": 1, "sampler_locality_guard": "warn_only"})
+
+
+def test_sampler_locality_flags_detect_exploded_trace() -> None:
+    exploded = [[0.0, 0.0, 0.0], [600.0, 0.0, 0.0], [1200.0, 0.0, 0.0]]
+
+    flags = _ca_locality_flags(exploded)
+
+    assert "adjacent_ca_distance_outlier_gt_30A" in flags
+    assert "adjacent_ca_distance_exploded" in flags
+    assert "pair_distance_outlier_gt_500A" in flags
+    assert "pair_distance_exploded" in flags
+
+
+def test_sampler_locality_flags_accept_ca_bond_normalized_trace() -> None:
+    exploded = [[0.0, 0.0, 0.0], [600.0, 0.0, 0.0], [1200.0, 0.0, 0.0]]
+    normalized = _normalize_ca_coordinates(exploded, policy="ca_bond")
+
+    assert _ca_locality_flags(normalized) == []
+
+
+def test_sampler_locality_guard_is_typed_for_sampler_trials_only() -> None:
+    trial = _valid_sampler_trial()
+    trial["sampler_locality_guard"] = "reject_exploded"
+
+    parsed = AutoFoldTrial.model_validate(trial)
+
+    assert parsed.sampler_locality_guard == "reject_exploded"
+    invalid = dict(trial)
+    invalid["trial_kind"] = "debug"
+    invalid["max_steps"] = 1
+    invalid.pop("sampler_steps")
+    invalid.pop("checkpoint_path")
+    with pytest.raises(ValueError, match="debug trials must not set sampler_locality_guard"):
+        AutoFoldTrial.model_validate(invalid)
+
+
+def test_sampler_locality_guard_rejects_all_exploded_samples(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _sampler_settings(
+        {
+            "sampler_steps": 1,
+            "sampler_num_samples": 2,
+            "sampler_selection_policy": "geometry",
+            "sampler_locality_guard": "reject_exploded",
+        }
+    )
+    monkeypatch.setattr(
+        sampler_module,
+        "_sample_ca_coordinates",
+        lambda *_args, **_kwargs: [[0.0, 0.0, 0.0], [600.0, 0.0, 0.0], [1200.0, 0.0, 0.0]],
+    )
+
+    with pytest.raises(SamplerError, match="rejected all samples"):
+        _sample_selected_ca_coordinates(object(), {}, sampler_settings=settings)
+
+
 def test_run_sampler_trial_accepts_short_training_checkpoint_manifest(tmp_path: Path) -> None:
     pytest.importorskip("torch")
     materialize_local_nanofold_fixture(
@@ -241,3 +303,31 @@ def test_run_sampler_trial_accepts_short_training_checkpoint_manifest(tmp_path: 
     assert sampler_manifest["checkpoint_source_trial_id"] == "T120"
     assert sampler_manifest["real_training_performed"] is False
     assert sampler_manifest["inference_only"] is True
+
+
+def _valid_sampler_trial() -> dict[str, object]:
+    return {
+        "trial_id": "T177",
+        "parent_commit": "abcdef0",
+        "agent_session_id": "sampler-locality-guard-test",
+        "trial_kind": "sampler",
+        "hypothesis": "Reject label-free geometry collapse before scorer input.",
+        "move_family": "diffusion_sampler_golf",
+        "diagnostic_target": "stability_compute",
+        "prediction": {
+            "causal_component": "sampler_locality_guard",
+            "predicted_axis": "stability_compute",
+            "predicted_direction": "up",
+            "expected_lddt_delta_band": [0.0, 0.0001],
+        },
+        "config_path": "configs/nanofold_dev_cpu_smoke.json",
+        "budget": "sampler",
+        "seed": 0,
+        "sampler_steps": 1,
+        "max_wall_minutes": 5,
+        "param_cap": 1,
+        "gpu_memory_cap": 0.0,
+        "cost_cap": 0.0,
+        "timeout_cap": 300,
+        "checkpoint_path": "runs/trials/T010/checkpoint.pt",
+    }

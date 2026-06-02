@@ -45,6 +45,38 @@ def test_post_smoke_strategy_approves_next_candidate_plan_only(tmp_path: Path) -
     assert payload["official_benchmark_result"] is False
 
 
+def test_post_smoke_strategy_lowers_second_clean_discard_to_final_noise_step(tmp_path: Path) -> None:
+    live_result = _write_live_smoke_result(tmp_path, trial_id="T180", run_dir="runs/autoresearch/live-smoke-t180")
+    bench = _write_bench_readiness(tmp_path)
+    _write_live_smoke_run(tmp_path, trial_id="T180", run_dir="runs/autoresearch/live-smoke-t180", sampler_noise_scale=0.6)
+
+    report = review_post_smoke_strategy(
+        repo_root=tmp_path,
+        live_smoke_result_review=live_result,
+        bench_readiness_review=bench,
+    )
+
+    assert report.decision == "APPROVE_NEXT_BOUNDED_CANDIDATE_PLAN_ONLY"
+    assert report.reviewed_trial_id == "T180"
+    assert report.next_candidate_plan["required_sampler_settings"]["sampler_noise_scale"] == pytest.approx(0.3)
+
+
+def test_post_smoke_strategy_blocks_when_noise_ladder_is_exhausted(tmp_path: Path) -> None:
+    live_result = _write_live_smoke_result(tmp_path, trial_id="T181", run_dir="runs/autoresearch/live-smoke-t181")
+    bench = _write_bench_readiness(tmp_path)
+    _write_live_smoke_run(tmp_path, trial_id="T181", run_dir="runs/autoresearch/live-smoke-t181", sampler_noise_scale=0.3)
+
+    report = review_post_smoke_strategy(
+        repo_root=tmp_path,
+        live_smoke_result_review=live_result,
+        bench_readiness_review=bench,
+    )
+
+    assert report.decision == "BLOCK_POST_SMOKE_STRATEGY_REVIEW"
+    assert report.candidate_limit == 0
+    assert "sampler noise refinement ladder is exhausted for this source smoke" in report.blocked_reasons
+
+
 def test_post_smoke_strategy_blocks_provisional_keep(tmp_path: Path) -> None:
     live_result = _write_live_smoke_result(
         tmp_path,
@@ -111,6 +143,8 @@ def test_post_smoke_strategy_requires_safe_paths(tmp_path: Path) -> None:
 def _write_live_smoke_result(
     tmp_path: Path,
     *,
+    trial_id: str = "T179",
+    run_dir: str = "runs/autoresearch/live-smoke",
     decision: str = "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_DISCARDED",
     smoke_status: str = "DISCARD",
     provisional_keep: bool = False,
@@ -124,9 +158,9 @@ def _write_live_smoke_result(
                 "schema_version": "autoaf3.live_smoke_result_review.v1",
                 "status": "PASS",
                 "decision": decision,
-                "reviewed_run_dir": "runs/autoresearch/live-smoke",
-                "reviewed_trial_id": "T179",
-                "candidate_id": "T179",
+                "reviewed_run_dir": run_dir,
+                "reviewed_trial_id": trial_id,
+                "candidate_id": trial_id,
                 "smoke_status": smoke_status,
                 "result_status": "SCORED",
                 "candidate_score": 0.07791816299247686,
@@ -180,18 +214,21 @@ def _write_bench_readiness(
 def _write_live_smoke_run(
     tmp_path: Path,
     *,
+    trial_id: str = "T179",
+    run_dir: str = "runs/autoresearch/live-smoke",
     comparison_status: str = "DISCARD",
     provisional_keep: bool = False,
     num_scored_targets: int = 16,
     num_failed_targets: int = 0,
+    sampler_noise_scale: float = 1.0,
 ) -> None:
-    candidate_dir = tmp_path / "runs/autoresearch/live-smoke/candidates/T179"
+    candidate_dir = tmp_path / run_dir / "candidates" / trial_id
     candidate_dir.mkdir(parents=True, exist_ok=True)
     (candidate_dir / "metrics.json").write_text(
         json.dumps(
             {
                 "schema_version": "autoaf3.autoresearch_comparison_metrics.v1",
-                "trial_id": "T179",
+                "trial_id": trial_id,
                 "result_status": "SCORED",
                 "comparison": {
                     "candidate_score": 0.07791816299247686,
@@ -219,12 +256,12 @@ def _write_live_smoke_run(
         json.dumps(
             {
                 "schema_version": "autoaf3.sampler_manifest.v1",
-                "trial_id": "T179",
+                "trial_id": trial_id,
                 "status": "SAMPLER_PREDICTED",
                 "sampler_locality_guard": "reject_exploded",
                 "sampler_coordinate_normalization": "ca_bond",
                 "sampler_coordinate_scale": 1.0,
-                "sampler_noise_scale": 1.0,
+                "sampler_noise_scale": sampler_noise_scale,
                 "sampler_num_samples": 4,
                 "sampler_selection_policy": "geometry",
                 "max_templates": 0,

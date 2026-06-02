@@ -18,6 +18,7 @@ APPROVED_NEXT_PLANNER = "manual_sampler_low_noise_locality_refinement"
 APPROVED_GUARD = "reject_exploded"
 APPROVED_NORMALIZATION = "ca_bond"
 NEXT_SAMPLER_NOISE_SCALE = 0.6
+FINAL_SAMPLER_NOISE_SCALE = 0.3
 NEXT_SAMPLER_NUM_SAMPLES = 4
 
 FORBIDDEN_EDITS = [
@@ -105,7 +106,14 @@ def review_post_smoke_strategy(
         expected_schema=SAMPLER_MANIFEST_SCHEMA,
         label="sampler manifest",
     )
-    blocked = _blocked_reasons(live_result=live_result, bench=bench, metrics=metrics, sampler=sampler)
+    next_noise_scale = _next_sampler_noise_scale(sampler)
+    blocked = _blocked_reasons(
+        live_result=live_result,
+        bench=bench,
+        metrics=metrics,
+        sampler=sampler,
+        next_noise_scale=next_noise_scale,
+    )
     approved = not blocked
     candidate_score = _optional_float(_comparison(metrics).get("candidate_score"))
     global_delta = _optional_float(_comparison(metrics).get("global_baseline_delta"))
@@ -130,7 +138,7 @@ def review_post_smoke_strategy(
         num_scored_targets=num_scored,
         num_failed_targets=num_failed,
         sampler_manifest_summary=_sampler_summary(sampler),
-        next_candidate_plan=_next_candidate_plan(trial_id=trial_id) if approved else {},
+        next_candidate_plan=_next_candidate_plan(trial_id=trial_id, next_noise_scale=next_noise_scale) if approved else {},
         blocked_reasons=blocked,
         required_objectives=_required_objectives(approved=approved, trial_id=trial_id),
         roadmap=_roadmap(approved=approved, trial_id=trial_id),
@@ -219,6 +227,7 @@ def _blocked_reasons(
     bench: dict[str, object],
     metrics: dict[str, object],
     sampler: dict[str, object],
+    next_noise_scale: float | None,
 ) -> list[str]:
     blocked: list[str] = []
     if live_result.get("decision") != "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_DISCARDED":
@@ -247,6 +256,8 @@ def _blocked_reasons(
         blocked.append("sampler manifest must preserve ca_bond coordinate normalization")
     if _optional_int(sampler.get("sampler_num_samples")) is None or _optional_int(sampler.get("sampler_num_samples")) < 2:
         blocked.append("sampler manifest must show multi-sample geometry selection")
+    if next_noise_scale is None:
+        blocked.append("sampler noise refinement ladder is exhausted for this source smoke")
     if sampler.get("max_templates") != 0:
         blocked.append("sampler manifest must keep max_templates=0")
     return blocked
@@ -276,7 +287,9 @@ def _sampler_summary(payload: dict[str, object]) -> dict[str, object]:
     return {key: payload.get(key) for key in keys}
 
 
-def _next_candidate_plan(*, trial_id: str) -> dict[str, object]:
+def _next_candidate_plan(*, trial_id: str, next_noise_scale: float | None) -> dict[str, object]:
+    if next_noise_scale is None:
+        return {}
     return {
         "source_trial_id": trial_id,
         "candidate_limit": 1,
@@ -293,7 +306,7 @@ def _next_candidate_plan(*, trial_id: str) -> dict[str, object]:
             "sampler_coordinate_scale": 1.0,
             "sampler_selection_policy": "geometry",
             "sampler_num_samples": NEXT_SAMPLER_NUM_SAMPLES,
-            "sampler_noise_scale": NEXT_SAMPLER_NOISE_SCALE,
+            "sampler_noise_scale": next_noise_scale,
             "max_templates": 0,
         },
         "stop_conditions": [
@@ -303,6 +316,17 @@ def _next_candidate_plan(*, trial_id: str) -> dict[str, object]:
             "fresh live-smoke gate does not explicitly approve one bounded candidate",
         ],
     }
+
+
+def _next_sampler_noise_scale(sampler: dict[str, object]) -> float | None:
+    current = _optional_float(sampler.get("sampler_noise_scale"))
+    if current is None:
+        return None
+    if current > NEXT_SAMPLER_NOISE_SCALE:
+        return NEXT_SAMPLER_NOISE_SCALE
+    if current > FINAL_SAMPLER_NOISE_SCALE:
+        return FINAL_SAMPLER_NOISE_SCALE
+    return None
 
 
 def _required_objectives(*, approved: bool, trial_id: str) -> list[dict[str, object]]:

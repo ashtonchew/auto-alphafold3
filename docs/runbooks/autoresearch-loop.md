@@ -681,6 +681,41 @@ allowed action is offline design review for one unimplemented allowed surface,
 followed by a dry-run-only planner PR if the new surface is explicit and
 non-overlapping with the exhausted evidence.
 
+For the current blocked state, `pairformer_attention` is the next explicit
+unimplemented surface. Approve only the planner implementation step with:
+
+```bash
+python3 -m autoalphafold3.agent surface-design-review \
+  --strategy-review runs/autoresearch/surface_strategy_review/T171-blocked.json \
+  --proposed-surface pairformer_attention \
+  --output runs/autoresearch/surface_design_review/T172-pairformer-attention.json
+```
+
+This command is offline only. It must emit
+`APPROVE_DRY_RUN_PLANNER_IMPLEMENTATION_ONLY`, `candidate_limit=1`,
+`may_start_live_candidate=false`, and `may_start_open_ended_loop=false`.
+
+After the `pairformer_attention_diagnostic` planner PR exists, dry-run exactly
+one candidate before any Modal spend:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner pairformer_attention_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/surface_design_review/T172-pairformer-attention.json \
+  --run-id pairformer-attention-diagnostic-001-dry-run \
+  --start-trial-id T172 \
+  --max-candidates 1
+```
+
+Review the generated `T172` envelope. It must remain a single
+NanoFold-style AlphaFold3-lite trial-budget training candidate with
+`diagnostic_target=long_range_topology_weak`,
+`move_family=pairformer_attention`, `max_templates=0`, no sampler coordinate
+overrides, no diffusion data-scale overrides, no Modal resource edits, no
+ledger writes, and no Discovery Ledger writes.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

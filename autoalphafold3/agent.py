@@ -36,6 +36,7 @@ from autoalphafold3.scorer_sensitivity import ScorerSensitivityError, run_scorer
 from autoalphafold3.sampler_loop import APPROVAL_TEXT as SAMPLER_LOOP_APPROVAL_TEXT
 from autoalphafold3.sampler_loop import SamplerLoopError, run_incremental_sampler_loop
 from autoalphafold3.short_training_runner import ShortTrainingRunError, run_short_training
+from autoalphafold3.surface_design_review import SurfaceDesignReviewError, review_surface_design
 from autoalphafold3.surface_strategy_review import SurfaceStrategyReviewError, review_surface_strategy
 from autoalphafold3.modal_assets import (
     ModalAssetAuditError,
@@ -140,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
             "calibrated_sampler_locality_selection_diagnostic",
             "calibrated_sampler_low_noise_diagnostic",
             "diffusion_data_scale_diagnostic",
+            "pairformer_attention_diagnostic",
             "llm",
         ),
         default="deterministic",
@@ -199,6 +201,12 @@ def main(argv: list[str] | None = None) -> int:
     surface_strategy_parser.add_argument("--next-surface-review", action="append", required=True)
     surface_strategy_parser.add_argument("--diagnosis", action="append", default=[])
     surface_strategy_parser.add_argument("--output", default=None)
+
+    surface_design_parser = subparsers.add_parser("surface-design-review")
+    surface_design_parser.add_argument("--repo-root", default=".")
+    surface_design_parser.add_argument("--strategy-review", required=True)
+    surface_design_parser.add_argument("--proposed-surface", required=True)
+    surface_design_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -519,6 +527,22 @@ def main(argv: list[str] | None = None) -> int:
                 diagnoses=args.diagnosis,
             )
         except SurfaceStrategyReviewError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "surface-design-review":
+        try:
+            result = review_surface_design(
+                repo_root=args.repo_root,
+                strategy_review=args.strategy_review,
+                proposed_surface=args.proposed_surface,
+            )
+        except SurfaceDesignReviewError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

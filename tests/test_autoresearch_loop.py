@@ -626,6 +626,53 @@ def _write_coordinate_scale_locality_review_inputs(
     return report.relative_to(tmp_path)
 
 
+def _write_pairformer_surface_design_review_inputs(tmp_path: Path) -> Path:
+    config_dir = tmp_path / "configs/experiments"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.joinpath("local_calpha_geometry_smoke.json").write_text(
+        (REPO_ROOT / "configs/experiments/local_calpha_geometry_smoke.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    report = tmp_path / "runs/autoresearch/surface_design_review/T172-pairformer-attention.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.surface_design_review.v1",
+                "status": "PASS",
+                "decision": "APPROVE_DRY_RUN_PLANNER_IMPLEMENTATION_ONLY",
+                "approved_next_surface": "pairformer_attention",
+                "approved_planner": "pairformer_attention_diagnostic",
+                "candidate_limit": 1,
+                "may_start_live_candidate": False,
+                "may_start_open_ended_loop": False,
+                "bench_blocked_reason": "new planner must be dry-run validated",
+                "consumed_strategy_review": "runs/autoresearch/surface_strategy_review/T171-blocked.json",
+                "exhausted_surfaces": [
+                    "sampler_coordinate_scale",
+                    "sampler_geometry_selection",
+                    "sampler_low_noise",
+                    "diffusion_data_scale",
+                ],
+                "required_next_pr": {
+                    "planner": "pairformer_attention_diagnostic",
+                    "candidate_limit": 1,
+                    "mode_before_merge": "dry-run",
+                    "candidate_budget": "trial",
+                    "must_consume_review": True,
+                },
+                "design_rationale": "Pairformer attention remains non-overlapping.",
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
 def _write_prediction_geometry_audit_inputs(
     tmp_path: Path,
     *,
@@ -1905,6 +1952,76 @@ def test_diffusion_data_scale_diagnostic_requires_matching_next_surface_review(t
         )
 
     assert not (tmp_path / "runs/autoresearch/diffusion-data-scale-wrong-review").exists()
+
+
+def test_pairformer_attention_diagnostic_plans_one_non_overlapping_candidate(tmp_path: Path) -> None:
+    report = _write_pairformer_surface_design_review_inputs(tmp_path)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="pairformer-attention-diagnostic",
+        mode="dry-run",
+        planner="pairformer_attention_diagnostic",
+        start_trial_id="T172",
+        max_candidates=1,
+        candidate_budget="trial",
+        diagnostic_report=report,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T172"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T172"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "training"
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["move_family"] == "pairformer_attention"
+    assert trial["diagnostic_target"] == "long_range_topology_weak"
+    assert trial["prediction"]["causal_component"] == "pairformer_triangle_attention_capacity"
+    assert trial["config_path"] == "configs/experiments/T172_pairformer_attention_diagnostic.json"
+    assert trial["config_payload"]["max_templates"] == 0
+    assert trial["config_payload"]["num_triangular_attention_channels"] == 24
+    assert trial["config_payload"]["num_triangular_attention_heads"] == 2
+    assert trial["config_payload"]["num_pair_heads"] == 3
+    assert trial["config_payload"]["pairformer_transition_multiplier"] == 6
+    assert "sampler_coordinate_scale" not in trial
+    assert "sampler_coordinate_normalization" not in trial
+    assert "diffusion_data_std_dev" not in trial["config_payload"]
+    assert config["schema_version"] == "autoaf3.pairformer_attention_diagnostic_plan.v1"
+    assert config["source_surface_design_review"] == str(report)
+    assert config["approved_next_surface"] == "pairformer_attention"
+    assert config["approved_planner"] == "pairformer_attention_diagnostic"
+    assert config["config_payload_overrides"]["num_triangular_attention_channels"] == 24
+    assert config["writes_ledger"] is False
+    assert config["writes_discovery_ledger"] is False
+    assert "configs/experiments/T172_pairformer_attention_diagnostic.json" in patch_text
+    assert "bounded Pairformer triangular-attention diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_pairformer_attention_diagnostic_requires_design_review(tmp_path: Path) -> None:
+    report = _write_coordinate_scale_locality_review_inputs(tmp_path)
+
+    with pytest.raises(AutoresearchLoopError, match="surface design review"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="pairformer-attention-wrong-review",
+            mode="dry-run",
+            planner="pairformer_attention_diagnostic",
+            start_trial_id="T172",
+            max_candidates=1,
+            candidate_budget="trial",
+            diagnostic_report=report,
+        )
+
+    assert not (tmp_path / "runs/autoresearch/pairformer-attention-wrong-review").exists()
 
 
 def test_deterministic_sampler_checkpoint_follows_start_trial_id(tmp_path: Path) -> None:

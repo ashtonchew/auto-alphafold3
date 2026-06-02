@@ -24,13 +24,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeLLMPlanner:
-    def __init__(self, payload: dict[str, object]) -> None:
-        self.payload = payload
+    def __init__(self, payload: dict[str, object] | list[dict[str, object]]) -> None:
+        self.payloads = payload if isinstance(payload, list) else [payload]
         self.calls: list[dict[str, object]] = []
 
     def plan(self, **kwargs: object) -> AutoresearchCandidatePlan:
         self.calls.append(kwargs)
-        return AutoresearchCandidatePlan.model_validate(self.payload)
+        index = int(kwargs.get("candidate_index", 0))
+        return AutoresearchCandidatePlan.model_validate(self.payloads[index])
 
 
 class FakeTrustedAutoresearchClient:
@@ -222,10 +223,11 @@ def _write_baseline_lock(tmp_path: Path, *, score: float = 0.08) -> None:
 
 def _llm_candidate_payload(
     *,
+    trial_id: str = "T120",
+    config_path: str = "configs/experiments/llm_geometry.json",
     changed_paths: list[str] | None = None,
     config_payload: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    trial_id = "T120"
     inline_config = config_payload or json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
     inline_config.setdefault("diffusion_loss_weight", 4.0)
     inline_config.setdefault("dist_loss_weight", 0.0)
@@ -234,7 +236,7 @@ def _llm_candidate_payload(
     return {
         "hypothesis": "LLM planner tests one local geometry loss candidate without starting live search.",
         "rationale": "Exercise the strict one-candidate planning seam with patch policy before artifacts.",
-        "changed_paths": changed_paths if changed_paths is not None else ["configs/experiments/llm_geometry.json"],
+        "changed_paths": changed_paths if changed_paths is not None else [config_path],
         "trial": {
             "trial_id": trial_id,
             "parent_commit": "abc1234",
@@ -250,7 +252,7 @@ def _llm_candidate_payload(
                 "expected_lddt_delta_band": [0.001, 0.01],
             },
             "patch_path": None,
-            "config_path": "configs/experiments/llm_geometry.json",
+            "config_path": config_path,
             "budget": "smoke",
             "seed": 0,
             "n_res": 32,
@@ -268,15 +270,15 @@ def _llm_candidate_payload(
             "config_payload": inline_config,
         },
         "config": {
-            "config_path": "configs/experiments/llm_geometry.json",
+            "config_path": config_path,
             "max_templates": 0,
             "learning_rate": inline_config["learning_rate"],
             "local_calpha_geometry_loss_weight": inline_config["local_calpha_geometry_loss_weight"],
         },
         "patch_text": (
-            "diff --git a/configs/experiments/llm_geometry.json b/configs/experiments/llm_geometry.json\n"
-            "--- a/configs/experiments/llm_geometry.json\n"
-            "+++ b/configs/experiments/llm_geometry.json\n"
+            f"diff --git a/{config_path} b/{config_path}\n"
+            f"--- a/{config_path}\n"
+            f"+++ b/{config_path}\n"
             "@@ -0,0 +1 @@\n"
             "+{\"max_templates\": 0}\n"
         ),
@@ -1079,6 +1081,51 @@ def test_llm_autoresearch_planner_accepts_exactly_one_candidate(tmp_path: Path) 
     assert not (tmp_path / "runs/trials").exists()
 
 
+def test_llm_autoresearch_plans_bounded_batch_with_prior_plan_context(tmp_path: Path) -> None:
+    fake = FakeLLMPlanner(
+        [
+            _llm_candidate_payload(trial_id="T120", config_path="configs/experiments/llm_geometry_a.json"),
+            _llm_candidate_payload(trial_id="T121", config_path="configs/experiments/llm_geometry_b.json"),
+        ]
+    )
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="llm-two",
+        mode="dry-run",
+        planner="llm",
+        max_candidates=2,
+        planner_client=fake,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T120", "T121"]
+    assert [call["trial_id"] for call in fake.calls] == ["T120", "T121"]
+    assert fake.calls[0]["prior_plans"] == []
+    assert fake.calls[1]["prior_plans"][0]["trial_id"] == "T120"
+    assert fake.calls[1]["prior_plans"][0]["config"]["config_path"] == "configs/experiments/llm_geometry_a.json"
+    assert (tmp_path / "runs/autoresearch/llm-two/candidates/T121/trial.json").exists()
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_llm_autoresearch_rejects_unbounded_batch_before_artifacts(tmp_path: Path) -> None:
+    fake = FakeLLMPlanner(_llm_candidate_payload())
+
+    with pytest.raises(AutoresearchLoopError, match="between 1 and 3"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="llm-four",
+            mode="dry-run",
+            planner="llm",
+            max_candidates=4,
+            planner_client=fake,
+        )
+
+    assert not (tmp_path / "runs/autoresearch/llm-four").exists()
+    assert fake.calls == []
+
+
 def test_llm_modal_candidate_passes_inline_config_payload_without_ledger(tmp_path: Path) -> None:
     _write_baseline_lock(tmp_path, score=0.08)
     config_payload = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
@@ -1101,6 +1148,39 @@ def test_llm_modal_candidate_passes_inline_config_payload_without_ledger(tmp_pat
     assert client.submitted_trials[0]["config_payload"]["learning_rate"] == pytest.approx(0.0016)
     assert client.submitted_trials[0]["config_payload"]["max_templates"] == 0
     assert result.decisions[0]["status"] == "DISCARD"
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_llm_modal_runs_bounded_batch_with_matched_budget_without_ledger(tmp_path: Path) -> None:
+    _write_baseline_lock(tmp_path, score=0.08)
+    fake = FakeLLMPlanner(
+        [
+            _llm_candidate_payload(trial_id="T120", config_path="configs/experiments/llm_geometry_a.json"),
+            _llm_candidate_payload(trial_id="T121", config_path="configs/experiments/llm_geometry_b.json"),
+        ]
+    )
+    client = FakeSequencedTrustedAutoresearchClient({"T120": 0.07, "T121": 0.09})
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="llm-live-two",
+        mode="modal",
+        planner="llm",
+        max_candidates=2,
+        approval=APPROVAL_TEXT,
+        planner_client=fake,
+        modal_client=client,
+    )
+
+    assert result.status == "PASS"
+    assert result.generated_trials == ["T120", "T121"]
+    assert [trial["trial_id"] for trial in client.submitted_trials] == ["T120", "T121"]
+    assert client.scored_trials == ["T120", "T121"]
+    assert [decision["status"] for decision in result.decisions] == ["DISCARD", "KEEP"]
+    assert result.decisions[0]["matched_budget_delta"] is None
+    assert result.decisions[1]["matched_budget_delta"] == pytest.approx(0.02)
+    assert fake.calls[1]["prior_plans"][0]["trial_id"] == "T120"
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
 
@@ -1401,4 +1481,4 @@ def test_llm_autoresearch_cli_rejects_explicit_multi_candidate_request(tmp_path:
 
     assert result.returncode == 1
     payload = json.loads(result.stdout)
-    assert "exactly one" in payload["error"]
+    assert "recorded LLM candidate plans can replay exactly one candidate" in payload["error"]

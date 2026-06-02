@@ -80,6 +80,7 @@ class AutoresearchPlanner(Protocol):
         model: str,
         policy: dict[str, dict[str, object]],
         base_commit: str,
+        prior_plans: list[dict[str, object]],
     ) -> "AutoresearchCandidatePlan":
         """Return one structured autoresearch candidate."""
 
@@ -266,6 +267,7 @@ class OpenAIAutoresearchPlanner:
         model: str,
         policy: dict[str, dict[str, object]],
         base_commit: str,
+        prior_plans: list[dict[str, object]] | None = None,
     ) -> AutoresearchCandidatePlan:
         del model
         prompt = _autoresearch_planner_prompt(
@@ -275,6 +277,7 @@ class OpenAIAutoresearchPlanner:
             candidate_index=candidate_index,
             base_commit=base_commit,
             policy=policy,
+            prior_plans=prior_plans or [],
         )
         try:
             from openai import OpenAI
@@ -291,6 +294,7 @@ class OpenAIAutoresearchPlanner:
                     candidate_index=candidate_index,
                     base_commit=base_commit,
                     policy=policy,
+                    prior_plans=prior_plans or [],
                     model=self.model,
                 )
             raise
@@ -322,6 +326,7 @@ class OpenAIAutoresearchPlanner:
                     candidate_index=candidate_index,
                     base_commit=base_commit,
                     policy=policy,
+                    prior_plans=prior_plans or [],
                     model=self.model,
                 )
             raise
@@ -841,34 +846,61 @@ def _llm_candidates(
     llm_policy: dict[str, dict[str, object]],
     planner_client: AutoresearchPlanner | None,
 ) -> list[dict[str, object]]:
-    if max_candidates != 1:
-        raise AutoresearchLoopError("LLM autoresearch planner authors exactly one candidate per run")
-    if planner_client is not None:
-        try:
-            raw_plan = planner_client.plan(
-                run_id=run_id,
-                trial_id=start_trial_id,
-                candidate_index=0,
-                model=model,
-                policy=llm_policy,
-                base_commit=base_commit,
-            )
-        except Exception as exc:  # noqa: BLE001 - planner failures must stop before artifacts.
-            raise AutoresearchLoopError(f"LLM autoresearch planner failed: {exc}") from exc
-    elif candidate_plan is not None:
+    if max_candidates < 1 or max_candidates > 3:
+        raise AutoresearchLoopError("LLM autoresearch max_candidates must be between 1 and 3")
+    if candidate_plan is not None and max_candidates != 1:
+        raise AutoresearchLoopError("recorded LLM candidate plans can replay exactly one candidate")
+    if candidate_plan is not None:
         raw_plan = _read_candidate_plan(root=root, candidate_plan=candidate_plan)
-    else:
+        return [
+            _validate_llm_candidate_plan(
+                root=root,
+                raw_plan=raw_plan,
+                expected_trial_id=start_trial_id,
+            )
+        ]
+    active_planner = planner_client or OpenAIAutoresearchPlanner(repo_root=root, model=model)
+    planned: list[dict[str, object]] = []
+    start = _trial_number(start_trial_id)
+    for candidate_index in range(max_candidates):
+        trial_id = f"T{start + candidate_index:03d}"
         try:
-            raw_plan = OpenAIAutoresearchPlanner(repo_root=root, model=model).plan(
+            raw_plan = active_planner.plan(
                 run_id=run_id,
-                trial_id=start_trial_id,
-                candidate_index=0,
+                trial_id=trial_id,
+                candidate_index=candidate_index,
                 model=model,
                 policy=llm_policy,
                 base_commit=base_commit,
+                prior_plans=[
+                    {
+                        "trial_id": str(item["trial"]["trial_id"]),
+                        "hypothesis": str(item["hypothesis"]),
+                        "move_family": str(item["trial"].get("move_family")),
+                        "diagnostic_target": str(item["trial"].get("diagnostic_target")),
+                        "config": item.get("config"),
+                    }
+                    for item in planned
+                ],
             )
         except Exception as exc:  # noqa: BLE001 - planner failures must stop before artifacts.
             raise AutoresearchLoopError(f"LLM autoresearch planner failed: {exc}") from exc
+        planned.append(
+            _validate_llm_candidate_plan(
+                root=root,
+                raw_plan=raw_plan,
+                expected_trial_id=trial_id,
+            )
+        )
+    return planned
+
+
+def _validate_llm_candidate_plan(
+    *,
+    root: Path,
+    raw_plan: object,
+    expected_trial_id: str,
+) -> dict[str, object]:
     try:
         plan = AutoresearchCandidatePlan.model_validate(raw_plan)
         trial_payload = plan.trial.model_dump(mode="json")
@@ -883,18 +915,16 @@ def _llm_candidates(
     _refuse_plan_authority_claims(config_payload, "LLM config")
     _refuse_template_config(config_payload)
     patch_paths = _refuse_unsafe_patch_text(root=root, patch_text=plan.patch_text)
-    if trial_payload["trial_id"] != start_trial_id:
+    if trial_payload["trial_id"] != expected_trial_id:
         raise AutoresearchLoopError("LLM candidate trial_id must match start_trial_id")
     if patch_paths != set(plan.changed_paths):
         raise AutoresearchLoopError("LLM patch_text paths must match changed_paths")
-    return [
-        {
-            "hypothesis": plan.hypothesis,
-            "trial": trial_payload,
-            "config": config_payload,
-            "patch_text": plan.patch_text,
-        }
-    ]
+    return {
+        "hypothesis": plan.hypothesis,
+        "trial": trial_payload,
+        "config": config_payload,
+        "patch_text": plan.patch_text,
+    }
 
 
 def _autoresearch_planner_prompt(
@@ -905,6 +935,7 @@ def _autoresearch_planner_prompt(
     candidate_index: int,
     base_commit: str,
     policy: dict[str, dict[str, object]],
+    prior_plans: list[dict[str, object]],
 ) -> str:
     base_config = _planner_reference_config(root / "configs" / "nanofold_dev_cpu_smoke.json")
     local_geometry_config = _planner_reference_config(root / "configs" / "experiments" / "local_calpha_geometry_smoke.json")
@@ -916,6 +947,7 @@ def _autoresearch_planner_prompt(
         "base_commit": base_commit,
         "implementation_target": "NanoFold-style AlphaFold3-lite",
         "llm_policy": policy,
+        "prior_planned_candidates": prior_plans[-5:],
         "allowed_candidate_shape": {
             "trial_kind": "training",
             "budget": "smoke",
@@ -954,6 +986,7 @@ def _autoresearch_planner_prompt(
         },
         "hard_constraints": [
             "Return exactly one candidate object, not a candidates array.",
+            "Choose a different candidate note path and hypothesis than prior_planned_candidates.",
             "trial.trial_id must equal the requested trial_id.",
             "trial.artifact_dir must equal runs/trials/<trial_id>.",
             "trial.config_path must be repo-relative and under configs/experiments/ unless using an allowed existing config.",
@@ -1020,6 +1053,7 @@ def _plan_autoresearch_with_modal_harness_secret(
     candidate_index: int,
     base_commit: str,
     policy: dict[str, dict[str, object]],
+    prior_plans: list[dict[str, object]],
     model: str,
 ) -> AutoresearchCandidatePlan:
     try:
@@ -1033,6 +1067,7 @@ def _plan_autoresearch_with_modal_harness_secret(
         "candidate_index": candidate_index,
         "base_commit": base_commit,
         "policy": policy,
+        "prior_plans": prior_plans[-5:],
         "model": model,
     }
     orchestrator = modal.Cls.from_name(APP_NAME, TRUSTED_ORCHESTRATOR_CLASS)()

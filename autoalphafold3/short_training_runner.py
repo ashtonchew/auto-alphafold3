@@ -216,6 +216,8 @@ def _payload_from_trial(
         seed=trial.seed,
         artifact_dir=trial.artifact_dir,
         local_only=local_only,
+        sampler_coordinate_normalization=trial.sampler_coordinate_normalization,
+        sampler_coordinate_scale=trial.sampler_coordinate_scale,
     )
 
 

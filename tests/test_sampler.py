@@ -64,6 +64,7 @@ def test_run_sampler_trial_loads_checkpoint_and_writes_predictions(tmp_path: Pat
     assert predictions["source"] == "frozen_checkpoint_nanofold_sampler"
     assert predictions["max_templates"] == 0
     assert manifest["sampler_coordinate_normalization"] == "none"
+    assert manifest["sampler_coordinate_scale"] == pytest.approx(1.0)
     assert predictions["predictions"][0]["target_id"] == "TARGET_0_A"
     assert len(predictions["predictions"][0]["predicted_ca"]) > 0
     assert (output / "DONE").exists()
@@ -170,6 +171,16 @@ def test_sampler_ca_bond_coordinate_normalization_rescales_exploded_trace() -> N
     assert _label_free_ca_quality(normalized, policy="geometry") == pytest.approx(0.0)
 
 
+def test_sampler_ca_bond_coordinate_normalization_accepts_calibrated_scale() -> None:
+    exploded = [[0.0, 0.0, 0.0], [380.0, 0.0, 0.0], [760.0, 0.0, 0.0]]
+
+    normalized = _normalize_ca_coordinates(exploded, policy="ca_bond", coordinate_scale=2.0)
+
+    assert normalized[0] == pytest.approx([-7.6, 0.0, 0.0])
+    assert normalized[1] == pytest.approx([0.0, 0.0, 0.0])
+    assert normalized[2] == pytest.approx([7.6, 0.0, 0.0])
+
+
 def test_sampler_rejects_unknown_coordinate_normalization() -> None:
     with pytest.raises(SamplerError, match="sampler_coordinate_normalization must be none or ca_bond"):
         _sampler_settings(
@@ -178,6 +189,11 @@ def test_sampler_rejects_unknown_coordinate_normalization() -> None:
                 "sampler_coordinate_normalization": "bad",
             }
         )
+
+
+def test_sampler_coordinate_scale_requires_ca_bond_normalization() -> None:
+    with pytest.raises(SamplerError, match="sampler_coordinate_scale requires sampler_coordinate_normalization=ca_bond"):
+        _sampler_settings({"sampler_steps": 1, "sampler_coordinate_scale": 2.0})
 
 
 def test_run_sampler_trial_accepts_short_training_checkpoint_manifest(tmp_path: Path) -> None:

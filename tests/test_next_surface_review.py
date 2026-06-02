@@ -94,6 +94,37 @@ def test_next_surface_review_approves_diffusion_data_scale_after_sampler_exhaust
     assert payload["writes_discovery_ledger"] is False
 
 
+def test_next_surface_review_does_not_reapprove_exhausted_diffusion_data_scale(tmp_path: Path) -> None:
+    diagnosis = _write_diagnosis(
+        tmp_path,
+        path_name="T171-vs-T170-T088.json",
+        candidate_trial_ids=["T168", "T169", "T170", "T171"],
+        exhausted_surfaces=[
+            "sampler_coordinate_scale",
+            "sampler_geometry_selection",
+            "sampler_low_noise",
+            "diffusion_data_scale",
+        ],
+        candidate_scores={
+            "T168": 0.019063409263676636,
+            "T169": 0.01695326220870796,
+            "T170": 0.018303232063750032,
+            "T171": 0.02332302288395502,
+        },
+        negative_delta_count=33,
+        positive_delta_count=30,
+        worst_delta=-0.018736936398925055,
+    )
+
+    report = review_next_surface(repo_root=tmp_path, diagnosis_path=diagnosis)
+
+    assert report.decision == "NO_NEXT_SURFACE_APPROVED"
+    assert report.approved_next_surface is None
+    assert report.required_next_pr["candidate_limit"] == 0
+    assert report.stop_live_trial_budget is True
+    assert report.do_not_start_open_ended_loop is True
+
+
 def _write_diagnosis(
     tmp_path: Path,
     *,

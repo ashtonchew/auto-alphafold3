@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from autoalphafold3.config_contract import validate_config_file
+from autoalphafold3.config_contract import validate_config_file, validate_config_payload
 from autoalphafold3.nanofold_adapter import NANOFOLD_PATH, load_nanofold_config
 from autoalphafold3.runner import ARTIFACT_MANIFEST_SCHEMA, DONE_FILENAME, validate_trial_id
 from autoalphafold3.schema import PRIMARY_METRIC, SCORER_VERSION
@@ -48,6 +48,7 @@ def short_training_payload(
     artifact_dir: str | None = None,
     local_only: bool = False,
     predict_after_training: bool = False,
+    config_payload: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Return a JSON-friendly bounded short-training payload."""
 
@@ -56,7 +57,7 @@ def short_training_payload(
         raise ShortTrainingError("short training max_steps must be positive")
     if seed < 0:
         raise ShortTrainingError("short training seed must be non-negative")
-    return {
+    payload: dict[str, object] = {
         "trial_id": checked_trial_id,
         "candidate_id": candidate_id,
         "runner_mode": "short_training",
@@ -72,6 +73,9 @@ def short_training_payload(
         "predict_after_training": bool(predict_after_training),
         "short_training_approval": APPROVAL_TEXT,
     }
+    if config_payload is not None:
+        payload["config_payload"] = config_payload
+    return payload
 
 
 def run_short_nanofold_training(
@@ -106,10 +110,21 @@ def run_short_nanofold_training(
 
     config_path = str(payload.get("config_path", ""))
     _reject_unsafe_relative_path(Path(config_path), label="config_path")
-    config_report = validate_config_file(config_path, repo_root=root)
-    if not config_report.valid:
-        raise ShortTrainingError(f"short training config is invalid: {config_report.missing_keys}")
-    config = dict(load_nanofold_config(config_path, repo_root=root))
+    inline_config = payload.get("config_payload")
+    if inline_config is None:
+        config_report = validate_config_file(config_path, repo_root=root)
+        if not config_report.valid:
+            raise ShortTrainingError(f"short training config is invalid: {config_report.missing_keys}")
+        config = dict(load_nanofold_config(config_path, repo_root=root))
+        config_source = "config_path"
+        config_payload_sha256 = None
+    else:
+        config_report = validate_config_payload(inline_config, source="config_payload")
+        if not config_report.valid:
+            raise ShortTrainingError(f"short training config_payload is invalid: {config_report.missing_keys}")
+        config = dict(inline_config)
+        config_source = "config_payload"
+        config_payload_sha256 = _sha256_json(config)
     if config.get("max_templates") != 0:
         raise ShortTrainingError("short training config must pin max_templates=0")
     config["max_templates"] = 0
@@ -187,6 +202,7 @@ def run_short_nanofold_training(
         "max_templates": 0,
         "seed": seed,
         "config_path": config_path,
+        "config_source": config_source,
         "features_path": str(feature_file),
         "feature_sha256": feature_sha256,
         "checkpoint_path": str(checkpoint_path),
@@ -206,6 +222,8 @@ def run_short_nanofold_training(
         "starts_search": False,
         "reads_locked_labels": False,
     }
+    if config_payload_sha256 is not None:
+        manifest["config_payload_sha256"] = config_payload_sha256
     _atomic_write_json(output / DEFAULT_SHORT_TRAINING_MANIFEST, manifest)
     _atomic_write_json(
         output / DEFAULT_LOSS_HISTORY,
@@ -438,6 +456,11 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _sha256_json(payload: dict[str, object]) -> str:
+    encoded = json.dumps(payload, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:

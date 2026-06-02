@@ -407,6 +407,43 @@ def test_fixture_backed_short_training_writes_honest_artifacts(tmp_path: Path) -
     assert len(loss_history["losses"]) == 2
 
 
+def test_fixture_backed_short_training_accepts_inline_config_payload(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    materialize_local_nanofold_fixture(
+        repo_root=tmp_path,
+        output_dir="features",
+        approval=APPROVAL_TOKEN,
+    )
+    config_payload = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config_payload["learning_rate"] = 0.0017
+
+    manifest = run_short_nanofold_training(
+        short_training_payload(
+            trial_id="T121",
+            candidate_id="T121",
+            config_path="configs/experiments/inline_payload_smoke.json",
+            config_payload=config_payload,
+            features_path="tiny_features.arrow",
+            max_steps=1,
+            budget="smoke",
+            seed=0,
+            local_only=True,
+        ),
+        features_dir=tmp_path / "features",
+        output_dir=tmp_path / "runs/trials/T121",
+        repo_root=REPO_ROOT,
+        local_only=True,
+    )
+
+    assert validate_short_training_manifest(manifest)["config_source"] == "config_payload"
+    assert isinstance(manifest["config_payload_sha256"], str)
+    assert len(manifest["config_payload_sha256"]) == 64
+    assert manifest["max_templates"] == 0
+    assert not (tmp_path / "runs/baseline").exists()
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
 def test_run_short_training_dry_run_writes_nothing(tmp_path: Path) -> None:
     trial = tmp_path / "trials/T120.json"
     write_trial(trial)

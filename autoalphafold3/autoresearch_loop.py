@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from autoalphafold3.config_contract import validate_config_payload as validate_nanofold_config_payload
 from autoalphafold3.llm_policy import DEFAULT_LLM_MODEL, AgentSearchPhase, default_llm_phase_policy
 from autoalphafold3.patch_policy import PatchPolicyError, validate_patch_scope
 from autoalphafold3.autoresearch_candidates import (
@@ -516,6 +517,7 @@ def _modal_short_training_payload(trial: AutoFoldTrial) -> dict[str, object]:
         artifact_dir=trial.artifact_dir,
         local_only=False,
         predict_after_training=True,
+        config_payload=trial.config_payload,
     )
 
 
@@ -793,6 +795,7 @@ def _planned_preflight(trial: dict[str, object]) -> dict[str, object]:
 def _validate_trial_artifacts(trial: dict[str, object]) -> None:
     trial_id = str(trial["trial_id"])
     _validate_config_path(str(trial["config_path"]))
+    _validate_config_payload(trial.get("config_payload"))
     expected_artifact_dir = f"runs/trials/{trial_id}"
     artifact_dir = trial.get("artifact_dir")
     if artifact_dir != expected_artifact_dir:
@@ -826,6 +829,17 @@ def _validate_config_path(config_path: str) -> None:
     if normalized in ALLOWED_CONFIG_EXACT or any(normalized.startswith(prefix) for prefix in ALLOWED_CONFIG_PREFIXES):
         return
     raise AutoresearchLoopError(f"config_path is outside the planning config surface: {config_path}")
+
+
+def _validate_config_payload(payload: object) -> None:
+    if payload is None:
+        return
+    _refuse_plan_authority_claims(payload, "config_payload")
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("config_payload must be an object")
+    result = validate_nanofold_config_payload(payload, source="config_payload")
+    if not result.valid:
+        raise AutoresearchLoopError(f"config_payload is invalid: {result.missing_keys}")
 
 
 def _write_planned_candidate_index(*, root: Path, run_id: str, records: list[dict[str, object]]) -> None:

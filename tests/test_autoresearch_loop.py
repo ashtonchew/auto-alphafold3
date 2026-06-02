@@ -218,7 +218,11 @@ def _write_baseline_lock(tmp_path: Path, *, score: float = 0.08) -> None:
     )
 
 
-def _llm_candidate_payload(*, changed_paths: list[str] | None = None) -> dict[str, object]:
+def _llm_candidate_payload(
+    *,
+    changed_paths: list[str] | None = None,
+    config_payload: dict[str, object] | None = None,
+) -> dict[str, object]:
     trial_id = "T120"
     return {
         "hypothesis": "LLM planner tests one local geometry loss candidate without starting live search.",
@@ -254,6 +258,7 @@ def _llm_candidate_payload(*, changed_paths: list[str] | None = None) -> dict[st
             "timeout_cap": 300,
             "artifact_dir": f"runs/trials/{trial_id}",
             "checkpoint_path": None,
+            **({"config_payload": config_payload} if config_payload is not None else {}),
         },
         "config": {"config_path": "configs/experiments/llm_geometry.json", "max_templates": 0},
         "patch_text": (
@@ -1060,6 +1065,32 @@ def test_llm_autoresearch_planner_accepts_exactly_one_candidate(tmp_path: Path) 
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
     assert not (tmp_path / "runs/baseline").exists()
     assert not (tmp_path / "runs/trials").exists()
+
+
+def test_llm_modal_candidate_passes_inline_config_payload_without_ledger(tmp_path: Path) -> None:
+    _write_baseline_lock(tmp_path, score=0.08)
+    config_payload = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config_payload["learning_rate"] = 0.0016
+    fake = FakeLLMPlanner(_llm_candidate_payload(config_payload=config_payload))
+    client = FakeTrustedAutoresearchClient(_short_training_manifest("T120"), _scored_metrics_payload("T120", score=0.07))
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="llm-inline-config",
+        mode="modal",
+        planner="llm",
+        max_candidates=1,
+        approval=APPROVAL_TEXT,
+        planner_client=fake,
+        modal_client=client,
+    )
+
+    assert result.status == "PASS"
+    assert client.submitted_trials[0]["config_payload"]["learning_rate"] == pytest.approx(0.0016)
+    assert client.submitted_trials[0]["config_payload"]["max_templates"] == 0
+    assert result.decisions[0]["status"] == "DISCARD"
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
 
 
 def test_llm_autoresearch_rejects_multi_candidate_shape_before_writing(tmp_path: Path) -> None:

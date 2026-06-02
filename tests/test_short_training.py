@@ -153,6 +153,23 @@ def test_short_training_refuses_max_templates_nonzero(tmp_path: Path) -> None:
         )
 
 
+def test_short_training_payload_can_request_post_training_predictions() -> None:
+    payload = short_training_payload(
+        trial_id="T120",
+        candidate_id="T120",
+        config_path="configs/nanofold_dev_cpu_smoke.json",
+        features_path="tiny_features.arrow",
+        max_steps=1,
+        budget="smoke",
+        seed=0,
+        predict_after_training=True,
+    )
+
+    assert payload["predict_after_training"] is True
+    assert payload["max_templates"] == 0
+    assert payload["runner_mode"] == "short_training"
+
+
 def test_short_training_refuses_unsafe_feature_paths(tmp_path: Path) -> None:
     payload = short_training_payload(
         trial_id="T120",

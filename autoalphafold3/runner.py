@@ -312,11 +312,26 @@ def run_fixed_budget_trial(
     if trial_json.get("runner_mode") == "short_training":
         from autoalphafold3.short_training import run_short_nanofold_training
 
-        return run_short_nanofold_training(
+        manifest = run_short_nanofold_training(
             trial_json,
             features_dir=features_dir,
             output_dir=output_dir,
         )
+        if trial_json.get("predict_after_training") is True:
+            from autoalphafold3.sampler import run_checkpoint_prediction_artifacts
+
+            sampler_manifest = run_checkpoint_prediction_artifacts(
+                {
+                    **trial_json,
+                    "checkpoint_path": manifest["checkpoint_path"],
+                    "candidate_id": manifest["candidate_id"],
+                },
+                features_dir=features_dir,
+                output_dir=output_dir,
+                split=split,
+            )
+            manifest = {**manifest, "predictions_ready": True, "sampler_manifest": sampler_manifest}
+        return manifest
     if not allow_local_stub:
         raise RunnerError(
             "run_fixed_budget_trial is not implemented without NanoFold features, "

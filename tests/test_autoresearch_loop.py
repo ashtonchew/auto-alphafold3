@@ -704,6 +704,7 @@ def test_autoresearch_loop_modal_scores_after_training_and_records_scorer_fail(t
     assert client.submitted_trials[0]["trial_kind"] == "training"
     assert client.submitted_trials[0]["runner_mode"] == "short_training"
     assert client.submitted_trials[0]["features_path"] == "nanofold_event_small_no_templates.arrow"
+    assert client.submitted_trials[0]["predict_after_training"] is True
     assert client.submitted_trials[0]["short_training_approval"] == "I_APPROVE_SHORT_TRAINING_TRIAL"
     assert client.scored_trials == ["T130"]
     run_manifest = json.loads((tmp_path / "runs/autoresearch/live/run_manifest.json").read_text(encoding="utf-8"))

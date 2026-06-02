@@ -9,7 +9,8 @@ from autoalphafold3.checkpoint_training import one_batch_checkpoint_payload, run
 from autoalphafold3.local_fixtures import APPROVAL_TOKEN, materialize_local_nanofold_fixture
 from autoalphafold3.runner import validate_prediction_artifact
 from autoalphafold3.runner import validate_artifact_manifest
-from autoalphafold3.sampler import SamplerError, run_sampler_trial
+from autoalphafold3.sampler import SamplerError, run_checkpoint_prediction_artifacts, run_sampler_trial
+from autoalphafold3.short_training import run_short_nanofold_training, short_training_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -91,3 +92,60 @@ def test_run_sampler_trial_rejects_training_steps(tmp_path: Path) -> None:
             output_dir=tmp_path / "runs/trials/T011",
             repo_root=REPO_ROOT,
         )
+
+
+def test_checkpoint_prediction_artifacts_accept_short_training_checkpoint(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    materialize_local_nanofold_fixture(
+        repo_root=tmp_path,
+        output_dir="features",
+        approval=APPROVAL_TOKEN,
+    )
+    training_manifest = run_short_nanofold_training(
+        short_training_payload(
+            trial_id="T120",
+            candidate_id="T120",
+            config_path="configs/nanofold_dev_cpu_smoke.json",
+            features_path="tiny_features.arrow",
+            max_steps=1,
+            budget="smoke",
+            seed=0,
+            local_only=True,
+        ),
+        features_dir=tmp_path / "features",
+        output_dir=tmp_path / "runs/trials/T120",
+        repo_root=REPO_ROOT,
+        local_only=True,
+    )
+
+    sampler_manifest = run_checkpoint_prediction_artifacts(
+        {
+            "trial_id": "T120",
+            "candidate_id": "T120",
+            "checkpoint_path": training_manifest["checkpoint_path"],
+            "seed": 0,
+            "sampler_steps": 1,
+        },
+        features_dir=tmp_path / "features",
+        output_dir=tmp_path / "runs/trials/T120",
+        repo_root=REPO_ROOT,
+        split="smoke",
+    )
+
+    output = tmp_path / "runs/trials/T120"
+    predictions = json.loads((output / "predictions.json").read_text(encoding="utf-8"))
+    artifact_manifest = json.loads((output / "artifact_manifest.json").read_text(encoding="utf-8"))
+    validate_prediction_artifact(predictions)
+    assert sampler_manifest["status"] == "SHORT_TRAINING_PREDICTED"
+    assert sampler_manifest["real_training_performed"] is True
+    assert sampler_manifest["inference_only"] is True
+    assert sampler_manifest["max_templates"] == 0
+    assert predictions["source"] == "short_training_checkpoint_nanofold_sampler"
+    assert predictions["candidate_id"] == "T120"
+    assert artifact_manifest["status"] == "SHORT_TRAINING_PREDICTED"
+    assert artifact_manifest["predictions_ready"] is True
+    assert (output / "short_training_manifest.json").exists()
+    assert (output / "checkpoint.pt").exists()
+    assert not (tmp_path / "runs/baseline").exists()
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()

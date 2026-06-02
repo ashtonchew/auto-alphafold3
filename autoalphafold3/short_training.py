@@ -47,6 +47,7 @@ def short_training_payload(
     seed: int,
     artifact_dir: str | None = None,
     local_only: bool = False,
+    predict_after_training: bool = False,
 ) -> dict[str, object]:
     """Return a JSON-friendly bounded short-training payload."""
 
@@ -68,6 +69,7 @@ def short_training_payload(
         "artifact_dir": artifact_dir,
         "max_templates": 0,
         "local_only": local_only,
+        "predict_after_training": bool(predict_after_training),
         "short_training_approval": APPROVAL_TEXT,
     }
 

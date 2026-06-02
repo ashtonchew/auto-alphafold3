@@ -470,6 +470,7 @@ def _modal_short_training_payload(trial: AutoFoldTrial) -> dict[str, object]:
         seed=trial.seed,
         artifact_dir=trial.artifact_dir,
         local_only=False,
+        predict_after_training=True,
     )
 
 

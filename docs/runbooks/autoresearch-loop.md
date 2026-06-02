@@ -1044,6 +1044,40 @@ python3 -m autoalphafold3.agent bench-readiness-review \
 The expected decision is
 `BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_GATE_REQUIRED`.
 
+After the live-smoke approval gate PR is merged, generate the bounded smoke
+approval artifact:
+
+```bash
+python3 -m autoalphafold3.agent live-smoke-gate \
+  --candidate-implementation-review runs/autoresearch/candidate_implementation_review/T178-sampler-locality-guard-review.json \
+  --output runs/autoresearch/live_smoke_gate/T178-bounded-live-smoke-approved.json
+```
+
+If it emits `APPROVE_BOUNDED_LIVE_SMOKE_ONLY`, exactly one live smoke is
+approved. Open-ended search remains blocked.
+
+Attach the live-smoke gate to the composite review:
+
+```bash
+python3 -m autoalphafold3.agent bench-readiness-review \
+  --surface-strategy-review runs/autoresearch/surface_strategy_review/T176-diffusion-initialization-scale-blocked-full.json \
+  --broader-strategy-review runs/autoresearch/broader_strategy_review/T176-post-discard-no-go-post-pr115.json \
+  --evidence-bridge-review runs/autoresearch/evidence_bridge_review/T177-evidence-guided-failure-mode-bridge-review.json \
+  --candidate-implementation-review runs/autoresearch/candidate_implementation_review/T178-sampler-locality-guard-review.json \
+  --live-smoke-gate runs/autoresearch/live_smoke_gate/T178-bounded-live-smoke-approved.json \
+  --output runs/autoresearch/bench_readiness_review/T178-bounded-live-smoke-approved.json
+```
+
+The expected decision is
+`BLOCK_OPEN_ENDED_BENCH_BOUNDED_LIVE_SMOKE_APPROVED`. The corresponding live
+smoke execution wrapper must still consume this gate explicitly. The
+`evidence_guided_failure_mode_bridge_diagnostic` planner remains dry-run-only;
+do not run it with `--mode modal`. The next execution wrapper must keep
+`max-candidates=1`, require `I_APPROVE_AUTORESEARCH_LIVE_SEARCH`, submit through
+the trusted orchestrator, and keep open-ended bench, ledger writes, Discovery
+Ledger writes, and official benchmark claims blocked until returned smoke
+evidence is reviewed.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

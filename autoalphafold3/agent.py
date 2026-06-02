@@ -36,6 +36,7 @@ from autoalphafold3.scorer_sensitivity import ScorerSensitivityError, run_scorer
 from autoalphafold3.sampler_loop import APPROVAL_TEXT as SAMPLER_LOOP_APPROVAL_TEXT
 from autoalphafold3.sampler_loop import SamplerLoopError, run_incremental_sampler_loop
 from autoalphafold3.short_training_runner import ShortTrainingRunError, run_short_training
+from autoalphafold3.surface_strategy_review import SurfaceStrategyReviewError, review_surface_strategy
 from autoalphafold3.modal_assets import (
     ModalAssetAuditError,
     audit_modal_assets,
@@ -192,6 +193,12 @@ def main(argv: list[str] | None = None) -> int:
     next_surface_parser.add_argument("--repo-root", default=".")
     next_surface_parser.add_argument("--diagnosis", required=True)
     next_surface_parser.add_argument("--output", default=None)
+
+    surface_strategy_parser = subparsers.add_parser("surface-strategy-review")
+    surface_strategy_parser.add_argument("--repo-root", default=".")
+    surface_strategy_parser.add_argument("--next-surface-review", action="append", required=True)
+    surface_strategy_parser.add_argument("--diagnosis", action="append", default=[])
+    surface_strategy_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -496,6 +503,22 @@ def main(argv: list[str] | None = None) -> int:
         try:
             result = review_next_surface(repo_root=args.repo_root, diagnosis_path=args.diagnosis)
         except NextSurfaceReviewError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "surface-strategy-review":
+        try:
+            result = review_surface_strategy(
+                repo_root=args.repo_root,
+                next_surface_reviews=args.next_surface_review,
+                diagnoses=args.diagnosis,
+            )
+        except SurfaceStrategyReviewError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

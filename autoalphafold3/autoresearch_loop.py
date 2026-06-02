@@ -404,6 +404,7 @@ def run_autoresearch_loop(
         "topology_recycling_diagnostic",
         "feature_curriculum_diagnostic",
         "coordinate_scale_locality_diagnostic",
+        "coordinate_normalized_sampler_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
@@ -913,6 +914,15 @@ def _planned_candidates(
         )
     if planner == "coordinate_scale_locality_diagnostic":
         return _coordinate_scale_locality_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
+    if planner == "coordinate_normalized_sampler_diagnostic":
+        return _coordinate_normalized_sampler_diagnostic_candidates(
             root=root,
             start_trial_id=start_trial_id,
             max_candidates=max_candidates,
@@ -1502,6 +1512,104 @@ def _coordinate_scale_locality_diagnostic_candidates(
     ]
 
 
+def _coordinate_normalized_sampler_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("coordinate_normalized_sampler_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("coordinate_normalized_sampler_diagnostic planner requires --diagnostic-report")
+    geometry = _prediction_geometry_audit_summary(root=root, diagnostic_report=diagnostic_report)
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_coordinate_normalized_sampler_diagnostic.json"
+    config_payload = _coordinate_scale_locality_diagnostic_config_payload(root)
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.DIFFUSION_SAMPLER_GOLF,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded coordinate-normalized sampler diagnostic should test whether "
+            "the T164/T165 scorer loss comes from post-training sampler coordinate "
+            "scale rather than another training-family tweak. It keeps the same "
+            "short-training surface but requests label-free C-alpha bond normalization "
+            "for post-training predictions while preserving labels, manifests, scorer, "
+            "templates, Modal resources, and ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "coordinate-normalized-sampler-diagnostic-planner"
+    trial["seed"] = 96000 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.DISTOGRAM_GOOD_LDDT_FLAT.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["sampler_coordinate_normalization"] = "ca_bond"
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="ca_bond_sampler_coordinate_normalization",
+        predicted_axis=FalsificationAxis.DISTOGRAM_VS_3D,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.008),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.coordinate_normalized_sampler_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "source_geometry_audit": str(diagnostic_report),
+        "source_verdict": geometry["recommendation_status"],
+        "reference_trial_id": geometry["reference_trial_id"],
+        "candidate_trial_ids": geometry["candidate_trial_ids"],
+        "scale_flags": geometry["scale_flags"],
+        "reference_deltas": geometry["reference_deltas"],
+        "worst_targets": [],
+        "sampler_coordinate_normalization": "ca_bond",
+        "config_payload_overrides": {
+            "residue_crop_size": config_payload["residue_crop_size"],
+            "num_msa_samples": config_payload["num_msa_samples"],
+            "learning_rate": config_payload["learning_rate"],
+            "lr_start_factor": config_payload["lr_start_factor"],
+            "lr_warmup": config_payload["lr_warmup"],
+            "clip_norm": config_payload["clip_norm"],
+            "diffusion_loss_weight": config_payload["diffusion_loss_weight"],
+            "distogram_loss_weight": config_payload["distogram_loss_weight"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+            "diffusion_steps": config_payload["diffusion_steps"],
+        },
+        "failed_shapes_avoided": [
+            "unbounded live search",
+            "another unnormalized short-training sampler output",
+            "scorer, label, manifest, fingerprint, baseline, Modal resource, or ledger edits",
+        ],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded coordinate-normalized sampler diagnostic",
+            ),
+        }
+    ]
+
+
 def _manual_candidates(*, root: Path, candidate_plan: str | Path | None) -> list[dict[str, object]]:
     if candidate_plan is None:
         raise AutoresearchLoopError("manual planner requires --candidate-plan")
@@ -1880,6 +1988,52 @@ def _next_surface_review_summary(*, root: Path, diagnostic_report: str | Path) -
         if isinstance(payload.get("rejected_surfaces"), list)
         else [],
         "worst_target": str(evidence.get("worst_target")) if evidence.get("worst_target") else None,
+    }
+
+
+def _prediction_geometry_audit_summary(*, root: Path, diagnostic_report: str | Path) -> dict[str, object]:
+    path = _diagnostic_report_path(root=root, diagnostic_report=diagnostic_report)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(f"cannot read prediction-geometry audit: {diagnostic_report}") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("prediction-geometry audit must be a JSON object")
+    if payload.get("schema_version") != "autoaf3.prediction_geometry_audit.v1":
+        raise AutoresearchLoopError("coordinate_normalized_sampler_diagnostic requires a prediction-geometry audit")
+    for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "official_benchmark_result"):
+        if payload.get(key) is True:
+            raise AutoresearchLoopError(f"prediction-geometry audit must not claim {key}=true")
+    recommendation = payload.get("recommendation") if isinstance(payload.get("recommendation"), dict) else {}
+    if recommendation.get("stop_live_trial_budget") is not True or recommendation.get("do_not_start_open_ended_loop") is not True:
+        raise AutoresearchLoopError("prediction-geometry audit must stop live spend and open-ended loop")
+    flags = [str(flag) for flag in recommendation.get("flags")] if isinstance(recommendation.get("flags"), list) else []
+    required_flags = {"reference_radius_scale_shift", "reference_pair_distance_shift_gt_20A"}
+    if not required_flags.issubset(set(flags)):
+        raise AutoresearchLoopError("coordinate_normalized_sampler_diagnostic requires reference coordinate-scale flags")
+    reference = payload.get("reference") if isinstance(payload.get("reference"), dict) else {}
+    artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else []
+    reference_deltas = payload.get("reference_deltas") if isinstance(payload.get("reference_deltas"), list) else []
+    return {
+        "recommendation_status": str(recommendation.get("status") or "REVIEW_REQUIRED"),
+        "reference_trial_id": str(reference.get("trial_id") or ""),
+        "candidate_trial_ids": [
+            str(item.get("trial_id")) for item in artifacts if isinstance(item, dict) and item.get("trial_id")
+        ],
+        "scale_flags": sorted(set(flags)),
+        "reference_deltas": [
+            {
+                "candidate_trial_id": str(item.get("candidate_trial_id") or ""),
+                "mean_radius_scale_ratio": float(item["mean_radius_scale_ratio"])
+                if isinstance(item.get("mean_radius_scale_ratio"), int | float)
+                else None,
+                "mean_pair_distance_delta": float(item["mean_pair_distance_delta"])
+                if isinstance(item.get("mean_pair_distance_delta"), int | float)
+                else None,
+            }
+            for item in reference_deltas
+            if isinstance(item, dict)
+        ],
     }
 
 

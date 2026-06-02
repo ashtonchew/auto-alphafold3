@@ -583,6 +583,72 @@ def _write_coordinate_scale_locality_review_inputs(
     return report.relative_to(tmp_path)
 
 
+def _write_prediction_geometry_audit_inputs(
+    tmp_path: Path,
+    *,
+    flags: list[str] | None = None,
+    starts_search: bool = False,
+    report_name: str = "T164-T165-vs-T088.json",
+) -> Path:
+    config_dir = tmp_path / "configs/experiments"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.joinpath("local_calpha_geometry_smoke.json").write_text(
+        (REPO_ROOT / "configs/experiments/local_calpha_geometry_smoke.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    report = tmp_path / "runs/autoresearch/prediction_geometry" / report_name
+    report.parent.mkdir(parents=True, exist_ok=True)
+    scale_flags = flags or [
+        "adjacent_ca_distance_exploded",
+        "adjacent_ca_distance_outlier_gt_30A",
+        "pair_distance_exploded",
+        "pair_distance_outlier_gt_500A",
+        "reference_pair_distance_shift_gt_20A",
+        "reference_radius_scale_shift",
+    ]
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.prediction_geometry_audit.v1",
+                "official_benchmark_result": False,
+                "starts_search": starts_search,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "reference": {"trial_id": "T088", "split": "public_val_small"},
+                "artifacts": [
+                    {"trial_id": "T164", "split": "public_val_small", "scale_flags": scale_flags},
+                    {"trial_id": "T165", "split": "public_val_small", "scale_flags": scale_flags},
+                ],
+                "reference_deltas": [
+                    {
+                        "reference_trial_id": "T088",
+                        "candidate_trial_id": "T164",
+                        "mean_radius_scale_ratio": 55.315869408410755,
+                        "mean_pair_distance_delta": 2619.6425616268834,
+                        "candidate_flags": scale_flags,
+                    },
+                    {
+                        "reference_trial_id": "T088",
+                        "candidate_trial_id": "T165",
+                        "mean_radius_scale_ratio": 55.50376670178062,
+                        "mean_pair_distance_delta": 2637.861416018026,
+                        "candidate_flags": scale_flags,
+                    },
+                ],
+                "recommendation": {
+                    "status": "REVIEW_REQUIRED",
+                    "flags": scale_flags,
+                    "next_goal": "Review prediction geometry scale before another live candidate.",
+                    "stop_live_trial_budget": True,
+                    "do_not_start_open_ended_loop": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
 def test_deterministic_autoresearch_ladder_plans_t120_to_t125(tmp_path: Path) -> None:
     result = run_autoresearch_loop(
         repo_root=tmp_path,
@@ -1178,6 +1244,117 @@ def test_coordinate_scale_locality_diagnostic_requires_single_candidate_and_appr
     assert not (tmp_path / "runs/autoresearch/coordinate-scale-too-many").exists()
     assert not (tmp_path / "runs/autoresearch/coordinate-scale-missing-review").exists()
     assert not (tmp_path / "runs/autoresearch/coordinate-scale-wrong-review").exists()
+
+
+def test_coordinate_normalized_sampler_diagnostic_plans_one_normalized_candidate(tmp_path: Path) -> None:
+    report = _write_prediction_geometry_audit_inputs(tmp_path)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="coordinate-normalized-sampler-diagnostic",
+        mode="dry-run",
+        planner="coordinate_normalized_sampler_diagnostic",
+        start_trial_id="T166",
+        max_candidates=1,
+        candidate_budget="trial",
+        diagnostic_report=report,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T166"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T166"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "training"
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["move_family"] == "diffusion_sampler_golf"
+    assert trial["diagnostic_target"] == "distogram_good_lddt_flat"
+    assert trial["sampler_coordinate_normalization"] == "ca_bond"
+    assert trial["prediction"]["causal_component"] == "ca_bond_sampler_coordinate_normalization"
+    assert trial["prediction"]["predicted_axis"] == "distogram_vs_3d"
+    assert trial["config_path"] == "configs/experiments/T166_coordinate_normalized_sampler_diagnostic.json"
+    assert trial["config_payload"]["max_templates"] == 0
+    assert trial["config_payload"]["diffusion_loss_weight"] == pytest.approx(1.0)
+    assert config["schema_version"] == "autoaf3.coordinate_normalized_sampler_diagnostic_plan.v1"
+    assert config["reference_trial_id"] == "T088"
+    assert config["candidate_trial_ids"] == ["T164", "T165"]
+    assert config["sampler_coordinate_normalization"] == "ca_bond"
+    assert "reference_radius_scale_shift" in config["scale_flags"]
+    assert config["reference_deltas"][0]["mean_radius_scale_ratio"] == pytest.approx(55.315869408410755)
+    assert config["writes_ledger"] is False
+    assert config["writes_discovery_ledger"] is False
+    assert "configs/experiments/T166_coordinate_normalized_sampler_diagnostic.json" in patch_text
+    assert "bounded coordinate-normalized sampler diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_coordinate_normalized_sampler_diagnostic_requires_geometry_scale_audit(tmp_path: Path) -> None:
+    report = _write_prediction_geometry_audit_inputs(tmp_path)
+    weak_report = _write_prediction_geometry_audit_inputs(
+        tmp_path,
+        flags=["adjacent_ca_distance_exploded"],
+        report_name="weak-scale-flags.json",
+    )
+    unsafe_report = _write_prediction_geometry_audit_inputs(
+        tmp_path,
+        starts_search=True,
+        report_name="unsafe-starts-search.json",
+    )
+
+    with pytest.raises(AutoresearchLoopError, match="max_candidates=1"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="coordinate-normalized-too-many",
+            mode="dry-run",
+            planner="coordinate_normalized_sampler_diagnostic",
+            start_trial_id="T166",
+            max_candidates=2,
+            diagnostic_report=report,
+        )
+
+    with pytest.raises(AutoresearchLoopError, match="requires --diagnostic-report"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="coordinate-normalized-missing-report",
+            mode="dry-run",
+            planner="coordinate_normalized_sampler_diagnostic",
+            start_trial_id="T166",
+            max_candidates=1,
+        )
+
+    with pytest.raises(AutoresearchLoopError, match="requires reference coordinate-scale flags"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="coordinate-normalized-weak-report",
+            mode="dry-run",
+            planner="coordinate_normalized_sampler_diagnostic",
+            start_trial_id="T166",
+            max_candidates=1,
+            diagnostic_report=weak_report,
+        )
+
+    with pytest.raises(AutoresearchLoopError, match="must not claim starts_search=true"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="coordinate-normalized-unsafe-report",
+            mode="dry-run",
+            planner="coordinate_normalized_sampler_diagnostic",
+            start_trial_id="T166",
+            max_candidates=1,
+            diagnostic_report=unsafe_report,
+        )
+
+    assert not (tmp_path / "runs/autoresearch/coordinate-normalized-too-many").exists()
+    assert not (tmp_path / "runs/autoresearch/coordinate-normalized-missing-report").exists()
+    assert not (tmp_path / "runs/autoresearch/coordinate-normalized-weak-report").exists()
+    assert not (tmp_path / "runs/autoresearch/coordinate-normalized-unsafe-report").exists()
 
 
 def test_deterministic_sampler_checkpoint_follows_start_trial_id(tmp_path: Path) -> None:

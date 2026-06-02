@@ -12,6 +12,7 @@ SURFACE_STRATEGY_SCHEMA = "autoaf3.surface_strategy_review.v1"
 BROADER_STRATEGY_SCHEMA = "autoaf3.broader_strategy_review.v1"
 EVIDENCE_BRIDGE_SCHEMA = "autoaf3.evidence_bridge_review.v1"
 CANDIDATE_IMPLEMENTATION_SCHEMA = "autoaf3.candidate_implementation_review.v1"
+LIVE_SMOKE_GATE_SCHEMA = "autoaf3.live_smoke_gate.v1"
 SCHEMA_VERSION = "autoaf3.bench_readiness_review.v1"
 
 
@@ -40,6 +41,8 @@ class BenchReadinessReview:
     approved_evidence_bridge_planner: str | None
     candidate_implementation_decision: str | None
     approved_candidate_implementation: str | None
+    live_smoke_gate_decision: str | None
+    approved_live_smoke_candidate: str | None
     required_objectives: list[dict[str, object]]
     roadmap: list[dict[str, object]]
     evidence: dict[str, object]
@@ -63,6 +66,7 @@ def review_bench_readiness(
     broader_strategy_review: str | Path | None = None,
     evidence_bridge_review: str | Path | None = None,
     candidate_implementation_review: str | Path | None = None,
+    live_smoke_gate: str | Path | None = None,
 ) -> BenchReadinessReview:
     """Decide whether the actual open-ended autoresearch bench may start."""
 
@@ -81,6 +85,11 @@ def review_bench_readiness(
     candidate_implementation = (
         _read_candidate_implementation(root=root, path=candidate_implementation_review)
         if candidate_implementation_review is not None
+        else None
+    )
+    live_smoke = (
+        _read_live_smoke_gate(root=root, path=live_smoke_gate)
+        if live_smoke_gate is not None
         else None
     )
     readiness = build_readiness_report(
@@ -132,9 +141,22 @@ def review_bench_readiness(
         if candidate_implementation is not None and candidate_implementation.get("approved_candidate") is not None
         else None
     )
+    live_smoke_gate_decision = (
+        str(live_smoke.get("decision") or "")
+        if live_smoke is not None
+        else None
+    )
+    approved_live_smoke_candidate = (
+        str(live_smoke.get("approved_candidate") or "")
+        if live_smoke is not None and live_smoke.get("approved_candidate") is not None
+        else None
+    )
     if autonomous_ready and may_start_open_ended:
         decision = "APPROVE_OPEN_ENDED_BENCH"
         can_start = True
+    elif autonomous_ready and live_smoke_gate_decision == "APPROVE_BOUNDED_LIVE_SMOKE_ONLY":
+        decision = "BLOCK_OPEN_ENDED_BENCH_BOUNDED_LIVE_SMOKE_APPROVED"
+        can_start = False
     elif autonomous_ready and candidate_implementation_decision == "APPROVE_LIVE_SMOKE_GATE_PR_ONLY":
         decision = "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_GATE_REQUIRED"
         can_start = False
@@ -153,6 +175,9 @@ def review_bench_readiness(
     else:
         decision = "BLOCK_OPEN_ENDED_BENCH_STRATEGY_NOT_APPROVED"
         can_start = False
+    effective_may_start_live = may_start_live or (
+        autonomous_ready and live_smoke_gate_decision == "APPROVE_BOUNDED_LIVE_SMOKE_ONLY"
+    )
     return BenchReadinessReview(
         schema_version=SCHEMA_VERSION,
         status="PASS",
@@ -160,7 +185,7 @@ def review_bench_readiness(
         can_start_open_ended_bench=can_start,
         autonomous_search_ready=autonomous_ready,
         surface_strategy_decision=strategy_decision,
-        may_start_live_candidate=may_start_live,
+        may_start_live_candidate=effective_may_start_live,
         may_start_open_ended_loop=may_start_open_ended,
         exhausted_surfaces=exhausted,
         unimplemented_candidate_surfaces=unimplemented,
@@ -171,6 +196,8 @@ def review_bench_readiness(
         approved_evidence_bridge_planner=evidence_bridge_planner,
         candidate_implementation_decision=candidate_implementation_decision,
         approved_candidate_implementation=approved_candidate_implementation,
+        live_smoke_gate_decision=live_smoke_gate_decision,
+        approved_live_smoke_candidate=approved_live_smoke_candidate,
         required_objectives=_required_objectives(
             autonomous_ready=autonomous_ready,
             may_start_open_ended=may_start_open_ended,
@@ -182,6 +209,8 @@ def review_bench_readiness(
             evidence_bridge_planner=evidence_bridge_planner,
             candidate_implementation_decision=candidate_implementation_decision,
             approved_candidate_implementation=approved_candidate_implementation,
+            live_smoke_gate_decision=live_smoke_gate_decision,
+            approved_live_smoke_candidate=approved_live_smoke_candidate,
         ),
         roadmap=_roadmap(
             autonomous_ready=autonomous_ready,
@@ -194,6 +223,8 @@ def review_bench_readiness(
             evidence_bridge_planner=evidence_bridge_planner,
             candidate_implementation_decision=candidate_implementation_decision,
             approved_candidate_implementation=approved_candidate_implementation,
+            live_smoke_gate_decision=live_smoke_gate_decision,
+            approved_live_smoke_candidate=approved_live_smoke_candidate,
         ),
         evidence={
             "surface_strategy_review": str(surface_strategy_review),
@@ -202,6 +233,7 @@ def review_bench_readiness(
             "candidate_implementation_review": (
                 str(candidate_implementation_review) if candidate_implementation_review is not None else None
             ),
+            "live_smoke_gate": str(live_smoke_gate) if live_smoke_gate is not None else None,
             "readiness_mode": readiness_payload.get("mode"),
             "readiness_problems": readiness_payload.get("problems", []),
             "pending_human_actions": readiness_payload.get("pending_human_actions", []),
@@ -295,6 +327,26 @@ def _read_candidate_implementation(*, root: Path, path: str | Path) -> dict[str,
     return payload
 
 
+def _read_live_smoke_gate(*, root: Path, path: str | Path) -> dict[str, object]:
+    checked = _safe_evidence_path(root=root, path=path, label="live smoke gate")
+    try:
+        payload = json.loads(checked.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise BenchReadinessReviewError(f"cannot read live smoke gate: {path}") from exc
+    if not isinstance(payload, dict):
+        raise BenchReadinessReviewError("live smoke gate must be a JSON object")
+    if payload.get("schema_version") != LIVE_SMOKE_GATE_SCHEMA:
+        raise BenchReadinessReviewError("live smoke gate schema mismatch")
+    if payload.get("status") != "PASS":
+        raise BenchReadinessReviewError("live smoke gate must have status=PASS")
+    for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "official_benchmark_result"):
+        if payload.get(key) is True:
+            raise BenchReadinessReviewError(f"live smoke gate must not claim {key}=true")
+    if payload.get("may_start_open_ended_loop") is True:
+        raise BenchReadinessReviewError("live smoke gate must not authorize open-ended execution")
+    return payload
+
+
 def _safe_evidence_path(*, root: Path, path: str | Path, label: str = "surface strategy") -> Path:
     candidate = Path(path)
     if candidate.is_absolute() or ".." in candidate.parts:
@@ -319,6 +371,8 @@ def _required_objectives(
     evidence_bridge_planner: str | None,
     candidate_implementation_decision: str | None,
     approved_candidate_implementation: str | None,
+    live_smoke_gate_decision: str | None,
+    approved_live_smoke_candidate: str | None,
 ) -> list[dict[str, object]]:
     objectives: list[dict[str, object]] = []
     if not autonomous_ready:
@@ -339,7 +393,19 @@ def _required_objectives(
                 "evidence_required": "surface strategy approves a dry-run-only planner and post-merge readiness is green",
             }
         )
-    if not may_start_open_ended and candidate_implementation_decision == "APPROVE_LIVE_SMOKE_GATE_PR_ONLY":
+    if not may_start_open_ended and live_smoke_gate_decision == "APPROVE_BOUNDED_LIVE_SMOKE_ONLY":
+        objectives.append(
+            {
+                "name": "run_one_bounded_live_smoke",
+                "status": "approved",
+                "objective": (
+                    f"Run exactly one bounded live Modal smoke for {approved_live_smoke_candidate}; "
+                    "then rerun bench readiness from returned evidence."
+                ),
+                "evidence_required": "exact approval token, max-candidates=1, scorer-only result or honest failure artifact",
+            }
+        )
+    elif not may_start_open_ended and candidate_implementation_decision == "APPROVE_LIVE_SMOKE_GATE_PR_ONLY":
         objectives.append(
             {
                 "name": "implement_live_smoke_approval_gate",
@@ -423,6 +489,8 @@ def _roadmap(
     evidence_bridge_planner: str | None,
     candidate_implementation_decision: str | None,
     approved_candidate_implementation: str | None,
+    live_smoke_gate_decision: str | None,
+    approved_live_smoke_candidate: str | None,
 ) -> list[dict[str, object]]:
     if may_start_open_ended:
         return [
@@ -445,6 +513,17 @@ def _roadmap(
                 "step": "repair_foundation_readiness",
                 "status": "required",
                 "action": "Fix readiness problems before revisiting strategy.",
+            }
+        )
+    elif live_smoke_gate_decision == "APPROVE_BOUNDED_LIVE_SMOKE_ONLY":
+        steps.append(
+            {
+                "step": "run_one_bounded_live_smoke",
+                "status": "approved",
+                "action": (
+                    f"Run one bounded Modal smoke for {approved_live_smoke_candidate} with max-candidates=1; "
+                    "open-ended bench remains blocked."
+                ),
             }
         )
     elif candidate_implementation_decision == "APPROVE_LIVE_SMOKE_GATE_PR_ONLY":

@@ -154,6 +154,41 @@ def test_bench_readiness_consumes_candidate_implementation_as_live_smoke_gate_re
     assert report.official_benchmark_result is False
 
 
+def test_bench_readiness_consumes_live_smoke_gate_as_bounded_smoke_approved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _write_surface_strategy(
+        tmp_path,
+        may_start_open_ended_loop=False,
+        exhausted_surfaces=["auxiliary_loss", "feature_handling", "memory_runtime"],
+        unimplemented_candidate_surfaces=[],
+    )
+    candidate = _write_candidate_implementation_review(tmp_path)
+    live_smoke = _write_live_smoke_gate(tmp_path)
+    monkeypatch.setattr(bench_review, "build_readiness_report", lambda **_: FakeReadiness(ready=True))
+
+    report = review_bench_readiness(
+        repo_root=tmp_path,
+        surface_strategy_review=strategy,
+        candidate_implementation_review=candidate,
+        live_smoke_gate=live_smoke,
+    )
+
+    assert report.decision == "BLOCK_OPEN_ENDED_BENCH_BOUNDED_LIVE_SMOKE_APPROVED"
+    assert report.can_start_open_ended_bench is False
+    assert report.may_start_live_candidate is True
+    assert report.may_start_open_ended_loop is False
+    assert report.live_smoke_gate_decision == "APPROVE_BOUNDED_LIVE_SMOKE_ONLY"
+    assert report.approved_live_smoke_candidate == "sampler_locality_guard"
+    assert report.required_objectives[0]["name"] == "run_one_bounded_live_smoke"
+    assert report.roadmap[1]["step"] == "run_one_bounded_live_smoke"
+    assert report.evidence["live_smoke_gate"] == str(live_smoke)
+    assert report.starts_search is False
+    assert report.writes_ledger is False
+    assert report.official_benchmark_result is False
+
+
 def test_bench_readiness_blocks_when_foundation_not_ready(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -255,6 +290,23 @@ def test_bench_readiness_refuses_live_authority_in_candidate_implementation(tmp_
             repo_root=tmp_path,
             surface_strategy_review=strategy,
             candidate_implementation_review=candidate,
+        )
+
+
+def test_bench_readiness_refuses_open_ended_authority_in_live_smoke_gate(tmp_path: Path) -> None:
+    strategy = _write_surface_strategy(
+        tmp_path,
+        may_start_open_ended_loop=False,
+        exhausted_surfaces=["auxiliary_loss", "feature_handling", "memory_runtime"],
+        unimplemented_candidate_surfaces=[],
+    )
+    live_smoke = _write_live_smoke_gate(tmp_path, may_start_open_ended_loop=True)
+
+    with pytest.raises(BenchReadinessReviewError, match="must not authorize open-ended"):
+        review_bench_readiness(
+            repo_root=tmp_path,
+            surface_strategy_review=strategy,
+            live_smoke_gate=live_smoke,
         )
 
 
@@ -382,6 +434,34 @@ def _write_candidate_implementation_review(
                 "blocked_reasons": [],
                 "may_start_live_candidate": may_start_live_candidate,
                 "may_start_open_ended_loop": False,
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path.relative_to(tmp_path)
+
+
+def _write_live_smoke_gate(
+    tmp_path: Path,
+    *,
+    may_start_open_ended_loop: bool = False,
+) -> Path:
+    path = tmp_path / "runs/autoresearch/live_smoke_gate/review.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.live_smoke_gate.v1",
+                "status": "PASS",
+                "decision": "APPROVE_BOUNDED_LIVE_SMOKE_ONLY",
+                "approved_candidate": "sampler_locality_guard",
+                "candidate_limit": 1,
+                "may_start_live_candidate": True,
+                "may_start_open_ended_loop": may_start_open_ended_loop,
                 "starts_search": False,
                 "writes_ledger": False,
                 "writes_discovery_ledger": False,

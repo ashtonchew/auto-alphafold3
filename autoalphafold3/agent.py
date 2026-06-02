@@ -27,6 +27,7 @@ from autoalphafold3.gate_calibration import GateCalibrationError, calibrate_gate
 from autoalphafold3.gate_calibration_runner import GateCalibrationRunError, run_gate_calibration
 from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
 from autoalphafold3.llm_policy import DEFAULT_LLM_MODEL, AgentSearchPhase, default_llm_phase_policies, default_llm_phase_policy
+from autoalphafold3.live_smoke_gate import LiveSmokeGateError, review_live_smoke_gate
 from autoalphafold3.modal_authority import ModalAuthorityError, audit_modal_event_authority
 from autoalphafold3.modal_trial_artifacts import (
     ModalTrialArtifactError,
@@ -236,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     bench_readiness_parser.add_argument("--broader-strategy-review", default=None)
     bench_readiness_parser.add_argument("--evidence-bridge-review", default=None)
     bench_readiness_parser.add_argument("--candidate-implementation-review", default=None)
+    bench_readiness_parser.add_argument("--live-smoke-gate", default=None)
     bench_readiness_parser.add_argument("--baseline-dir", default="runs/baseline")
     bench_readiness_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
     bench_readiness_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
@@ -271,6 +273,15 @@ def main(argv: list[str] | None = None) -> int:
     candidate_implementation_parser.add_argument("--evidence-bridge-review", required=True)
     candidate_implementation_parser.add_argument("--candidate", default="sampler_locality_guard")
     candidate_implementation_parser.add_argument("--output", default=None)
+
+    live_smoke_gate_parser = subparsers.add_parser("live-smoke-gate")
+    live_smoke_gate_parser.add_argument("--repo-root", default=".")
+    live_smoke_gate_parser.add_argument("--candidate-implementation-review", required=True)
+    live_smoke_gate_parser.add_argument("--baseline-dir", default="runs/baseline")
+    live_smoke_gate_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
+    live_smoke_gate_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
+    live_smoke_gate_parser.add_argument("--modal-authority-path", default="runs/modal_event_authority.json")
+    live_smoke_gate_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -631,12 +642,32 @@ def main(argv: list[str] | None = None) -> int:
                 broader_strategy_review=args.broader_strategy_review,
                 evidence_bridge_review=args.evidence_bridge_review,
                 candidate_implementation_review=args.candidate_implementation_review,
+                live_smoke_gate=args.live_smoke_gate,
                 baseline_dir=args.baseline_dir,
                 config_path=args.config_path,
                 calibration_path=args.calibration_path,
                 modal_authority_path=args.modal_authority_path,
             )
         except BenchReadinessReviewError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "live-smoke-gate":
+        try:
+            result = review_live_smoke_gate(
+                repo_root=args.repo_root,
+                candidate_implementation_review=args.candidate_implementation_review,
+                baseline_dir=args.baseline_dir,
+                config_path=args.config_path,
+                calibration_path=args.calibration_path,
+                modal_authority_path=args.modal_authority_path,
+            )
+        except LiveSmokeGateError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

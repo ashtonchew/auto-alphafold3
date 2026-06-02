@@ -30,6 +30,7 @@ DEFAULT_SAMPLER_SELECTION_POLICY = "first"
 SAMPLER_SCHEDULE_SHAPES = {"linear", "cosine", "late_refine"}
 SAMPLER_SELECTION_POLICIES = {"first", "geometry", "compact_geometry"}
 SAMPLER_COORDINATE_NORMALIZATION_POLICIES = {"none", "ca_bond"}
+SAMPLER_LOCALITY_GUARDS = {"none", "reject_exploded"}
 
 
 class SamplerError(RuntimeError):
@@ -370,7 +371,9 @@ def _sample_selected_ca_coordinates(
     num_samples = int(sampler_settings["sampler_num_samples"])
     policy = str(sampler_settings["sampler_selection_policy"])
     coordinate_normalization = str(sampler_settings["sampler_coordinate_normalization"])
-    candidates: list[tuple[float, int, list[list[float]]]] = []
+    locality_guard = str(sampler_settings["sampler_locality_guard"])
+    candidates: list[tuple[float, int, list[list[float]], list[str]]] = []
+    rejected: list[dict[str, object]] = []
     for sample_index in range(num_samples):
         raw_ca = _sample_ca_coordinates(model, features, sampler_settings=sampler_settings)
         ca = _normalize_ca_coordinates(
@@ -378,17 +381,29 @@ def _sample_selected_ca_coordinates(
             policy=coordinate_normalization,
             coordinate_scale=float(sampler_settings["sampler_coordinate_scale"]),
         )
+        locality_flags = _ca_locality_flags(ca)
+        if locality_guard == "reject_exploded" and locality_flags:
+            rejected.append({"sample_index": sample_index, "locality_flags": locality_flags})
+            continue
         quality = _label_free_ca_quality(ca, policy=policy)
-        candidates.append((quality, sample_index, ca))
+        candidates.append((quality, sample_index, ca, locality_flags))
         if policy == "first":
             break
-    quality, selected_index, selected = min(candidates, key=lambda row: (row[0], row[1]))
+    if not candidates:
+        raise SamplerError(
+            "sampler_locality_guard rejected all samples for label-free geometry collapse: "
+            + json.dumps(rejected, sort_keys=True)
+        )
+    quality, selected_index, selected, locality_flags = min(candidates, key=lambda row: (row[0], row[1]))
     return selected, {
         "policy": policy,
         "num_samples": num_samples,
         "selected_index": selected_index,
         "label_free_quality": quality,
         "coordinate_normalization": coordinate_normalization,
+        "locality_guard": locality_guard,
+        "locality_flags": locality_flags,
+        "rejected_sample_count": len(rejected),
     }
 
 
@@ -495,6 +510,7 @@ def _sampler_settings(trial_json: dict[str, Any]) -> dict[str, object]:
         ),
         "sampler_coordinate_normalization": str(trial_json.get("sampler_coordinate_normalization", "none")),
         "sampler_coordinate_scale": float(trial_json.get("sampler_coordinate_scale", 1.0)),
+        "sampler_locality_guard": str(trial_json.get("sampler_locality_guard", "none")),
     }
     _validate_sampler_settings(settings)
     return settings
@@ -515,6 +531,8 @@ def _validate_sampler_settings(settings: dict[str, object]) -> None:
         raise SamplerError("sampler_selection_policy must be first, geometry, or compact_geometry")
     if str(settings["sampler_coordinate_normalization"]) not in SAMPLER_COORDINATE_NORMALIZATION_POLICIES:
         raise SamplerError("sampler_coordinate_normalization must be none or ca_bond")
+    if str(settings["sampler_locality_guard"]) not in SAMPLER_LOCALITY_GUARDS:
+        raise SamplerError("sampler_locality_guard must be none or reject_exploded")
     if not 0.0 < float(settings["sampler_coordinate_scale"]) <= 20.0:
         raise SamplerError("sampler_coordinate_scale must be in (0, 20]")
     if (
@@ -572,6 +590,33 @@ def _label_free_ca_quality(ca: list[list[float]], *, policy: str) -> float:
         radius = sum(_distance(row, center) for row in ca) / len(ca)
         compact_penalty = max(0.0, radius - 25.0) / 25.0
     return bond_penalty + jump_penalty + 0.25 * smooth_penalty + compact_penalty
+
+
+def _ca_locality_flags(ca: list[list[float]]) -> list[str]:
+    if not ca:
+        return ["empty_ca_trace"]
+    flags: list[str] = []
+    adjacent = [_distance(ca[index], ca[index - 1]) for index in range(1, len(ca))]
+    if any(not math.isfinite(distance) for distance in adjacent):
+        flags.append("non_finite_adjacent_ca_distance")
+    finite_adjacent = [distance for distance in adjacent if math.isfinite(distance)]
+    if finite_adjacent and max(finite_adjacent) > 30.0:
+        flags.append("adjacent_ca_distance_outlier_gt_30A")
+    if finite_adjacent and (sum(finite_adjacent) / len(finite_adjacent)) > 30.0:
+        flags.append("adjacent_ca_distance_exploded")
+    pair_distances = [
+        _distance(ca[right], ca[left])
+        for left in range(len(ca))
+        for right in range(left + 1, len(ca))
+    ]
+    if any(not math.isfinite(distance) for distance in pair_distances):
+        flags.append("non_finite_pair_distance")
+    finite_pairs = [distance for distance in pair_distances if math.isfinite(distance)]
+    if finite_pairs and max(finite_pairs) > 500.0:
+        flags.append("pair_distance_outlier_gt_500A")
+    if finite_pairs and (sum(finite_pairs) / len(finite_pairs)) > 500.0:
+        flags.append("pair_distance_exploded")
+    return flags
 
 
 def _distance(left: list[float], right: list[float]) -> float:

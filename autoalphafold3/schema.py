@@ -288,6 +288,7 @@ class AutoFoldTrial(BaseModel):
     sampler_selection_policy: Literal["first", "geometry", "compact_geometry"] | None = None
     sampler_coordinate_normalization: Literal["none", "ca_bond"] | None = None
     sampler_coordinate_scale: float | None = Field(default=None, gt=0.0, le=20.0)
+    sampler_locality_guard: Literal["none", "reject_exploded"] | None = None
     max_wall_minutes: int = Field(ge=1)
     manifest_hashes: dict[str, str] = Field(default_factory=dict)
     scorer_version: str = SCORER_VERSION
@@ -345,6 +346,11 @@ class AutoFoldTrial(BaseModel):
             raise ValueError(
                 f"{self.trial_kind.value} trials must not set sampler_coordinate_normalization"
             )
+        if self.sampler_locality_guard is not None and self.trial_kind not in {
+            TrialKind.SAMPLER,
+            TrialKind.TRAINING,
+        }:
+            raise ValueError(f"{self.trial_kind.value} trials must not set sampler_locality_guard")
         if self.sampler_coordinate_scale is not None:
             if self.trial_kind not in {TrialKind.SAMPLER, TrialKind.TRAINING}:
                 raise ValueError(f"{self.trial_kind.value} trials must not set sampler_coordinate_scale")

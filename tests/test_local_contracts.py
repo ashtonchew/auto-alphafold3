@@ -149,6 +149,9 @@ def test_training_trial_accepts_post_training_sampler_coordinate_normalization()
         valid_trial_dict(
             sampler_coordinate_normalization="ca_bond",
             sampler_coordinate_scale=13.126698,
+            sampler_noise_scale=0.5,
+            sampler_step_scale=0.75,
+            sampler_schedule_shape="cosine",
             sampler_num_samples=4,
             sampler_selection_policy="geometry",
         )
@@ -157,6 +160,9 @@ def test_training_trial_accepts_post_training_sampler_coordinate_normalization()
     assert trial.trial_kind.value == "training"
     assert trial.sampler_coordinate_normalization == "ca_bond"
     assert trial.sampler_coordinate_scale == pytest.approx(13.126698)
+    assert trial.sampler_noise_scale == pytest.approx(0.5)
+    assert trial.sampler_step_scale == pytest.approx(0.75)
+    assert trial.sampler_schedule_shape == "cosine"
     assert trial.sampler_num_samples == 4
     assert trial.sampler_selection_policy == "geometry"
 

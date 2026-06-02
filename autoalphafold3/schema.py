@@ -326,14 +326,12 @@ class AutoFoldTrial(BaseModel):
                 raise ValueError(f"{self.trial_kind.value} trials require max_steps")
             if self.sampler_steps is not None:
                 raise ValueError(f"{self.trial_kind.value} trials must not set sampler_steps")
-            sampler_fields = {
-                "sampler_noise_scale": self.sampler_noise_scale,
-                "sampler_step_scale": self.sampler_step_scale,
-                "sampler_schedule_shape": self.sampler_schedule_shape,
-            }
-            present = [name for name, value in sampler_fields.items() if value is not None]
-            if present:
-                raise ValueError(f"{self.trial_kind.value} trials must not set sampler-only fields: {present}")
+        if self.trial_kind not in {TrialKind.SAMPLER, TrialKind.TRAINING} and (
+            self.sampler_noise_scale is not None
+            or self.sampler_step_scale is not None
+            or self.sampler_schedule_shape is not None
+        ):
+            raise ValueError(f"{self.trial_kind.value} trials must not set post-training sampler schedule fields")
         if (
             self.trial_kind not in {TrialKind.SAMPLER, TrialKind.TRAINING}
             and (self.sampler_num_samples is not None or self.sampler_selection_policy is not None)

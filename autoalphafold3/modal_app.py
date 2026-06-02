@@ -843,6 +843,7 @@ def modal_event_authority_health() -> dict[str, Any]:
         "post_training_sampler_coordinate_normalization": True,
         "post_training_sampler_coordinate_scale": True,
         "post_training_sampler_selection": True,
+        "post_training_sampler_schedule": True,
     }
     return {
         "status": "PASS",

@@ -126,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             "schedule_diagnostic",
             "capacity_diagnostic",
             "topology_recycling_diagnostic",
+            "feature_curriculum_diagnostic",
             "llm",
         ),
         default="deterministic",

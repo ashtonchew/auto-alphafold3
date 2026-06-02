@@ -544,6 +544,55 @@ around short-training initialization, artifact scale, or feature/curriculum
 handling first, then dry-run exactly one candidate before any further Modal
 spend.
 
+The first distinct post-collapse dry-run surface is
+`feature_curriculum_diagnostic`. It tests whether the short-training-family
+collapse is caused by unstable artifact scale by lowering crop/MSA load in the
+validated inline config payload. It does not edit cached features, manifests,
+fingerprints, scorer code, Modal resources, templates, baselines, the canonical
+ledger, or the Discovery Ledger.
+
+Dry-run the candidate plan first:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner feature_curriculum_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/post_discard_diagnosis/T113-T162-T163.json \
+  --run-id feature-curriculum-diagnostic-trial-001 \
+  --start-trial-id T164 \
+  --max-candidates 1
+```
+
+Review the generated `T164` envelope. It must remain a single
+NanoFold-style AlphaFold3-lite trial-budget training candidate with
+`diagnostic_target=stability_compute`, `move_family=curriculum`,
+`residue_crop_size=16`, `num_msa_samples=2`, `max_templates=0`,
+`budget=trial`, `max_steps=250`, `max_wall_minutes=45`, and
+`timeout_cap=2700`.
+
+Only after readiness remains green and the envelope is reviewed, run at most
+one live feature/curriculum candidate:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode modal \
+  --planner feature_curriculum_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/post_discard_diagnosis/T113-T162-T163.json \
+  --run-id feature-curriculum-diagnostic-trial-001-live \
+  --start-trial-id T164 \
+  --max-candidates 1 \
+  --modal-env main \
+  --failure-streak-limit 1 \
+  --approve I_APPROVE_AUTORESEARCH_LIVE_SEARCH
+```
+
+If this candidate is also `DISCARD` with changed artifacts and another
+same-score collapse, do not run another short-training candidate. Re-run
+`post-discard-diagnosis`, update the next-surface issue, and move to a deeper
+design review of short-training initialization before further live spend.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

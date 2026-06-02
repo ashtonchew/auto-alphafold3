@@ -18,6 +18,7 @@ RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 RUN_MANIFEST_SCHEMA = "autoaf3.autoresearch_run_manifest.v1"
 CANDIDATE_MANIFEST_SCHEMA = "autoaf3.autoresearch_candidate_manifest.v1"
 DECISION_SCHEMA = "autoaf3.autoresearch_decision.v1"
+PROMOTION_PLAN_SCHEMA = "autoaf3.provisional_promotion_plan.v1"
 DECISION_STATUSES = {
     TrialStatus.KEEP.value,
     TrialStatus.DISCARD.value,
@@ -94,6 +95,10 @@ class CandidateEnvelope:
     @property
     def postmortem_path(self) -> Path:
         return self.candidate_dir / "postmortem.md"
+
+    @property
+    def promotion_plan_path(self) -> Path:
+        return self.candidate_dir / "promotion_plan.json"
 
     @property
     def manifest_path(self) -> Path:
@@ -268,6 +273,7 @@ def write_candidate_decision(
     reason: str,
     postmortem: str,
     keep_threshold_delta: float | None = None,
+    promotion_plan_path: str | None = None,
 ) -> dict[str, object]:
     """Write decision and postmortem evidence, then update summary/results."""
 
@@ -286,6 +292,8 @@ def write_candidate_decision(
         "reason": _require_text(reason, "reason"),
         "provisional_keep": status == "KEEP",
         "discovery_status": "UNCONFIRMED",
+        "promotion_status": "FALSIFICATION_REQUIRED" if status == "KEEP" else "NOT_ELIGIBLE",
+        "promotion_plan_path": promotion_plan_path,
         "writes_ledger": False,
         "writes_discovery_ledger": False,
         "official_benchmark_result": False,
@@ -295,6 +303,44 @@ def write_candidate_decision(
     _atomic_write_text(envelope.postmortem_path, _require_text(postmortem, "postmortem"))
     _update_summary_and_results(envelope, decision)
     return decision
+
+
+def write_candidate_promotion_plan(
+    envelope: CandidateEnvelope,
+    *,
+    global_baseline_delta: float,
+    keep_threshold_delta: float,
+    matched_budget_delta: float | None,
+) -> dict[str, object]:
+    """Write artifact-only gate requirements for a provisional KEEP."""
+
+    payload = {
+        "schema_version": PROMOTION_PLAN_SCHEMA,
+        "run_id": envelope.run_id,
+        "trial_id": envelope.trial_id,
+        "candidate_id": envelope.candidate_id,
+        "status": "FALSIFICATION_REQUIRED",
+        "provisional_keep": True,
+        "discovery_status": "UNCONFIRMED",
+        "global_baseline_delta": global_baseline_delta,
+        "matched_budget_delta": matched_budget_delta,
+        "keep_threshold_delta": keep_threshold_delta,
+        "required_gate": "Falsification Gate",
+        "required_evidence": [
+            "confirmed falsification verdict",
+            "gate control artifacts",
+            "full provenance with manifest hashes and feature fingerprints",
+            "orchestrator-authored canonical ledger row",
+            "orchestrator-authored confirmed-only Discovery Ledger row",
+        ],
+        "allowed_writer": "modal_hosted_trusted_orchestrator",
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "official_benchmark_result": False,
+    }
+    _refuse_authority_claims(payload, envelope.promotion_plan_path.name)
+    _atomic_write_json(envelope.promotion_plan_path, payload)
+    return payload
 
 
 def _candidate_artifact_paths(envelope: CandidateEnvelope) -> dict[str, str]:
@@ -311,6 +357,7 @@ def _candidate_artifact_paths(envelope: CandidateEnvelope) -> dict[str, str]:
         "error_report": str(envelope.error_report_path),
         "decision": str(envelope.decision_path),
         "postmortem": str(envelope.postmortem_path),
+        "promotion_plan": str(envelope.promotion_plan_path),
     }
 
 
@@ -385,6 +432,8 @@ def _update_summary_and_results(envelope: CandidateEnvelope, decision: dict[str,
             "matched_budget_delta": decision["matched_budget_delta"],
             "global_baseline_delta": decision["global_baseline_delta"],
             "provisional_keep": decision["provisional_keep"],
+            "promotion_status": decision.get("promotion_status"),
+            "promotion_plan_path": decision.get("promotion_plan_path"),
         }
     )
     _write_results(envelope, candidates)

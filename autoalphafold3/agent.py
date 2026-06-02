@@ -118,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     autoresearch_loop_parser.add_argument("--model", default=DEFAULT_LLM_MODEL)
     autoresearch_loop_parser.add_argument("--modal-env", default=None)
     autoresearch_loop_parser.add_argument("--approve", default=None)
+    autoresearch_loop_parser.add_argument("--failure-streak-limit", type=int, default=2)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -315,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
                 approval=args.approve,
                 model=args.model,
                 modal_env=args.modal_env,
+                failure_streak_limit=args.failure_streak_limit,
             )
         except (AutoresearchLoopError, CandidateArtifactError, OSError, ValueError) as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))

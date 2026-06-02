@@ -41,10 +41,22 @@ def test_autoresearch_comparison_computes_and_writes_delta_axes(tmp_path: Path) 
     assert decision["global_baseline_delta"] == pytest.approx(0.01)
     assert decision["keep_threshold_delta"] == pytest.approx(0.001)
     assert decision["discovery_status"] == "UNCONFIRMED"
+    assert decision["promotion_status"] == "FALSIFICATION_REQUIRED"
+    assert decision["promotion_plan_path"] == str(envelope.promotion_plan_path)
     assert decision["writes_ledger"] is False
     assert decision["writes_discovery_ledger"] is False
+    promotion_plan = json.loads(envelope.promotion_plan_path.read_text(encoding="utf-8"))
+    assert promotion_plan["status"] == "FALSIFICATION_REQUIRED"
+    assert promotion_plan["provisional_keep"] is True
+    assert promotion_plan["discovery_status"] == "UNCONFIRMED"
+    assert promotion_plan["writes_ledger"] is False
+    assert promotion_plan["writes_discovery_ledger"] is False
+    assert promotion_plan["allowed_writer"] == "modal_hosted_trusted_orchestrator"
+    assert "confirmed falsification verdict" in promotion_plan["required_evidence"]
     summary = json.loads((envelope.root / "summary.json").read_text(encoding="utf-8"))
     assert summary["candidates"][0]["provisional_keep"] is True
+    assert summary["candidates"][0]["promotion_status"] == "FALSIFICATION_REQUIRED"
+    assert summary["candidates"][0]["promotion_plan_path"] == str(envelope.promotion_plan_path)
     results = (envelope.root / "results.tsv").read_text(encoding="utf-8")
     assert "T123\tT123\tKEEP\tbest_val_calpha_lddt" in results
     assert not (tmp_path / "runs/ledger.jsonl").exists()
@@ -54,8 +66,10 @@ def test_autoresearch_comparison_computes_and_writes_delta_axes(tmp_path: Path) 
 
 def test_autoresearch_comparison_matched_win_global_miss_discards(tmp_path: Path) -> None:
     baseline = _write_baseline_lock(tmp_path, score=0.45)
+    envelope = _candidate_envelope(tmp_path, "T124")
 
-    comparison = compare_candidate_result(
+    comparison = compare_and_write_candidate_decision(
+        envelope,
         candidate_result=_result("T124", 0.43),
         matched_budget_result=_result("T122", 0.40),
         repo_root=tmp_path,
@@ -68,6 +82,10 @@ def test_autoresearch_comparison_matched_win_global_miss_discards(tmp_path: Path
     assert comparison.matched_budget_delta == pytest.approx(0.03)
     assert comparison.global_baseline_delta == pytest.approx(-0.02)
     assert comparison.provisional_keep is False
+    decision = json.loads(envelope.decision_path.read_text(encoding="utf-8"))
+    assert decision["promotion_status"] == "NOT_ELIGIBLE"
+    assert decision["promotion_plan_path"] is None
+    assert not envelope.promotion_plan_path.exists()
 
 
 def test_autoresearch_comparison_uses_global_current_best_from_prior_keep(tmp_path: Path) -> None:

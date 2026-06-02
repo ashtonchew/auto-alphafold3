@@ -67,6 +67,20 @@ class FakeSequencedTrustedAutoresearchClient:
         return _scored_metrics_payload(trial_id, score=self.scores[trial_id])
 
 
+class FakeSequencedFailingTrustedAutoresearchClient:
+    def __init__(self) -> None:
+        self.submitted_trials: list[dict[str, object]] = []
+        self.scored_trials: list[str] = []
+
+    def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
+        self.submitted_trials.append(trial)
+        return _short_training_manifest(str(trial["trial_id"]))
+
+    def score_trial(self, trial_id: str) -> dict[str, object]:
+        self.scored_trials.append(trial_id)
+        return _scorer_fail_payload(trial_id)
+
+
 SHA = "c" * 64
 
 
@@ -760,6 +774,7 @@ def test_autoresearch_loop_modal_scores_after_training_and_records_scorer_fail(t
     )
 
     assert result.status == "PASS"
+    assert result.stopped_reason == "max_candidates_reached"
     assert result.starts_search is True
     assert result.writes_ledger is False
     assert result.writes_discovery_ledger is False
@@ -813,13 +828,21 @@ def test_autoresearch_loop_modal_writes_artifact_only_decision_for_scored_candid
     candidate_dir = tmp_path / "runs/autoresearch/live-scored/candidates/T130"
     decision = json.loads((candidate_dir / "decision.json").read_text(encoding="utf-8"))
     assert decision["status"] == "KEEP"
+    assert decision["promotion_status"] == "FALSIFICATION_REQUIRED"
+    assert decision["promotion_plan_path"] == str(candidate_dir / "promotion_plan.json")
     assert decision["official_benchmark_result"] is False
     assert decision["global_baseline_delta"] == pytest.approx(0.01)
+    promotion_plan = json.loads((candidate_dir / "promotion_plan.json").read_text(encoding="utf-8"))
+    assert promotion_plan["status"] == "FALSIFICATION_REQUIRED"
+    assert promotion_plan["writes_ledger"] is False
+    assert promotion_plan["writes_discovery_ledger"] is False
     metrics = json.loads((candidate_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["comparison"]["provisional_keep"] is True
     summary = json.loads((tmp_path / "runs/autoresearch/live-scored/summary.json").read_text(encoding="utf-8"))
     candidate = summary["candidates"][0]
     assert candidate["status"] == "KEEP"
+    assert candidate["promotion_status"] == "FALSIFICATION_REQUIRED"
+    assert candidate["promotion_plan_path"] == str(candidate_dir / "promotion_plan.json")
     assert candidate["training_status"] == "SHORT_TRAINING_READY"
     assert candidate["training_manifest_path"] == str(candidate_dir / "training_manifest.json")
     assert candidate["official_benchmark_result"] is False
@@ -842,8 +865,10 @@ def test_autoresearch_loop_modal_records_terminal_fail_without_ledger(tmp_path: 
     )
 
     assert result.status == "PASS"
+    assert result.stopped_reason == "max_candidates_reached"
     candidate_dir = tmp_path / "runs/autoresearch/live-fail/candidates/T130"
     assert json.loads((candidate_dir / "decision.json").read_text(encoding="utf-8"))["status"] == "INFRA_FAIL"
+    assert json.loads((candidate_dir / "decision.json").read_text(encoding="utf-8"))["promotion_status"] == "NOT_ELIGIBLE"
     assert json.loads((candidate_dir / "error_report.json").read_text(encoding="utf-8"))["failure_signature"] == "pytest_modal_worker_failed"
     summary = json.loads((tmp_path / "runs/autoresearch/live-fail/summary.json").read_text(encoding="utf-8"))
     assert summary["candidates"][0]["status"] == "INFRA_FAIL"
@@ -882,12 +907,46 @@ def test_autoresearch_loop_modal_runs_multiple_candidates_without_ledger(tmp_pat
     assert all(trial["predict_after_training"] is True for trial in client.submitted_trials)
     assert client.scored_trials == ["T130", "T131"]
     assert [decision["status"] for decision in result.decisions] == ["DISCARD", "KEEP"]
+    assert result.decisions[0]["promotion_status"] == "NOT_ELIGIBLE"
+    assert result.decisions[1]["promotion_status"] == "FALSIFICATION_REQUIRED"
     assert result.decisions[0]["matched_budget_delta"] is None
     assert result.decisions[1]["matched_budget_delta"] == pytest.approx(0.02)
     summary = json.loads((tmp_path / "runs/autoresearch/live-two/summary.json").read_text(encoding="utf-8"))
     assert [candidate["status"] for candidate in summary["candidates"]] == ["DISCARD", "KEEP"]
+    assert [candidate["promotion_status"] for candidate in summary["candidates"]] == [
+        "NOT_ELIGIBLE",
+        "FALSIFICATION_REQUIRED",
+    ]
     assert summary["candidates"][1]["matched_budget_delta"] == pytest.approx(0.02)
     assert len(result.wrote_files) == len(set(result.wrote_files))
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+
+
+def test_autoresearch_loop_modal_stops_after_failure_streak(tmp_path: Path) -> None:
+    client = FakeSequencedFailingTrustedAutoresearchClient()
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="live-failure-streak",
+        mode="modal",
+        planner="deterministic",
+        start_trial_id="T130",
+        max_candidates=3,
+        approval=APPROVAL_TEXT,
+        modal_client=client,
+        failure_streak_limit=2,
+    )
+
+    assert result.status == "PASS"
+    assert result.stopped_reason == "failure_streak_limit:FAIL"
+    assert result.generated_trials == ["T130", "T131"]
+    assert [trial["trial_id"] for trial in client.submitted_trials] == ["T130", "T131"]
+    assert client.scored_trials == ["T130", "T131"]
+    assert [decision["status"] for decision in result.decisions] == ["FAIL", "FAIL"]
+    assert not (tmp_path / "runs/autoresearch/live-failure-streak/candidates/T132").exists()
+    summary = json.loads((tmp_path / "runs/autoresearch/live-failure-streak/summary.json").read_text(encoding="utf-8"))
+    assert [candidate["status"] for candidate in summary["candidates"]] == ["FAIL", "FAIL"]
     assert not (tmp_path / "runs/ledger.jsonl").exists()
     assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
 

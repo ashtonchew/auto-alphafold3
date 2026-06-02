@@ -18,6 +18,7 @@ from autoalphafold3.patch_policy import PatchPolicyError, validate_patch_scope
 from autoalphafold3.autoresearch_candidates import (
     create_candidate_envelope,
     create_run_manifest,
+    validate_run_id,
     write_candidate_decision,
     write_candidate_evidence,
 )
@@ -81,6 +82,7 @@ class AutoresearchPlanner(Protocol):
         policy: dict[str, dict[str, object]],
         base_commit: str,
         prior_plans: list[dict[str, object]],
+        prior_outcomes: list[dict[str, object]],
     ) -> "AutoresearchCandidatePlan":
         """Return one structured autoresearch candidate."""
 
@@ -268,6 +270,7 @@ class OpenAIAutoresearchPlanner:
         policy: dict[str, dict[str, object]],
         base_commit: str,
         prior_plans: list[dict[str, object]] | None = None,
+        prior_outcomes: list[dict[str, object]] | None = None,
     ) -> AutoresearchCandidatePlan:
         del model
         prompt = _autoresearch_planner_prompt(
@@ -278,6 +281,7 @@ class OpenAIAutoresearchPlanner:
             base_commit=base_commit,
             policy=policy,
             prior_plans=prior_plans or [],
+            prior_outcomes=prior_outcomes or [],
         )
         try:
             from openai import OpenAI
@@ -295,6 +299,7 @@ class OpenAIAutoresearchPlanner:
                     base_commit=base_commit,
                     policy=policy,
                     prior_plans=prior_plans or [],
+                    prior_outcomes=prior_outcomes or [],
                     model=self.model,
                 )
             raise
@@ -327,6 +332,7 @@ class OpenAIAutoresearchPlanner:
                     base_commit=base_commit,
                     policy=policy,
                     prior_plans=prior_plans or [],
+                    prior_outcomes=prior_outcomes or [],
                     model=self.model,
                 )
             raise
@@ -372,6 +378,7 @@ def run_autoresearch_loop(
     modal_env: str | None = None,
     modal_client: TrustedAutoresearchClient | None = None,
     failure_streak_limit: int = 2,
+    prior_run_ids: list[str] | None = None,
 ) -> AutoresearchLoopResult:
     """Plan autoresearch candidates and optionally run one approved Modal candidate."""
 
@@ -388,6 +395,7 @@ def run_autoresearch_loop(
     root = Path(repo_root)
     base_commit = _git_head(root)
     llm_policy = _llm_policy_specs(model) if planner == "llm" else None
+    prior_outcomes = _prior_autoresearch_outcomes(root=root, prior_run_ids=prior_run_ids or [])
     planned = _planned_candidates(
         root=root,
         planner=planner,
@@ -399,6 +407,7 @@ def run_autoresearch_loop(
         model=model,
         llm_policy=llm_policy,
         planner_client=planner_client,
+        prior_outcomes=prior_outcomes,
     )
     for candidate in planned:
         trial = AutoFoldTrial.model_validate(candidate["trial"])
@@ -562,6 +571,57 @@ def _run_modal_candidate_smoke(
     )
     scored["wrote_files"] = [*wrote_files, *scored["wrote_files"]]
     return scored
+
+
+def _prior_autoresearch_outcomes(*, root: Path, prior_run_ids: list[str]) -> list[dict[str, object]]:
+    outcomes: list[dict[str, object]] = []
+    for raw_run_id in prior_run_ids:
+        run_id = validate_run_id(str(raw_run_id))
+        run_dir = root / "runs" / "autoresearch" / run_id
+        summary_path = run_dir / "summary.json"
+        if summary_path.is_symlink():
+            raise AutoresearchLoopError(f"prior autoresearch summary must not be a symlink: {summary_path}")
+        if not summary_path.exists():
+            raise AutoresearchLoopError(f"prior autoresearch run summary does not exist: {summary_path}")
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        candidates = summary.get("candidates")
+        if not isinstance(candidates, list):
+            raise AutoresearchLoopError(f"prior autoresearch summary has no candidates list: {summary_path}")
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            trial_id = str(candidate.get("trial_id") or "")
+            if not trial_id:
+                continue
+            candidate_dir = run_dir / "candidates" / trial_id
+            trial_payload = _read_small_json(candidate_dir / "trial.json")
+            metrics_payload = _read_small_json(candidate_dir / "metrics.json")
+            comparison = metrics_payload.get("comparison") if isinstance(metrics_payload.get("comparison"), dict) else {}
+            outcomes.append(
+                {
+                    "run_id": run_id,
+                    "trial_id": trial_id,
+                    "status": candidate.get("status"),
+                    "promotion_status": candidate.get("promotion_status"),
+                    "provisional_keep": bool(candidate.get("provisional_keep", False)),
+                    "matched_budget_delta": candidate.get("matched_budget_delta"),
+                    "global_baseline_delta": candidate.get("global_baseline_delta"),
+                    "candidate_score": comparison.get("candidate_score"),
+                    "hypothesis": _read_prior_hypothesis(candidate_dir / "hypothesis.md"),
+                    "move_family": trial_payload.get("move_family"),
+                    "diagnostic_target": trial_payload.get("diagnostic_target"),
+                    "config_path": trial_payload.get("config_path"),
+                    "budget": trial_payload.get("budget"),
+                }
+            )
+    return outcomes
+
+
+def _read_prior_hypothesis(path: Path) -> str | None:
+    if path.is_symlink() or not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8").strip()
+    return text[:500] if text else None
 
 
 class DeployedTrustedAutoresearchClient:
@@ -767,6 +827,7 @@ def _planned_candidates(
     model: str,
     llm_policy: dict[str, dict[str, object]] | None,
     planner_client: AutoresearchPlanner | None,
+    prior_outcomes: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     if planner == "manual":
         return _manual_candidates(root=root, candidate_plan=candidate_plan)
@@ -783,6 +844,7 @@ def _planned_candidates(
             model=model,
             llm_policy=llm_policy or {},
             planner_client=planner_client,
+            prior_outcomes=prior_outcomes,
         )
     raise AutoresearchLoopError(f"unsupported autoresearch planner: {planner}")
 
@@ -866,6 +928,7 @@ def _llm_candidates(
     model: str,
     llm_policy: dict[str, dict[str, object]],
     planner_client: AutoresearchPlanner | None,
+    prior_outcomes: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     if max_candidates < 1 or max_candidates > 3:
         raise AutoresearchLoopError("LLM autoresearch max_candidates must be between 1 and 3")
@@ -903,6 +966,7 @@ def _llm_candidates(
                     }
                     for item in planned
                 ],
+                prior_outcomes=prior_outcomes,
             )
         except Exception as exc:  # noqa: BLE001 - planner failures must stop before artifacts.
             raise AutoresearchLoopError(f"LLM autoresearch planner failed: {exc}") from exc
@@ -957,6 +1021,7 @@ def _autoresearch_planner_prompt(
     base_commit: str,
     policy: dict[str, dict[str, object]],
     prior_plans: list[dict[str, object]],
+    prior_outcomes: list[dict[str, object]],
 ) -> str:
     base_config = _planner_reference_config(root / "configs" / "nanofold_dev_cpu_smoke.json")
     local_geometry_config = _planner_reference_config(root / "configs" / "experiments" / "local_calpha_geometry_smoke.json")
@@ -969,6 +1034,7 @@ def _autoresearch_planner_prompt(
         "implementation_target": "NanoFold-style AlphaFold3-lite",
         "llm_policy": policy,
         "prior_planned_candidates": prior_plans[-5:],
+        "prior_candidate_outcomes": prior_outcomes[-10:],
         "allowed_candidate_shape": {
             "trial_kind": "training",
             "budget": "smoke",
@@ -1008,6 +1074,7 @@ def _autoresearch_planner_prompt(
         "hard_constraints": [
             "Return exactly one candidate object, not a candidates array.",
             "Choose a different candidate note path and hypothesis than prior_planned_candidates.",
+            "Use prior_candidate_outcomes to avoid repeating discarded move families/config changes unless the new candidate isolates a different diagnostic axis.",
             "trial.trial_id must equal the requested trial_id.",
             "trial.artifact_dir must equal runs/trials/<trial_id>.",
             "trial.config_path must be repo-relative and under configs/experiments/ unless using an allowed existing config.",
@@ -1075,6 +1142,7 @@ def _plan_autoresearch_with_modal_harness_secret(
     base_commit: str,
     policy: dict[str, dict[str, object]],
     prior_plans: list[dict[str, object]],
+    prior_outcomes: list[dict[str, object]],
     model: str,
 ) -> AutoresearchCandidatePlan:
     try:
@@ -1089,6 +1157,7 @@ def _plan_autoresearch_with_modal_harness_secret(
         "base_commit": base_commit,
         "policy": policy,
         "prior_plans": prior_plans[-5:],
+        "prior_outcomes": prior_outcomes[-10:],
         "model": model,
     }
     orchestrator = modal.Cls.from_name(APP_NAME, TRUSTED_ORCHESTRATOR_CLASS)()

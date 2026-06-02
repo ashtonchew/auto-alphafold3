@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,6 +37,14 @@ NANOFOLD_REQUIRED_KEYS = frozenset(
         "optimizer_eps",
         "lr_start_factor",
         "lr_warmup",
+    }
+)
+NANOFOLD_OPTIONAL_NONNEGATIVE_FLOAT_KEYS = frozenset(
+    {
+        "diffusion_loss_weight",
+        "dist_loss_weight",
+        "distogram_loss_weight",
+        "local_calpha_geometry_loss_weight",
     }
 )
 
@@ -95,4 +104,22 @@ def validate_config_file(config_path: str | Path, *, repo_root: str | Path = "."
             valid=False,
             missing_keys=["max_templates=0"],
         )
+    invalid_optional = [
+        key
+        for key in sorted(NANOFOLD_OPTIONAL_NONNEGATIVE_FLOAT_KEYS)
+        if not _is_nonnegative_finite_number(data.get(key, 0.0))
+    ]
+    if invalid_optional:
+        return ConfigValidationResult(
+            config_kind="nanofold_training",
+            path=str(config_path),
+            valid=False,
+            missing_keys=invalid_optional,
+        )
     return ConfigValidationResult(config_kind="nanofold_training", path=str(config_path), valid=True)
+
+
+def _is_nonnegative_finite_number(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    return math.isfinite(float(value)) and float(value) >= 0.0

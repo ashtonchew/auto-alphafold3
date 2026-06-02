@@ -37,10 +37,12 @@ class DiffusionModel(nn.Module):
         s_max=160,
         s_min=0.0004,
         p=7,
+        compute_local_geometry_loss=False,
     ):
         super().__init__()
         self.inference = inference
         self.batch_size = batch_size
+        self.compute_local_geometry_loss = compute_local_geometry_loss
         self.normal = torch.distributions.MultivariateNormal(torch.zeros(3), torch.eye(3))
         self.gamma_0 = gamma_0
         self.gamma_min = gamma_min
@@ -158,7 +160,13 @@ class DiffusionModel(nn.Module):
 
         x = self.diffusion(x_noisy, t, features, input, trunk, pair_rep)
 
-        return compute_diffusion_loss(x, x_gt, t, self.data_std_dev)
+        return compute_diffusion_loss(
+            x,
+            x_gt,
+            t,
+            self.data_std_dev,
+            compute_local_geometry=self.compute_local_geometry_loss,
+        )
 
     def forward(self, features, input, trunk, pair_rep):
         if self.inference:

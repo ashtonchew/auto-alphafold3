@@ -5,15 +5,21 @@ import torch.nn.functional as F
 from nanofold.train.util import rigid_align
 
 
-def compute_diffusion_loss(x, x_gt, t, data_std_dev):
+def compute_diffusion_loss(x, x_gt, t, data_std_dev, compute_local_geometry=False):
     with torch.no_grad():
         x_gt_aligned = rigid_align(x_gt, x).detach()
     mse_loss = F.mse_loss(x, x_gt_aligned, reduction="none").mean(dim=(-2, -1), keepdim=True) / 3
     lddt_loss = compute_lddt_loss(x, x_gt_aligned)
+    local_calpha_geometry_loss = (
+        compute_local_calpha_geometry_loss(x, x_gt_aligned)
+        if compute_local_geometry
+        else x.new_zeros(())
+    )
     diffusion_loss = (t**2 + data_std_dev**2) / (t + data_std_dev) ** 2 * (mse_loss) + lddt_loss
     return {
         "mse_loss": mse_loss.mean(),
         "lddt_loss": lddt_loss.mean(),
+        "local_calpha_geometry_loss": local_calpha_geometry_loss,
         "diffusion_loss": diffusion_loss.mean(),
     }
 
@@ -34,6 +40,28 @@ def compute_lddt_loss(x, x_gt):
         mask, dim=(-2, -1), keepdim=True
     )
     return 1 - lddt
+
+
+def compute_local_calpha_geometry_loss(x, x_gt, cutoff=15.0):
+    ca = extract_calpha_coords(x)
+    ca_gt = extract_calpha_coords(x_gt)
+    dist = torch.linalg.vector_norm(ca.unsqueeze(-3) - ca.unsqueeze(-2), dim=-1)
+    dist_gt = torch.linalg.vector_norm(ca_gt.unsqueeze(-3) - ca_gt.unsqueeze(-2), dim=-1)
+    mask = dist_gt < cutoff
+    torch.diagonal(mask, dim1=-2, dim2=-1).zero_()
+    pair_loss = F.smooth_l1_loss(dist, dist_gt, reduction="none")
+    denominator = torch.sum(mask, dim=(-2, -1)).clamp_min(1)
+    per_sample = torch.sum(pair_loss * mask, dim=(-2, -1)) / denominator
+    return per_sample.mean()
+
+
+def extract_calpha_coords(x, atoms_per_residue=3, calpha_index=1):
+    if x.shape[-2] % atoms_per_residue != 0:
+        raise ValueError("backbone atom dimension must be divisible by atoms_per_residue")
+    residue_count = x.shape[-2] // atoms_per_residue
+    return x.reshape(*x.shape[:-2], residue_count, atoms_per_residue, x.shape[-1])[
+        ..., calpha_index, :
+    ]
 
 
 class DistogramLoss(nn.Module):

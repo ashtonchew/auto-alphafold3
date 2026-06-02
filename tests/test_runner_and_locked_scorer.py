@@ -322,6 +322,22 @@ def test_locked_scorer_scores_toy_artifact_directory(tmp_path: Path) -> None:
     assert result["official_benchmark_result"] is False
     assert result["local_only"] is True
     assert result["metrics"]["best_val_calpha_lddt"] == pytest.approx(1.0)
+    assert result["per_target_results"] == [
+        {
+            "eligible_pair_count": 6,
+            "nan_prediction_residue_count": 0,
+            "score": pytest.approx(1.0),
+            "scored_residue_count": 4,
+            "scorer_version": "calpha_lddt_v1",
+            "target_id": "smoke_A",
+            "threshold_fractions": {
+                "lt_0.5A": pytest.approx(1.0),
+                "lt_1A": pytest.approx(1.0),
+                "lt_2A": pytest.approx(1.0),
+                "lt_4A": pytest.approx(1.0),
+            },
+        }
+    ]
     assert result["fold_cartographer"]["signature"] == "toy_geometry_preserved"
     assert result["fold_cartographer"]["summary"]["canonical_target"] == "local_geometry_weak"
     assert result["artifacts"]["predictions_json"] == str(predictions)

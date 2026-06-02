@@ -351,6 +351,15 @@ def _write_exhausted_sampler_strategy_fixture(root: Path) -> Path:
     return seed_path
 
 
+def _write_score_regressed_sampler_strategy_fixture(root: Path) -> Path:
+    seed_path = seed_trial(root)
+    _write_sampler_ledger_row(root, trial_id="T088", score=0.0209)
+    for rank, (trial_id, score) in enumerate((("T108", 0.0192), ("T109", 0.0177), ("T110", 0.0166))):
+        _write_sampler_trial_knobs(root, trial_id=trial_id, score_rank=rank)
+        _write_sampler_ledger_row(root, trial_id=trial_id, score=score)
+    return seed_path
+
+
 def test_sampler_loop_dry_run_generates_incremental_trials(tmp_path: Path) -> None:
     result = run_incremental_sampler_loop(
         seed_trial_path=seed_trial(tmp_path),
@@ -613,6 +622,27 @@ def test_sampler_loop_can_continue_from_scored_ledger_decisions(tmp_path: Path) 
 def test_sampler_strategy_gate_blocks_repeated_t088_neighborhood_regressions(tmp_path: Path) -> None:
     baseline = write_baseline_lock(tmp_path, score=0.42)
     seed_path = _write_exhausted_sampler_strategy_fixture(tmp_path)
+
+    with pytest.raises(SamplerLoopError, match="strategy gate blocks"):
+        run_incremental_sampler_loop(
+            seed_trial_path=seed_path,
+            repo_root=tmp_path,
+            mode="dry-run",
+            max_candidates=1,
+            start_trial_id="T120",
+            baseline_dir=baseline.relative_to(tmp_path),
+            planner="llm",
+            planner_client=LocalNeighborhoodPlanner(),
+            search_reference_trial_id="T081",
+            prior_decision_trial_ids=["T108", "T109", "T110"],
+        )
+
+    assert not (tmp_path / "trials/T120.json").exists()
+
+
+def test_sampler_strategy_gate_blocks_score_only_neighborhood_regressions(tmp_path: Path) -> None:
+    baseline = write_baseline_lock(tmp_path, score=0.42)
+    seed_path = _write_score_regressed_sampler_strategy_fixture(tmp_path)
 
     with pytest.raises(SamplerLoopError, match="strategy gate blocks"):
         run_incremental_sampler_loop(

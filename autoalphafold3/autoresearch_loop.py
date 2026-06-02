@@ -625,7 +625,7 @@ def _run_modal_candidate_smoke(
     try:
         payload = client.submit_and_poll_trial(_modal_trial_payload(checked))
     except Exception as exc:  # noqa: BLE001 - normalize delegated runner failures.
-        raise AutoresearchLoopError(f"live autoresearch trusted-orchestrator trial failed: {exc}") from exc
+        payload = _modal_worker_exception_payload(checked, exc)
     wrote_files: list[str] = []
     decision_overrides: dict[str, object] = {}
     if _is_short_training_manifest(payload) or _is_sampler_manifest(payload):
@@ -669,6 +669,33 @@ def _run_modal_candidate_smoke(
     )
     scored["wrote_files"] = [*wrote_files, *scored["wrote_files"]]
     return scored
+
+
+def _modal_worker_exception_payload(trial: AutoFoldTrial, exc: Exception) -> dict[str, object]:
+    message = str(exc) or exc.__class__.__name__
+    return {
+        "schema_version": "autoaf3.metrics.v1",
+        "status": TrialStatus.FAIL.value,
+        "trial_id": trial.trial_id,
+        "candidate_id": trial.trial_id,
+        "primary_metric": "best_val_calpha_lddt",
+        "metrics": {},
+        "fold_cartographer": {
+            "signature": "modal_worker_exception",
+            "summary": {"reason": message},
+            "buckets": {},
+        },
+        "error_report": {
+            "failure_signature": "modal_worker_exception",
+            "reason": message,
+            "scorer_only": False,
+            "trusted_orchestrator": True,
+        },
+        "official_benchmark_result": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "artifacts": {},
+    }
 
 
 def _require_deployed_runtime_capability(client: TrustedAutoresearchClient, *, capability: str) -> None:

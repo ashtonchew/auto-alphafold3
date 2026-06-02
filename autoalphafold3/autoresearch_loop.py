@@ -350,6 +350,7 @@ class AutoresearchLoopResult:
     starts_search: bool
     writes_ledger: bool
     writes_discovery_ledger: bool
+    stopped_reason: str
     pending_live_action: str | None = None
 
     def to_dict(self) -> dict[str, object]:
@@ -370,9 +371,12 @@ def run_autoresearch_loop(
     planner_client: AutoresearchPlanner | None = None,
     modal_env: str | None = None,
     modal_client: TrustedAutoresearchClient | None = None,
+    failure_streak_limit: int = 2,
 ) -> AutoresearchLoopResult:
     """Plan autoresearch candidates and optionally run one approved Modal candidate."""
 
+    if failure_streak_limit < 1:
+        raise AutoresearchLoopError("failure_streak_limit must be at least 1")
     if mode not in {"dry-run", "modal"}:
         raise AutoresearchLoopError(f"unsupported autoresearch mode: {mode}")
     if planner not in {"manual", "deterministic", "llm"}:
@@ -417,6 +421,8 @@ def run_autoresearch_loop(
         str(root / "runs" / "autoresearch" / run_id / "results.tsv"),
     ]
     matched_budget_results: dict[str, AutoFoldResult] = {}
+    failure_streak = 0
+    stopped_reason = "max_candidates_reached"
     for candidate in planned:
         trial = candidate["trial"]
         envelope = create_candidate_envelope(
@@ -467,6 +473,14 @@ def run_autoresearch_loop(
             result = live.get("result")
             if isinstance(result, AutoFoldResult) and result.status == TrialStatus.SCORED:
                 matched_budget_results.setdefault(str(trial["budget"]), result)
+                failure_streak = 0
+            elif str(decisions[-1].get("status")) in {TrialStatus.FAIL.value, TrialStatus.INFRA_FAIL.value}:
+                failure_streak += 1
+                if failure_streak >= failure_streak_limit:
+                    stopped_reason = f"failure_streak_limit:{decisions[-1].get('status')}"
+                    break
+            else:
+                failure_streak = 0
     _write_planned_candidate_index(root=root, run_id=run_id, records=decisions)
     return AutoresearchLoopResult(
         status="PASS" if mode == "modal" else "PLANNED",
@@ -482,6 +496,7 @@ def run_autoresearch_loop(
         starts_search=mode == "modal",
         writes_ledger=False,
         writes_discovery_ledger=False,
+        stopped_reason=stopped_reason,
         pending_live_action=None if mode == "modal" else f"modal mode requires --approve {APPROVAL_TEXT}",
     )
 
@@ -635,7 +650,11 @@ def _record_modal_candidate_payload(
         except AutoresearchComparisonError as exc:
             raise AutoresearchLoopError(f"live autoresearch comparison failed: {exc}") from exc
         wrote_files.extend([str(envelope.metrics_path), str(envelope.decision_path), str(envelope.postmortem_path)])
+        if envelope.promotion_plan_path.exists():
+            wrote_files.append(str(envelope.promotion_plan_path))
         decision.update(comparison.to_dict())
+        decision["promotion_status"] = "FALSIFICATION_REQUIRED" if comparison.provisional_keep else "NOT_ELIGIBLE"
+        decision["promotion_plan_path"] = str(envelope.promotion_plan_path) if comparison.provisional_keep else None
         decision["decision_path"] = str(envelope.decision_path)
         return {"decision": decision, "wrote_files": wrote_files, "result": result}
     if result.status in {TrialStatus.FAIL, TrialStatus.INFRA_FAIL}:
@@ -650,6 +669,8 @@ def _record_modal_candidate_payload(
         )
         wrote_files.extend([str(envelope.decision_path), str(envelope.postmortem_path)])
         decision["status"] = result.status.value
+        decision["promotion_status"] = "NOT_ELIGIBLE"
+        decision["promotion_plan_path"] = None
         decision["decision_path"] = str(envelope.decision_path)
         return {"decision": decision, "wrote_files": wrote_files}
     raise AutoresearchLoopError(f"live autoresearch result status is not terminal: {result.status.value}")
@@ -1294,6 +1315,8 @@ def _planned_summary_record(record: dict[str, object]) -> dict[str, object]:
         "matched_budget_delta": record.get("matched_budget_delta"),
         "global_baseline_delta": record.get("global_baseline_delta"),
         "provisional_keep": bool(record.get("provisional_keep", False)),
+        "promotion_status": record.get("promotion_status"),
+        "promotion_plan_path": record.get("promotion_plan_path"),
     }
     for key in (
         "execution_status",

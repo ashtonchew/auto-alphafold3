@@ -11,7 +11,12 @@ import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from autoalphafold3.autoresearch_candidates import CandidateEnvelope, write_candidate_decision, write_candidate_evidence
+from autoalphafold3.autoresearch_candidates import (
+    CandidateEnvelope,
+    write_candidate_decision,
+    write_candidate_evidence,
+    write_candidate_promotion_plan,
+)
 from autoalphafold3.baseline_readiness import current_best_from_baseline_and_ledger
 from autoalphafold3.orchestrator import DEFAULT_KEEP_DELTA
 from autoalphafold3.schema import AutoFoldResult, PRIMARY_METRIC, TrialStatus
@@ -68,12 +73,22 @@ def compare_and_write_candidate_decision(
         keep_delta=keep_delta,
     )
     write_candidate_evidence(envelope, metrics=_result_metrics_payload(candidate, comparison))
+    promotion_plan_path = None
+    if comparison.provisional_keep:
+        write_candidate_promotion_plan(
+            envelope,
+            global_baseline_delta=comparison.global_baseline_delta,
+            keep_threshold_delta=comparison.keep_threshold_delta,
+            matched_budget_delta=comparison.matched_budget_delta,
+        )
+        promotion_plan_path = str(envelope.promotion_plan_path)
     write_candidate_decision(
         envelope,
         status=comparison.status,
         matched_budget_delta=comparison.matched_budget_delta,
         global_baseline_delta=comparison.global_baseline_delta,
         keep_threshold_delta=comparison.keep_threshold_delta,
+        promotion_plan_path=promotion_plan_path,
         reason=_comparison_reason(comparison),
         postmortem=_comparison_postmortem(comparison),
     )

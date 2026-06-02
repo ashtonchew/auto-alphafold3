@@ -226,6 +226,11 @@ def _llm_candidate_payload(
     config_payload: dict[str, object] | None = None,
 ) -> dict[str, object]:
     trial_id = "T120"
+    inline_config = config_payload or json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    inline_config.setdefault("diffusion_loss_weight", 4.0)
+    inline_config.setdefault("dist_loss_weight", 0.0)
+    inline_config.setdefault("distogram_loss_weight", 0.03)
+    inline_config.setdefault("local_calpha_geometry_loss_weight", 0.0)
     return {
         "hypothesis": "LLM planner tests one local geometry loss candidate without starting live search.",
         "rationale": "Exercise the strict one-candidate planning seam with patch policy before artifacts.",
@@ -260,9 +265,14 @@ def _llm_candidate_payload(
             "timeout_cap": 300,
             "artifact_dir": f"runs/trials/{trial_id}",
             "checkpoint_path": None,
-            **({"config_payload": config_payload} if config_payload is not None else {}),
+            "config_payload": inline_config,
         },
-        "config": {"config_path": "configs/experiments/llm_geometry.json", "max_templates": 0},
+        "config": {
+            "config_path": "configs/experiments/llm_geometry.json",
+            "max_templates": 0,
+            "learning_rate": inline_config["learning_rate"],
+            "local_calpha_geometry_loss_weight": inline_config["local_calpha_geometry_loss_weight"],
+        },
         "patch_text": (
             "diff --git a/configs/experiments/llm_geometry.json b/configs/experiments/llm_geometry.json\n"
             "--- a/configs/experiments/llm_geometry.json\n"
@@ -1317,7 +1327,7 @@ def test_openai_autoresearch_planner_falls_back_to_modal_harness_secret(
         base_commit="abc1234",
     )
 
-    assert plan.trial["trial_id"] == "T120"
+    assert plan.trial.trial_id == "T120"
     assert payloads[0]["trial_id"] == "T120"
     assert "NanoFold-style AlphaFold3-lite" in str(payloads[0]["prompt"])
 

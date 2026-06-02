@@ -8,7 +8,7 @@ import re
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -126,7 +126,7 @@ class PlannerConfigPayload(BaseModel):
     num_triangular_attention_channels: int
     num_triangular_attention_heads: int
     num_template_blocks: int
-    max_templates: int = Field(ge=0, le=0)
+    max_templates: int
     template_embedding_size: int
     num_pairformer_blocks: int
     num_pair_heads: int
@@ -147,10 +147,21 @@ class PlannerConfigPayload(BaseModel):
     optimizer_eps: float
     lr_start_factor: float
     lr_warmup: int
-    diffusion_loss_weight: float = Field(ge=0)
-    dist_loss_weight: float = Field(ge=0)
-    distogram_loss_weight: float = Field(ge=0)
-    local_calpha_geometry_loss_weight: float = Field(ge=0)
+    diffusion_loss_weight: float
+    dist_loss_weight: float
+    distogram_loss_weight: float
+    local_calpha_geometry_loss_weight: float
+
+
+class PlannerPrediction(BaseModel):
+    """Strict model-facing prediction schema using repo-side semantic checks."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    causal_component: str
+    predicted_axis: str
+    predicted_direction: str
+    expected_lddt_delta_band: list[float]
 
 
 class PlannerConfigSummary(BaseModel):
@@ -159,7 +170,7 @@ class PlannerConfigSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     config_path: str
-    max_templates: int = Field(ge=0, le=0)
+    max_templates: int
     learning_rate: float
     local_calpha_geometry_loss_weight: float
 
@@ -169,29 +180,29 @@ class PlannerTrial(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    trial_id: str = Field(pattern=r"^T[0-9]{3,}$")
-    parent_commit: str = Field(min_length=1)
-    agent_session_id: str = Field(min_length=1)
-    trial_kind: Literal["training"]
-    hypothesis: str = Field(min_length=20)
-    move_family: MoveFamily
-    diagnostic_target: DiagnosticTarget
-    prediction: RegisteredPrediction
+    trial_id: str
+    parent_commit: str
+    agent_session_id: str
+    trial_kind: str
+    hypothesis: str
+    move_family: str
+    diagnostic_target: str
+    prediction: PlannerPrediction
     patch_path: None
     config_path: str
     config_payload: PlannerConfigPayload
-    budget: Literal["smoke"]
-    seed: int = Field(ge=0)
-    n_res: int = Field(ge=1)
-    max_steps: int = Field(ge=1, le=10)
-    max_wall_minutes: int = Field(ge=1, le=5)
+    budget: str
+    seed: int
+    n_res: int
+    max_steps: int
+    max_wall_minutes: int
     manifest_hashes: EmptyManifestHashes
-    scorer_version: Literal["calpha_lddt_v1"]
-    primary_metric: Literal["best_val_calpha_lddt"]
-    param_cap: int = Field(gt=0)
-    gpu_memory_cap: float = Field(gt=0)
-    cost_cap: float = Field(gt=0)
-    timeout_cap: int = Field(gt=0, le=300)
+    scorer_version: str
+    primary_metric: str
+    param_cap: int
+    gpu_memory_cap: float
+    cost_cap: float
+    timeout_cap: int
     artifact_dir: str
     checkpoint_path: None
 
@@ -211,12 +222,12 @@ class AutoresearchCandidatePlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    hypothesis: str = Field(min_length=20)
+    hypothesis: str
     trial: PlannerTrial
-    changed_paths: list[str] = Field(min_length=1)
-    config: PlannerConfigSummary | None = None
-    patch_text: str = ""
-    rationale: str = Field(min_length=1)
+    changed_paths: list[str]
+    config: PlannerConfigSummary
+    patch_text: str
+    rationale: str
 
     @model_validator(mode="before")
     @classmethod
@@ -233,7 +244,7 @@ class AutoresearchCandidatePlan(BaseModel):
             raise ValueError("LLM candidate trial must include one move_family")
         if not self.trial.diagnostic_target:
             raise ValueError("LLM candidate trial must include one diagnostic_target")
-        if self.config is not None and self.config.max_templates != 0:
+        if self.config.max_templates != 0:
             raise ValueError("LLM candidate config must preserve max_templates=0")
         return self
 
@@ -868,10 +879,9 @@ def _llm_candidates(
         validate_patch_scope(plan.changed_paths, repo_root=root, allow_empty=True)
     except (ValueError, PatchPolicyError) as exc:
         raise AutoresearchLoopError(f"invalid LLM autoresearch plan: {exc}") from exc
-    config_payload = plan.config.model_dump(mode="json", exclude_none=True) if plan.config is not None else None
-    if plan.config is not None:
-        _refuse_plan_authority_claims(config_payload, "LLM config")
-        _refuse_template_config(config_payload)
+    config_payload = plan.config.model_dump(mode="json")
+    _refuse_plan_authority_claims(config_payload, "LLM config")
+    _refuse_template_config(config_payload)
     patch_paths = _refuse_unsafe_patch_text(root=root, patch_text=plan.patch_text)
     if trial_payload["trial_id"] != start_trial_id:
         raise AutoresearchLoopError("LLM candidate trial_id must match start_trial_id")

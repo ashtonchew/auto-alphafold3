@@ -593,6 +593,33 @@ same-score collapse, do not run another short-training candidate. Re-run
 `post-discard-diagnosis`, update the next-surface issue, and move to a deeper
 design review of short-training initialization before further live spend.
 
+To prove the T164 artifacts changed, fetch the read-only prediction artifacts
+from the public data Volume and run the local comparison:
+
+```bash
+python3 -m autoalphafold3.agent fetch-modal-trial-artifacts \
+  --trial-id T088 \
+  --artifact predictions.json \
+  --output-dir runs/autoresearch/modal_artifacts \
+  --modal-env main
+
+python3 -m autoalphafold3.agent fetch-modal-trial-artifacts \
+  --trial-id T164 \
+  --artifact predictions.json \
+  --output-dir runs/autoresearch/modal_artifacts \
+  --modal-env main
+
+python3 -m autoalphafold3.agent compare-predictions \
+  runs/autoresearch/modal_artifacts/T088/predictions.json \
+  runs/autoresearch/modal_artifacts/T164/predictions.json \
+  --output runs/autoresearch/prediction_comparisons/T088-vs-T164.json
+```
+
+`fetch-modal-trial-artifacts` is read-only: it calls `modal volume get` for
+allowlisted trial JSON artifacts, writes only under the chosen local output
+directory, and does not start search, score artifacts, write the canonical
+ledger, write the Discovery Ledger, or write to a Modal Volume.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

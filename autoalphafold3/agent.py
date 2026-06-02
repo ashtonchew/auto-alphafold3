@@ -21,6 +21,10 @@ from autoalphafold3.gate_calibration_runner import GateCalibrationRunError, run_
 from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
 from autoalphafold3.llm_policy import DEFAULT_LLM_MODEL, AgentSearchPhase, default_llm_phase_policies, default_llm_phase_policy
 from autoalphafold3.modal_authority import ModalAuthorityError, audit_modal_event_authority
+from autoalphafold3.modal_trial_artifacts import (
+    ModalTrialArtifactError,
+    fetch_modal_trial_artifacts,
+)
 from autoalphafold3.post_discard_diagnosis import (
     PostDiscardDiagnosisError,
     diagnose_post_discard_evidence,
@@ -148,6 +152,14 @@ def main(argv: list[str] | None = None) -> int:
     compare_predictions_parser.add_argument("--left-metrics", default=None)
     compare_predictions_parser.add_argument("--right-metrics", default=None)
     compare_predictions_parser.add_argument("--output", default=None)
+
+    fetch_trial_artifacts_parser = subparsers.add_parser("fetch-modal-trial-artifacts")
+    fetch_trial_artifacts_parser.add_argument("--trial-id", required=True)
+    fetch_trial_artifacts_parser.add_argument("--artifact", action="append", required=True)
+    fetch_trial_artifacts_parser.add_argument("--output-dir", default="runs/autoresearch/modal_artifacts")
+    fetch_trial_artifacts_parser.add_argument("--modal-env", default=None)
+    fetch_trial_artifacts_parser.add_argument("--volume", default="autoalphafold3-data")
+    fetch_trial_artifacts_parser.add_argument("--force", action="store_true")
 
     scorer_sensitivity_parser = subparsers.add_parser("scorer-sensitivity")
     scorer_sensitivity_parser.add_argument("--trial-id", action="append", required=True)
@@ -395,6 +407,21 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "fetch-modal-trial-artifacts":
+        try:
+            result = fetch_modal_trial_artifacts(
+                trial_id=args.trial_id,
+                artifacts=args.artifact,
+                output_dir=args.output_dir,
+                modal_env=args.modal_env,
+                volume=args.volume,
+                force=args.force,
+            )
+        except ModalTrialArtifactError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "scorer-sensitivity":
         reexec_argv = _modal_venv_reexec_argv(args, original_argv)

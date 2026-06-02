@@ -842,6 +842,7 @@ def _modal_short_training_payload(trial: AutoFoldTrial) -> dict[str, object]:
         local_only=False,
         predict_after_training=True,
         config_payload=trial.config_payload,
+        sampler_coordinate_normalization=trial.sampler_coordinate_normalization,
     )
 
 

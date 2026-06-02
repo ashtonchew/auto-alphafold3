@@ -163,9 +163,11 @@ def test_short_training_payload_can_request_post_training_predictions() -> None:
         budget="smoke",
         seed=0,
         predict_after_training=True,
+        sampler_coordinate_normalization="ca_bond",
     )
 
     assert payload["predict_after_training"] is True
+    assert payload["sampler_coordinate_normalization"] == "ca_bond"
     assert payload["max_templates"] == 0
     assert payload["runner_mode"] == "short_training"
 

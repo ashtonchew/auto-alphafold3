@@ -1265,6 +1265,11 @@ def test_llm_autoresearch_planner_receives_prior_run_outcomes(tmp_path: Path) ->
         "matched_budget_delta": None,
         "global_baseline_delta": pytest.approx(-0.01),
         "candidate_score": pytest.approx(0.07),
+        "fold_cartographer_signature": "candidate_scored",
+        "candidate_artifacts": {
+            "metrics_json": "/mnt/autoalphafold3/runs/trials/T130/metrics.json",
+            "predictions_json": "/mnt/autoalphafold3/runs/trials/T130/predictions.json",
+        },
         "hypothesis": "Deterministic ladder candidate short_train_baseline_smoke tests bounded local-geometry short-training behavior.",
         "move_family": "curriculum",
         "diagnostic_target": "local_geometry_weak",

@@ -58,6 +58,7 @@ NANOFOLD_OPTIONAL_POSITIVE_FLOAT_KEYS = frozenset(
         "diffusion_s_max",
         "diffusion_s_min",
         "diffusion_schedule_p",
+        "diffusion_initial_noise_scale",
         "contact_auxiliary_distance_cutoff",
         "ref_pos_translation_scale",
     }

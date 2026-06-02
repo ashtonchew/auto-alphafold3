@@ -84,6 +84,13 @@ IMPLEMENTED_PLANNER_SURFACES: dict[str, frozenset[str]] = {
     "gradient_checkpointing_runtime_diagnostic": frozenset(
         {"memory_runtime", "gradient_checkpointing_runtime", "gradient_checkpointing_runtime_diagnostic"}
     ),
+    "diffusion_initialization_scale_diagnostic": frozenset(
+        {
+            "diffusion_initialization_scale",
+            "diffusion_initial_noise_scale",
+            "diffusion_initialization_scale_diagnostic",
+        }
+    ),
 }
 
 UNIMPLEMENTED_ALLOWED_SURFACES = (

@@ -820,6 +820,48 @@ def _write_memory_runtime_surface_design_review_inputs(tmp_path: Path) -> Path:
     return report.relative_to(tmp_path)
 
 
+def _write_diffusion_initialization_broader_strategy_review_inputs(tmp_path: Path) -> Path:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.joinpath("nanofold_dev_cpu_smoke.json").write_text(
+        (REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    report = tmp_path / "runs/autoresearch/broader_strategy_review/T173-T175-diffusion-initialization-scale.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.broader_strategy_review.v1",
+                "status": "PASS",
+                "decision": "APPROVE_DRY_RUN_PLANNER_PR_ONLY",
+                "approved_next_surface": "diffusion_initialization_scale",
+                "approved_planner": "diffusion_initialization_scale_diagnostic",
+                "candidate_limit": 1,
+                "may_start_live_candidate": False,
+                "may_start_open_ended_loop": False,
+                "non_overlap_rationale": "model-internal diffusion initial state scale before denoising",
+                "forbidden_edits": ["scorer", "Modal resources", "canonical_ledger"],
+                "stop_conditions": ["post-merge readiness is not green"],
+                "consumed_surface_strategy_review": (
+                    "runs/autoresearch/surface_strategy_review/T173-T175-short-training-collapse-blocked.json"
+                ),
+                "consumed_bench_readiness_review": (
+                    "runs/autoresearch/bench_readiness_review/T173-T175-bench-blocked-post-pr111.json"
+                ),
+                "exhausted_surfaces": ["auxiliary_loss", "feature_handling", "memory_runtime"],
+                "required_next_step": "implement dry-run planner",
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
 def _write_prediction_geometry_audit_inputs(
     tmp_path: Path,
     *,
@@ -2388,6 +2430,82 @@ def test_gradient_checkpointing_runtime_diagnostic_requires_design_review(tmp_pa
         )
 
     assert not (tmp_path / "runs/autoresearch/gradient-checkpointing-runtime-wrong-review").exists()
+
+
+def test_diffusion_initialization_scale_diagnostic_plans_one_non_overlapping_candidate(tmp_path: Path) -> None:
+    report = _write_diffusion_initialization_broader_strategy_review_inputs(tmp_path)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="diffusion-initialization-scale-diagnostic",
+        mode="dry-run",
+        planner="diffusion_initialization_scale_diagnostic",
+        start_trial_id="T176",
+        max_candidates=1,
+        candidate_budget="trial",
+        diagnostic_report=report,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T176"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T176"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "training"
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["move_family"] == "diffusion_schedule"
+    assert trial["diagnostic_target"] == "distogram_good_lddt_flat"
+    assert trial["prediction"]["causal_component"] == "diffusion_initial_noise_scale"
+    assert trial["config_path"] == "configs/experiments/T176_diffusion_initialization_scale_diagnostic.json"
+    assert trial["config_payload"]["max_templates"] == 0
+    assert trial["config_payload"]["diffusion_initial_noise_scale"] == pytest.approx(0.1)
+    assert trial["config_payload"]["diffusion_data_std_dev"] == pytest.approx(16.0)
+    assert trial["config_payload"]["diffusion_s_max"] == pytest.approx(160.0)
+    assert "sampler_coordinate_normalization" not in trial
+    assert "sampler_coordinate_scale" not in trial
+    assert "ref_pos_translation_scale" not in trial["config_payload"]
+    assert "contact_auxiliary_loss_weight" not in trial["config_payload"]
+    assert config["schema_version"] == "autoaf3.diffusion_initialization_scale_diagnostic_plan.v1"
+    assert config["source_broader_strategy_review"] == str(report)
+    assert config["approved_next_surface"] == "diffusion_initialization_scale"
+    assert config["approved_planner"] == "diffusion_initialization_scale_diagnostic"
+    assert config["exhausted_surfaces"] == ["auxiliary_loss", "feature_handling", "memory_runtime"]
+    assert config["config_payload_overrides"] == {
+        "diffusion_data_std_dev": 16,
+        "diffusion_initial_noise_scale": 0.1,
+        "diffusion_s_max": 160,
+        "max_templates": 0,
+    }
+    assert config["writes_ledger"] is False
+    assert config["writes_discovery_ledger"] is False
+    assert "configs/experiments/T176_diffusion_initialization_scale_diagnostic.json" in patch_text
+    assert "bounded diffusion-initialization scale diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_diffusion_initialization_scale_diagnostic_requires_broader_strategy_review(tmp_path: Path) -> None:
+    report = _write_memory_runtime_surface_design_review_inputs(tmp_path)
+
+    with pytest.raises(AutoresearchLoopError, match="requires a broader strategy review"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="diffusion-initialization-wrong-review",
+            mode="dry-run",
+            planner="diffusion_initialization_scale_diagnostic",
+            start_trial_id="T176",
+            max_candidates=1,
+            candidate_budget="trial",
+            diagnostic_report=report,
+        )
+
+    assert not (tmp_path / "runs/autoresearch/diffusion-initialization-wrong-review").exists()
 
 
 def test_deterministic_sampler_checkpoint_follows_start_trial_id(tmp_path: Path) -> None:

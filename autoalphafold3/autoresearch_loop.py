@@ -155,6 +155,7 @@ class PlannerConfigPayload(BaseModel):
     dist_loss_weight: float
     distogram_loss_weight: float
     local_calpha_geometry_loss_weight: float
+    diffusion_initial_noise_scale: float | None = None
 
 
 class PlannerPrediction(BaseModel):
@@ -423,6 +424,7 @@ def run_autoresearch_loop(
         "auxiliary_contact_loss_diagnostic",
         "feature_ref_pos_scale_diagnostic",
         "gradient_checkpointing_runtime_diagnostic",
+        "diffusion_initialization_scale_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
@@ -1073,6 +1075,15 @@ def _planned_candidates(
         )
     if planner == "gradient_checkpointing_runtime_diagnostic":
         return _gradient_checkpointing_runtime_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
+    if planner == "diffusion_initialization_scale_diagnostic":
+        return _diffusion_initialization_scale_diagnostic_candidates(
             root=root,
             start_trial_id=start_trial_id,
             max_candidates=max_candidates,
@@ -2148,6 +2159,99 @@ def _gradient_checkpointing_runtime_diagnostic_candidates(
     ]
 
 
+def _diffusion_initialization_scale_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("diffusion_initialization_scale_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("diffusion_initialization_scale_diagnostic planner requires --diagnostic-report")
+    review = _broader_strategy_review_summary(
+        root=root,
+        diagnostic_report=diagnostic_report,
+        approved_surface="diffusion_initialization_scale",
+        approved_planner="diffusion_initialization_scale_diagnostic",
+    )
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_diffusion_initialization_scale_diagnostic.json"
+    config_payload = _diffusion_initialization_scale_diagnostic_config_payload(root)
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.DIFFUSION_SCHEDULE,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded diffusion-initialization diagnostic should test whether the repeated "
+            "short-training coordinate collapse comes from the model-internal inference initial "
+            "noise radius before denoising. It scales only the initial diffusion state while "
+            "preserving scorer math, labels, manifests, fingerprints, templates, Modal "
+            "resources, sampler wrapper policy, and ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "diffusion-initialization-scale-diagnostic-planner"
+    trial["seed"] = 99400 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.DISTOGRAM_GOOD_LDDT_FLAT.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="diffusion_initial_noise_scale",
+        predicted_axis=FalsificationAxis.DISTOGRAM_VS_3D,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.006),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.diffusion_initialization_scale_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "source_broader_strategy_review": str(diagnostic_report),
+        "source_surface_strategy_review": review["source_surface_strategy_review"],
+        "source_bench_readiness_review": review["source_bench_readiness_review"],
+        "approved_next_surface": review["approved_next_surface"],
+        "approved_planner": review["approved_planner"],
+        "exhausted_surfaces": review["exhausted_surfaces"],
+        "non_overlap_rationale": review["non_overlap_rationale"],
+        "reference_trial_id": "T088",
+        "candidate_trial_ids": ["T173", "T174", "T175"],
+        "worst_targets": [],
+        "config_payload_overrides": {
+            "diffusion_initial_noise_scale": config_payload["diffusion_initial_noise_scale"],
+            "diffusion_data_std_dev": config_payload["diffusion_data_std_dev"],
+            "diffusion_s_max": config_payload["diffusion_s_max"],
+            "max_templates": config_payload["max_templates"],
+        },
+        "failed_shapes_avoided": review["exhausted_surfaces"],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded diffusion-initialization scale diagnostic",
+            ),
+        }
+    ]
+
+
 def _coordinate_normalized_sampler_diagnostic_candidates(
     *,
     root: Path,
@@ -3083,6 +3187,49 @@ def _surface_design_review_summary(
     }
 
 
+def _broader_strategy_review_summary(
+    *,
+    root: Path,
+    diagnostic_report: str | Path,
+    approved_surface: str,
+    approved_planner: str,
+) -> dict[str, object]:
+    path = _diagnostic_report_path(root=root, diagnostic_report=diagnostic_report)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(f"cannot read broader strategy review: {diagnostic_report}") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("broader strategy review must be a JSON object")
+    if payload.get("schema_version") != "autoaf3.broader_strategy_review.v1":
+        raise AutoresearchLoopError(f"{approved_planner} requires a broader strategy review report")
+    if payload.get("status") != "PASS":
+        raise AutoresearchLoopError("broader strategy review must have status=PASS")
+    if payload.get("decision") != "APPROVE_DRY_RUN_PLANNER_PR_ONLY":
+        raise AutoresearchLoopError(f"{approved_planner} requires APPROVE_DRY_RUN_PLANNER_PR_ONLY")
+    if payload.get("approved_next_surface") != approved_surface:
+        raise AutoresearchLoopError(f"broader strategy review did not approve {approved_surface}")
+    if payload.get("approved_planner") != approved_planner:
+        raise AutoresearchLoopError(f"broader strategy review did not approve {approved_planner}")
+    if payload.get("candidate_limit") != 1:
+        raise AutoresearchLoopError("broader strategy review must require candidate_limit=1")
+    for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "official_benchmark_result"):
+        if payload.get(key) is True:
+            raise AutoresearchLoopError(f"broader strategy review must not claim {key}=true")
+    if payload.get("may_start_live_candidate") is not False or payload.get("may_start_open_ended_loop") is not False:
+        raise AutoresearchLoopError("broader strategy review must block live candidates and open-ended loop")
+    return {
+        "source_surface_strategy_review": str(payload.get("consumed_surface_strategy_review") or ""),
+        "source_bench_readiness_review": str(payload.get("consumed_bench_readiness_review") or ""),
+        "approved_next_surface": str(payload.get("approved_next_surface") or ""),
+        "approved_planner": str(payload.get("approved_planner") or ""),
+        "exhausted_surfaces": [str(item) for item in payload.get("exhausted_surfaces")]
+        if isinstance(payload.get("exhausted_surfaces"), list)
+        else [],
+        "non_overlap_rationale": str(payload.get("non_overlap_rationale") or ""),
+    }
+
+
 def _prediction_geometry_audit_summary(
     *,
     root: Path,
@@ -3341,6 +3488,24 @@ def _gradient_checkpointing_runtime_diagnostic_config_payload(root: Path) -> dic
     payload["use_grad_checkpoint"] = True
     payload["compile_model"] = False
     payload["use_amp"] = False
+    return payload
+
+
+def _diffusion_initialization_scale_diagnostic_config_payload(root: Path) -> dict[str, object]:
+    config_path = root / "configs" / "nanofold_dev_cpu_smoke.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(
+            "diffusion_initialization_scale_diagnostic planner requires dev CPU smoke config"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("dev CPU smoke config must be a JSON object")
+    payload = dict(payload)
+    payload["max_templates"] = 0
+    payload["diffusion_data_std_dev"] = payload.get("diffusion_data_std_dev", 16)
+    payload["diffusion_s_max"] = payload.get("diffusion_s_max", 160)
+    payload["diffusion_initial_noise_scale"] = 0.1
     return payload
 
 

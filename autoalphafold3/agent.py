@@ -16,6 +16,7 @@ from autoalphafold3.autoresearch_candidates import CandidateArtifactError
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
 from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
 from autoalphafold3.bench_readiness_review import BenchReadinessReviewError, review_bench_readiness
+from autoalphafold3.broader_strategy_review import BroaderStrategyReviewError, review_broader_strategy
 from autoalphafold3.checkpoint_runner import CheckpointRunError, run_one_batch_checkpoint
 from autoalphafold3.gate_calibration import GateCalibrationError, calibrate_gate
 from autoalphafold3.gate_calibration_runner import GateCalibrationRunError, run_gate_calibration
@@ -146,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             "auxiliary_contact_loss_diagnostic",
             "feature_ref_pos_scale_diagnostic",
             "gradient_checkpointing_runtime_diagnostic",
+            "diffusion_initialization_scale_diagnostic",
             "llm",
         ),
         default="deterministic",
@@ -215,11 +217,18 @@ def main(argv: list[str] | None = None) -> int:
     bench_readiness_parser = subparsers.add_parser("bench-readiness-review")
     bench_readiness_parser.add_argument("--repo-root", default=".")
     bench_readiness_parser.add_argument("--surface-strategy-review", required=True)
+    bench_readiness_parser.add_argument("--broader-strategy-review", default=None)
     bench_readiness_parser.add_argument("--baseline-dir", default="runs/baseline")
     bench_readiness_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
     bench_readiness_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
     bench_readiness_parser.add_argument("--modal-authority-path", default="runs/modal_event_authority.json")
     bench_readiness_parser.add_argument("--output", default=None)
+
+    broader_strategy_parser = subparsers.add_parser("broader-strategy-review")
+    broader_strategy_parser.add_argument("--repo-root", default=".")
+    broader_strategy_parser.add_argument("--surface-strategy-review", required=True)
+    broader_strategy_parser.add_argument("--bench-readiness-review", required=True)
+    broader_strategy_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -569,12 +578,29 @@ def main(argv: list[str] | None = None) -> int:
             result = review_bench_readiness(
                 repo_root=args.repo_root,
                 surface_strategy_review=args.surface_strategy_review,
+                broader_strategy_review=args.broader_strategy_review,
                 baseline_dir=args.baseline_dir,
                 config_path=args.config_path,
                 calibration_path=args.calibration_path,
                 modal_authority_path=args.modal_authority_path,
             )
         except BenchReadinessReviewError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "broader-strategy-review":
+        try:
+            result = review_broader_strategy(
+                repo_root=args.repo_root,
+                surface_strategy_review=args.surface_strategy_review,
+                bench_readiness_review=args.bench_readiness_review,
+            )
+        except BroaderStrategyReviewError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

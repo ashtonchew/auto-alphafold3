@@ -115,6 +115,15 @@ def test_nanofold_get_args_reads_diffusion_data_scale_config() -> None:
     assert args["diffusion_schedule_p"] == pytest.approx(7.0)
 
 
+def test_nanofold_get_args_reads_diffusion_initial_noise_scale_config() -> None:
+    config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config["diffusion_initial_noise_scale"] = 0.1
+
+    args = Nanofold.get_args(config)
+
+    assert args["diffusion_initial_noise_scale"] == pytest.approx(0.1)
+
+
 def test_nanofold_get_args_reads_contact_auxiliary_loss_config() -> None:
     config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
     config["contact_auxiliary_loss_weight"] = 2.0
@@ -182,6 +191,18 @@ def test_nanofold_config_rejects_invalid_diffusion_data_scale(tmp_path: Path) ->
 
     assert not result.valid
     assert result.missing_keys == ["diffusion_data_std_dev"]
+
+
+def test_nanofold_config_rejects_invalid_diffusion_initial_noise_scale(tmp_path: Path) -> None:
+    config = json.loads((REPO_ROOT / "configs/nanofold_dev_cpu_smoke.json").read_text(encoding="utf-8"))
+    config["diffusion_initial_noise_scale"] = 0.0
+    config_path = tmp_path / "bad_diffusion_initial_noise_scale.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    result = validate_config_file(config_path)
+
+    assert not result.valid
+    assert result.missing_keys == ["diffusion_initial_noise_scale"]
 
 
 def test_nanofold_config_rejects_invalid_contact_auxiliary_params(tmp_path: Path) -> None:

@@ -38,6 +38,10 @@ from autoalphafold3.scorer_sensitivity import ScorerSensitivityError, run_scorer
 from autoalphafold3.sampler_loop import APPROVAL_TEXT as SAMPLER_LOOP_APPROVAL_TEXT
 from autoalphafold3.sampler_loop import SamplerLoopError, run_incremental_sampler_loop
 from autoalphafold3.short_training_runner import ShortTrainingRunError, run_short_training
+from autoalphafold3.strategy_exhaustion_audit import (
+    StrategyExhaustionAuditError,
+    audit_strategy_exhaustion,
+)
 from autoalphafold3.surface_design_review import SurfaceDesignReviewError, review_surface_design
 from autoalphafold3.surface_strategy_review import SurfaceStrategyReviewError, review_surface_strategy
 from autoalphafold3.modal_assets import (
@@ -229,6 +233,12 @@ def main(argv: list[str] | None = None) -> int:
     broader_strategy_parser.add_argument("--surface-strategy-review", required=True)
     broader_strategy_parser.add_argument("--bench-readiness-review", required=True)
     broader_strategy_parser.add_argument("--output", default=None)
+
+    strategy_exhaustion_parser = subparsers.add_parser("strategy-exhaustion-audit")
+    strategy_exhaustion_parser.add_argument("--repo-root", default=".")
+    strategy_exhaustion_parser.add_argument("--evidence-root", default="runs/autoresearch")
+    strategy_exhaustion_parser.add_argument("--bench-readiness-review", default=None)
+    strategy_exhaustion_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -601,6 +611,22 @@ def main(argv: list[str] | None = None) -> int:
                 bench_readiness_review=args.bench_readiness_review,
             )
         except BroaderStrategyReviewError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "strategy-exhaustion-audit":
+        try:
+            result = audit_strategy_exhaustion(
+                repo_root=args.repo_root,
+                evidence_root=args.evidence_root,
+                bench_readiness_review=args.bench_readiness_review,
+            )
+        except StrategyExhaustionAuditError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

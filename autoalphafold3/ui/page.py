@@ -53,6 +53,7 @@ def render_board(s: UiState, board_href: str = "index.html") -> str:
         + _toolbar(s, "Board", board_href)
         + panels.metric_band(s)
         + traj_row
+        + (f'<div class="row flush">{panels.autoresearch_section(s)}</div>' if s.autoresearch_runs else "")
         + (f'<div class="row flush">{panels.ledger_section(s)}</div>' if s.show_ledger else "")
         + (f'<div class="row">{panels.hypothesis_section(s)}</div>' if s.hypothesis is not None else "")
         + (f'<div class="row">{panels.gate_section(s)}</div>' if s.gate is not None else "")

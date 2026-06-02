@@ -124,6 +124,34 @@ class LogEvent:
 
 
 @dataclass
+class AutoresearchCandidate:
+    """One candidate row from ``runs/autoresearch/<run_id>/summary.json``."""
+
+    trial_id: str
+    status: str
+    planning_status: str
+    candidate_id: str
+    matched_budget_delta: str
+    global_baseline_delta: str
+    provisional_keep: bool
+    decision_path: str
+    postmortem_path: str
+
+
+@dataclass
+class AutoresearchRun:
+    """Autoresearch run evidence rendered separately from canonical ledgers."""
+
+    run_id: str
+    source: str
+    candidate_count: int
+    planner: str
+    mode: str
+    official_benchmark_result: bool
+    candidates: list[AutoresearchCandidate]
+
+
+@dataclass
 class UiState:
     best: float | None
     baseline: float | None
@@ -148,6 +176,7 @@ class UiState:
     logs: list = field(default_factory=list)  # LogEvent, for the Logs view
     hypothesis: "Hypothesis | None" = None  # pre-registered claim from trials/T*.json
     pending_trials: list = field(default_factory=list)  # PendingTrial: queued specs
+    autoresearch_runs: list[AutoresearchRun] = field(default_factory=list)
 
     def to_json(self) -> dict[str, object]:
         """Denormalised summary — the data contract a live frontend could poll."""
@@ -165,6 +194,31 @@ class UiState:
                 for p in self.trajectory
             ],
             "provenance": self.provenance,
+            "autoresearch_runs": [
+                {
+                    "run_id": run.run_id,
+                    "source": run.source,
+                    "candidate_count": run.candidate_count,
+                    "planner": run.planner,
+                    "mode": run.mode,
+                    "official_benchmark_result": run.official_benchmark_result,
+                    "candidates": [
+                        {
+                            "trial_id": c.trial_id,
+                            "status": c.status,
+                            "planning_status": c.planning_status,
+                            "candidate_id": c.candidate_id,
+                            "matched_budget_delta": c.matched_budget_delta,
+                            "global_baseline_delta": c.global_baseline_delta,
+                            "provisional_keep": c.provisional_keep,
+                            "decision_path": c.decision_path,
+                            "postmortem_path": c.postmortem_path,
+                        }
+                        for c in run.candidates
+                    ],
+                }
+                for run in self.autoresearch_runs
+            ],
         }
 
 
@@ -247,6 +301,7 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
     # Trial specs are real pre-registered hypothesis data — load them whether or
     # not the orchestrator has produced scored output yet.
     specs = _load_trial_specs(Path("trials"))
+    autoresearch_runs = _load_autoresearch_runs(runs / "autoresearch")
 
     trajectory: list[TrialPoint] = []
     counts = {"confirmed": 0, "killed": 0, "trials": 0, "keep": 0, "discard": 0, "fail": 0, "infra": 0}
@@ -284,6 +339,8 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
     # any real trial specs (hypothesis + pending rows) on top so the user sees
     # the actual queued experiments even before the first score lands.
     if not trajectory:
+        if autoresearch_runs:
+            return _state_from_autoresearch_runs(runs, autoresearch_runs)
         s = sample_state()
         scored: set[str] = set()
         hyp = _featured_hypothesis(specs, scored)
@@ -291,6 +348,9 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         if hyp is not None or pending:
             s.hypothesis = hyp
             s.pending_trials = pending
+        if autoresearch_runs:
+            s.autoresearch_runs = autoresearch_runs
+            s.source = f"{runs} (autoresearch planning + labelled sample metrics)"
         return s
 
     ledger_rows = _real_ledger_rows(runs)
@@ -323,6 +383,10 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
             real_gate = _canonical_gate(canonical)
         real_ledger_from_canonical = _canonical_ledger(canonical)
 
+    autoresearch_trials = _autoresearch_trial_rows(autoresearch_runs)
+    autoresearch_logs = _autoresearch_logs(autoresearch_runs)
+    _add_trial_counts(counts, autoresearch_trials)
+
     return UiState(
         best=best,
         baseline=baseline,
@@ -343,11 +407,112 @@ def load_state(runs_dir: str | Path = "runs") -> UiState:
         show_overlay=real_overlay is not None,
         show_ledger=bool(ledger_rows) or bool(real_ledger_from_canonical),
         source=f"{runs} ({source_kind})" if source_kind else str(runs),
-        trials=_build_trials(rows, baseline),
-        logs=_build_logs(rows),
+        trials=_build_trials(rows, baseline) + autoresearch_trials,
+        logs=_build_logs(rows) + autoresearch_logs,
         hypothesis=_featured_hypothesis(specs, {str(p.trial_id) for p in trajectory}),
         pending_trials=_pending_trial_rows(specs, {str(p.trial_id) for p in trajectory}),
+        autoresearch_runs=autoresearch_runs,
     )
+
+
+def _state_from_autoresearch_runs(runs: Path, autoresearch_runs: list[AutoresearchRun]) -> UiState:
+    """Render real autoresearch planning artifacts without sample scores."""
+    trials = _autoresearch_trial_rows(autoresearch_runs)
+    logs = _autoresearch_logs(autoresearch_runs)
+    counts = {
+        "confirmed": 0,
+        "killed": 0,
+        "trials": len(trials),
+        "keep": sum(1 for row in trials if row.cat == "keep"),
+        "discard": sum(1 for row in trials if row.cat == "discard"),
+        "fail": sum(1 for row in trials if row.cat == "fail"),
+        "infra": sum(1 for row in trials if row.status == "INFRA_FAIL"),
+    }
+    return UiState(
+        best=None,
+        baseline=None,
+        delta=None,
+        prev_delta=None,
+        counts=counts,
+        trajectory=[],
+        axes=[],
+        failure_signature="",
+        ledger=[],
+        gate=None,
+        overlay=None,
+        provenance={
+            "autoresearch": ", ".join(run.run_id for run in autoresearch_runs),
+            "official_benchmark_result": "false",
+            "scorer": "calpha_lddt_v1",
+        },
+        split="planning",
+        scorer="calpha_lddt_v1",
+        is_sample=False,
+        source=f"{runs} (autoresearch summary)",
+        show_cartographer=False,
+        show_overlay=False,
+        show_ledger=False,
+        trials=trials,
+        logs=logs,
+        autoresearch_runs=autoresearch_runs,
+    )
+
+
+def _autoresearch_trial_rows(runs: list[AutoresearchRun]) -> list[TrialRow]:
+    rows: list[TrialRow] = []
+    for run in runs:
+        for candidate in run.candidates:
+            status, tone, cat = _autoresearch_status(candidate.status, candidate.planning_status, candidate.provisional_keep)
+            rows.append(
+                TrialRow(
+                    trial_id=candidate.trial_id,
+                    move_family=run.planner,
+                    axis="autoresearch",
+                    score="—",
+                    delta=candidate.matched_budget_delta,
+                    runtime="—",
+                    status=status,
+                    tone=tone,
+                    cat=cat,
+                )
+            )
+    return rows
+
+
+def _autoresearch_logs(runs: list[AutoresearchRun]) -> list[LogEvent]:
+    events: list[LogEvent] = []
+    for run in runs:
+        events.append(LogEvent("", "info", "—", f"autoresearch run {run.run_id} loaded · planner {run.planner} · mode {run.mode}"))
+        for candidate in run.candidates:
+            status, _, _ = _autoresearch_status(candidate.status, candidate.planning_status, candidate.provisional_keep)
+            events.append(LogEvent("", "info", candidate.trial_id, f"{status} · matched Δ {candidate.matched_budget_delta} · global Δ {candidate.global_baseline_delta}"))
+    return events
+
+
+def _autoresearch_status(status: str, planning_status: str, provisional_keep: bool) -> tuple[str, str, str]:
+    if status == "KEEP" or provisional_keep:
+        return "PROVISIONAL KEEP", "ok", "keep"
+    if status == "DISCARD":
+        return "DISCARD", "muted", "discard"
+    if status in {"FAIL", "INFRA_FAIL"}:
+        return status, "warn" if status == "FAIL" else "info", "fail"
+    if status == "PLANNED" or (status == "DRAFT" and planning_status == "PLANNED"):
+        return "PLANNED", "info", "pending"
+    return status or "UNKNOWN", "muted", "other"
+
+
+def _add_trial_counts(counts: dict[str, int], rows: list[TrialRow]) -> None:
+    counts["trials"] += len(rows)
+    for row in rows:
+        if row.cat == "keep":
+            counts["keep"] += 1
+        elif row.cat == "discard":
+            counts["discard"] += 1
+        elif row.cat == "fail":
+            if row.status == "INFRA_FAIL":
+                counts["infra"] += 1
+            else:
+                counts["fail"] += 1
 
 
 @dataclass
@@ -415,6 +580,90 @@ def _rows_from_trial_metrics(trials_dir: Path) -> list[_MetricsRow]:
             )
         )
     return out
+
+
+def _load_autoresearch_runs(root: Path) -> list[AutoresearchRun]:
+    """Read planning/evidence summaries from ``runs/autoresearch/<run_id>``.
+
+    These artifacts are not canonical benchmark ledgers. They describe the
+    autoresearch trajectory and stay visibly separate from scored metrics.
+    """
+    if not root.exists():
+        return []
+    out: list[AutoresearchRun] = []
+    root_resolved = root.resolve()
+    for run_dir in sorted(root.iterdir()):
+        if not run_dir.is_dir() or run_dir.is_symlink():
+            continue
+        try:
+            run_dir.resolve().relative_to(root_resolved)
+        except (OSError, ValueError):
+            continue
+        summary_path = run_dir / "summary.json"
+        if summary_path.is_symlink() or not summary_path.exists():
+            continue
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(summary, dict):
+            continue
+        manifest = _read_json_object(run_dir / "run_manifest.json", allow_symlink=False)
+        candidates = []
+        for item in summary.get("candidates", []) or []:
+            if not isinstance(item, dict):
+                continue
+            candidates.append(
+                AutoresearchCandidate(
+                    trial_id=str(item.get("trial_id", "")),
+                    status=str(item.get("status", "")),
+                    planning_status=str(item.get("planning_status", "")),
+                    candidate_id=str(item.get("candidate_id", "")),
+                    matched_budget_delta=_fmt_optional_delta(item.get("matched_budget_delta")),
+                    global_baseline_delta=_fmt_optional_delta(item.get("global_baseline_delta")),
+                    provisional_keep=item.get("provisional_keep") is True,
+                    decision_path=_rel_to(run_dir.parent.parent, item.get("decision_path")),
+                    postmortem_path=_rel_to(run_dir.parent.parent, item.get("postmortem_path")),
+                )
+            )
+        out.append(
+            AutoresearchRun(
+                run_id=str(summary.get("run_id") or manifest.get("run_id") or run_dir.name),
+                source=str(summary_path),
+                candidate_count=len(candidates),
+                planner=str(manifest.get("planner", "unknown")),
+                mode=str(manifest.get("mode", "unknown")),
+                official_benchmark_result=False,
+                candidates=candidates,
+            )
+        )
+    return out
+
+
+def _read_json_object(path: Path, *, allow_symlink: bool = True) -> dict:
+    if not path.exists():
+        return {}
+    if not allow_symlink and path.is_symlink():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _fmt_optional_delta(value: object) -> str:
+    return f"{float(value):+.3f}" if isinstance(value, (int, float)) else "—"
+
+
+def _rel_to(root: Path, value: object) -> str:
+    path = Path(str(value)) if value else Path()
+    if not str(path):
+        return ""
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def _load_canonical_smokes_file(runs: Path) -> dict | None:

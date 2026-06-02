@@ -47,6 +47,39 @@ def metric_band(s: UiState) -> str:
     )
 
 
+def autoresearch_section(s: UiState) -> str:
+    rows = ""
+    for run in s.autoresearch_runs:
+        for c in run.candidates:
+            is_planned = c.status == "PLANNED" or (c.status == "DRAFT" and c.planning_status == "PLANNED")
+            tone = "ok" if c.provisional_keep else ("info" if is_planned else "muted")
+            if c.status in {"FAIL", "INFRA_FAIL"}:
+                tone = "warn"
+            status = "PROVISIONAL KEEP" if c.provisional_keep else ("PLANNED" if is_planned else c.status)
+            rows += (
+                f"<tr><td>{esc(run.run_id)}</td>"
+                f'<td class="c-mono">{esc(c.trial_id)}</td>'
+                f"<td>{esc(run.planner)}</td>"
+                f'<td class="r c-d muted num">{esc(c.matched_budget_delta)}</td>'
+                f'<td class="r c-d muted num">{esc(c.global_baseline_delta)}</td>'
+                f'<td class="r">{status_pill(status, tone)}</td></tr>'
+            )
+    official = any(run.official_benchmark_result for run in s.autoresearch_runs)
+    note = (
+        "Official benchmark result: false. These rows are autoresearch planning/evidence artifacts, "
+        "not canonical scorer ledger entries or Discovery Ledger records."
+        if not official
+        else "Official benchmark flag present; verify scorer-owned evidence before making claims."
+    )
+    return (
+        '<h2 class="block-title">Autoresearch evidence</h2>'
+        f'<div class="block-sub">{esc(note)}</div>'
+        '<table class="dtable"><thead><tr><th>Run</th><th>Trial</th><th>Planner</th>'
+        '<th class="r">Matched Δ</th><th class="r">Global Δ</th><th class="r">Status</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
 def trajectory_section(s: UiState) -> tuple[str, str]:
     svg, traj_json = components.trajectory_chart(s.trajectory, s.baseline)
     killed = s.counts.get("killed", 0)
@@ -240,9 +273,9 @@ def trials_table(s: UiState) -> str:
         f'{esc(label)}<span class="n">{count(cat)}</span></button>'
         for cat, label in _FILTERS
     )
-    scored = s.counts.get("trials", len(s.trials))
-    pending = len(s.pending_trials)
-    total = scored + pending
+    total = len(all_trials)
+    scored = sum(1 for t in all_trials if t.score != "—")
+    pending = sum(1 for t in all_trials if t.cat == "pending")
     parts = []
     if scored:
         parts.append(f"{scored} scored")

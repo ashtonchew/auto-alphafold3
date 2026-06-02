@@ -189,6 +189,95 @@ def test_bench_readiness_consumes_live_smoke_gate_as_bounded_smoke_approved(
     assert report.official_benchmark_result is False
 
 
+def test_bench_readiness_consumes_live_smoke_result_as_post_smoke_strategy_required(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _write_surface_strategy(
+        tmp_path,
+        may_start_open_ended_loop=False,
+        exhausted_surfaces=["auxiliary_loss", "feature_handling", "memory_runtime"],
+        unimplemented_candidate_surfaces=[],
+    )
+    live_smoke = _write_live_smoke_gate(tmp_path)
+    live_smoke_result = _write_live_smoke_result_review(tmp_path)
+    monkeypatch.setattr(bench_review, "build_readiness_report", lambda **_: FakeReadiness(ready=True))
+
+    report = review_bench_readiness(
+        repo_root=tmp_path,
+        surface_strategy_review=strategy,
+        live_smoke_gate=live_smoke,
+        live_smoke_result_review=live_smoke_result,
+    )
+
+    assert report.decision == "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_DISCARDED"
+    assert report.can_start_open_ended_bench is False
+    assert report.may_start_live_candidate is False
+    assert report.live_smoke_result_decision == "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_DISCARDED"
+    assert report.live_smoke_result_status == "DISCARD"
+    assert report.live_smoke_result_trial_id == "T179"
+    assert report.required_objectives[0]["name"] == "post_smoke_strategy_review"
+    assert report.roadmap[1]["step"] == "write_post_smoke_strategy"
+    assert report.evidence["live_smoke_result_review"] == str(live_smoke_result)
+    assert report.starts_search is False
+    assert report.writes_ledger is False
+    assert report.official_benchmark_result is False
+
+
+def test_bench_readiness_live_smoke_result_overrides_stale_open_ended_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _write_surface_strategy(
+        tmp_path,
+        decision="APPROVE_OPEN_ENDED_BENCH",
+        may_start_open_ended_loop=True,
+        exhausted_surfaces=[],
+        unimplemented_candidate_surfaces=[],
+    )
+    live_smoke_result = _write_live_smoke_result_review(tmp_path)
+    monkeypatch.setattr(bench_review, "build_readiness_report", lambda **_: FakeReadiness(ready=True))
+
+    report = review_bench_readiness(
+        repo_root=tmp_path,
+        surface_strategy_review=strategy,
+        live_smoke_result_review=live_smoke_result,
+    )
+
+    assert report.decision == "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_DISCARDED"
+    assert report.can_start_open_ended_bench is False
+    assert report.may_start_live_candidate is False
+    assert report.required_objectives[0]["name"] == "post_smoke_strategy_review"
+
+
+def test_bench_readiness_routes_provisional_keep_to_falsification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    strategy = _write_surface_strategy(
+        tmp_path,
+        may_start_open_ended_loop=False,
+        exhausted_surfaces=["auxiliary_loss", "feature_handling", "memory_runtime"],
+        unimplemented_candidate_surfaces=[],
+    )
+    live_smoke_result = _write_live_smoke_result_review(
+        tmp_path,
+        decision="BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_PROVISIONAL_KEEP",
+        smoke_status="KEEP",
+    )
+    monkeypatch.setattr(bench_review, "build_readiness_report", lambda **_: FakeReadiness(ready=True))
+
+    report = review_bench_readiness(
+        repo_root=tmp_path,
+        surface_strategy_review=strategy,
+        live_smoke_result_review=live_smoke_result,
+    )
+
+    assert report.decision == "BLOCK_OPEN_ENDED_BENCH_FALSIFICATION_REQUIRED"
+    assert report.required_objectives[0]["name"] == "run_falsification_gate"
+    assert report.roadmap[1]["step"] == "run_falsification_gate"
+
+
 def test_bench_readiness_blocks_when_foundation_not_ready(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -307,6 +396,23 @@ def test_bench_readiness_refuses_open_ended_authority_in_live_smoke_gate(tmp_pat
             repo_root=tmp_path,
             surface_strategy_review=strategy,
             live_smoke_gate=live_smoke,
+        )
+
+
+def test_bench_readiness_refuses_live_authority_in_live_smoke_result(tmp_path: Path) -> None:
+    strategy = _write_surface_strategy(
+        tmp_path,
+        may_start_open_ended_loop=False,
+        exhausted_surfaces=["auxiliary_loss", "feature_handling", "memory_runtime"],
+        unimplemented_candidate_surfaces=[],
+    )
+    live_smoke_result = _write_live_smoke_result_review(tmp_path, may_start_live_candidate=True)
+
+    with pytest.raises(BenchReadinessReviewError, match="must not authorize live"):
+        review_bench_readiness(
+            repo_root=tmp_path,
+            surface_strategy_review=strategy,
+            live_smoke_result_review=live_smoke_result,
         )
 
 
@@ -462,6 +568,46 @@ def _write_live_smoke_gate(
                 "candidate_limit": 1,
                 "may_start_live_candidate": True,
                 "may_start_open_ended_loop": may_start_open_ended_loop,
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path.relative_to(tmp_path)
+
+
+def _write_live_smoke_result_review(
+    tmp_path: Path,
+    *,
+    decision: str = "BLOCK_OPEN_ENDED_BENCH_LIVE_SMOKE_DISCARDED",
+    smoke_status: str = "DISCARD",
+    may_start_live_candidate: bool = False,
+) -> Path:
+    path = tmp_path / "runs/autoresearch/live_smoke_result_review/review.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.live_smoke_result_review.v1",
+                "status": "PASS",
+                "decision": decision,
+                "reviewed_run_dir": "runs/autoresearch/T179-smoke",
+                "reviewed_trial_id": "T179",
+                "candidate_id": "T179",
+                "smoke_status": smoke_status,
+                "result_status": "SCORED",
+                "candidate_score": 0.07791816299247686,
+                "global_baseline_delta": -0.0014941413929591835,
+                "provisional_keep": smoke_status == "KEEP",
+                "promotion_status": "FALSIFICATION_REQUIRED" if smoke_status == "KEEP" else "NOT_ELIGIBLE",
+                "failure_signature": None,
+                "required_objectives": [],
+                "roadmap": [],
+                "may_start_live_candidate": may_start_live_candidate,
+                "may_start_open_ended_loop": False,
                 "starts_search": False,
                 "writes_ledger": False,
                 "writes_discovery_ledger": False,

@@ -28,6 +28,10 @@ from autoalphafold3.gate_calibration_runner import GateCalibrationRunError, run_
 from autoalphafold3.local_fixtures import LocalFixtureError, materialize_local_nanofold_fixture
 from autoalphafold3.llm_policy import DEFAULT_LLM_MODEL, AgentSearchPhase, default_llm_phase_policies, default_llm_phase_policy
 from autoalphafold3.live_smoke_gate import LiveSmokeGateError, review_live_smoke_gate
+from autoalphafold3.live_smoke_result_review import (
+    LiveSmokeResultReviewError,
+    review_live_smoke_result,
+)
 from autoalphafold3.modal_authority import ModalAuthorityError, audit_modal_event_authority
 from autoalphafold3.modal_trial_artifacts import (
     ModalTrialArtifactError,
@@ -239,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     bench_readiness_parser.add_argument("--evidence-bridge-review", default=None)
     bench_readiness_parser.add_argument("--candidate-implementation-review", default=None)
     bench_readiness_parser.add_argument("--live-smoke-gate", default=None)
+    bench_readiness_parser.add_argument("--live-smoke-result-review", default=None)
     bench_readiness_parser.add_argument("--baseline-dir", default="runs/baseline")
     bench_readiness_parser.add_argument("--config-path", default="configs/nanofold_dev_cpu_smoke.json")
     bench_readiness_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
@@ -283,6 +288,11 @@ def main(argv: list[str] | None = None) -> int:
     live_smoke_gate_parser.add_argument("--calibration-path", default="runs/falsification_gate_calibration.json")
     live_smoke_gate_parser.add_argument("--modal-authority-path", default="runs/modal_event_authority.json")
     live_smoke_gate_parser.add_argument("--output", default=None)
+
+    live_smoke_result_parser = subparsers.add_parser("live-smoke-result-review")
+    live_smoke_result_parser.add_argument("--repo-root", default=".")
+    live_smoke_result_parser.add_argument("--live-smoke-run-dir", required=True)
+    live_smoke_result_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -645,12 +655,28 @@ def main(argv: list[str] | None = None) -> int:
                 evidence_bridge_review=args.evidence_bridge_review,
                 candidate_implementation_review=args.candidate_implementation_review,
                 live_smoke_gate=args.live_smoke_gate,
+                live_smoke_result_review=args.live_smoke_result_review,
                 baseline_dir=args.baseline_dir,
                 config_path=args.config_path,
                 calibration_path=args.calibration_path,
                 modal_authority_path=args.modal_authority_path,
             )
         except BenchReadinessReviewError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "live-smoke-result-review":
+        try:
+            result = review_live_smoke_result(
+                repo_root=args.repo_root,
+                live_smoke_run_dir=args.live_smoke_run_dir,
+            )
+        except LiveSmokeResultReviewError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

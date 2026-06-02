@@ -206,26 +206,46 @@ delegate through the Modal-hosted trusted orchestrator and the approved
 `AutoFoldTrial` submission boundary; it must not call trial workers directly or
 create a parallel live execution authority.
 
-Open-ended autoresearch loop, after deterministic ladder passes and a human
+Bounded live autoresearch smoke, after deterministic ladder passes and a human
 reviews the plan:
 
 ```bash
 python3 -m autoalphafold3.agent autoresearch-loop \
   --mode modal \
-  --planner llm \
+  --planner deterministic \
   --run-id live-autoresearch-001 \
   --start-trial-id T130 \
   --max-candidates 1 \
   --approve I_APPROVE_AUTORESEARCH_LIVE_SEARCH
 ```
 
-These are `PENDING_HUMAN_LIVE_ACTION` commands until the implementation exists
-and a human explicitly approves them.
+This implemented live path is intentionally narrow: it plans exactly one
+training candidate, submits it through the deployed Modal
+`TrustedOrchestrator`, polls the returned worker call id, and writes only local
+autoresearch candidate artifacts. It does not write the canonical ledger or
+Discovery Ledger. If the worker returns short-training-only evidence, the
+candidate remains `DRAFT` with `benchmark_decision=NOT_SCORED`; it is not a
+`KEEP`/`DISCARD` benchmark decision.
 
-The open-ended loop must submit one validated `AutoFoldTrial` at a time through
-the trusted orchestrator. The loop may plan candidates and collect returned
-evidence, but it must not bypass preflight, scorer-only evaluation, canonical
-ledger authority, or Modal resource policy.
+LLM-authored candidates for the same path still require a recorded one-candidate
+plan and the same exact approval token:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode modal \
+  --planner llm \
+  --candidate-plan configs/experiments/recorded-live-candidate.json \
+  --run-id live-autoresearch-llm-001 \
+  --start-trial-id T130 \
+  --max-candidates 1 \
+  --approve I_APPROVE_AUTORESEARCH_LIVE_SEARCH
+```
+
+Open-ended autonomous search remains out of scope. Future extensions must still
+submit one validated `AutoFoldTrial` at a time through the trusted orchestrator.
+They may plan candidates and collect returned evidence, but must not bypass
+preflight, scorer-only evaluation, canonical ledger authority, or Modal resource
+policy.
 
 ## Review And UI Render
 

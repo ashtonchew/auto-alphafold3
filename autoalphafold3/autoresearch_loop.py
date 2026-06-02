@@ -17,9 +17,16 @@ from autoalphafold3.patch_policy import PatchPolicyError, validate_patch_scope
 from autoalphafold3.autoresearch_candidates import (
     create_candidate_envelope,
     create_run_manifest,
+    write_candidate_decision,
     write_candidate_evidence,
 )
+from autoalphafold3.autoresearch_comparisons import (
+    AutoresearchComparisonError,
+    compare_and_write_candidate_decision,
+)
+from autoalphafold3.modal_app import APP_NAME, TRUSTED_ORCHESTRATOR_CLASS
 from autoalphafold3.schema import (
+    AutoFoldResult,
     AutoFoldTrial,
     BudgetTier,
     DiagnosticTarget,
@@ -64,6 +71,13 @@ class AutoresearchPlanner(Protocol):
         base_commit: str,
     ) -> "AutoresearchCandidatePlan":
         """Return one structured autoresearch candidate."""
+
+
+class TrustedAutoresearchClient(Protocol):
+    """Injected trusted-orchestrator client seam for live Modal autoresearch."""
+
+    def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
+        """Submit one trial through the trusted orchestrator and poll the spawned worker."""
 
 
 class AutoresearchCandidatePlan(BaseModel):
@@ -133,8 +147,10 @@ def run_autoresearch_loop(
     approval: str | None = None,
     model: str = DEFAULT_LLM_MODEL,
     planner_client: AutoresearchPlanner | None = None,
+    modal_env: str | None = None,
+    modal_client: TrustedAutoresearchClient | None = None,
 ) -> AutoresearchLoopResult:
-    """Plan manual or deterministic autoresearch candidates without live execution."""
+    """Plan autoresearch candidates and optionally run one approved Modal candidate."""
 
     if mode not in {"dry-run", "modal"}:
         raise AutoresearchLoopError(f"unsupported autoresearch mode: {mode}")
@@ -143,7 +159,8 @@ def run_autoresearch_loop(
     if mode == "modal":
         if approval != APPROVAL_TEXT:
             raise AutoresearchLoopError(f"live autoresearch requires --approve {APPROVAL_TEXT}")
-        raise AutoresearchLoopError("live autoresearch execution is not implemented; use dry-run planning mode")
+        if max_candidates != 1:
+            raise AutoresearchLoopError("live autoresearch currently supports exactly one candidate")
 
     root = Path(repo_root)
     base_commit = _git_head(root)
@@ -215,9 +232,20 @@ def run_autoresearch_loop(
         )
         write_candidate_evidence(envelope, preflight=_planned_preflight(trial))
         wrote_files.append(str(envelope.preflight_path))
+        if mode == "modal":
+            live = _run_modal_candidate_smoke(
+                root=root,
+                run_id=run_id,
+                envelope=envelope,
+                trial=trial,
+                modal_env=modal_env,
+                modal_client=modal_client,
+            )
+            decisions[-1].update(live["decision"])
+            wrote_files.extend(live["wrote_files"])
     _write_planned_candidate_index(root=root, run_id=run_id, records=decisions)
     return AutoresearchLoopResult(
-        status="PLANNED",
+        status="PASS" if mode == "modal" else "PLANNED",
         mode=mode,
         planner=planner,
         run_id=str(run_manifest["run_id"]),
@@ -227,11 +255,144 @@ def run_autoresearch_loop(
         decisions=decisions,
         wrote_files=wrote_files,
         llm_policy=llm_policy,
-        starts_search=False,
+        starts_search=mode == "modal",
         writes_ledger=False,
         writes_discovery_ledger=False,
-        pending_live_action=f"modal mode requires --approve {APPROVAL_TEXT}",
+        pending_live_action=None if mode == "modal" else f"modal mode requires --approve {APPROVAL_TEXT}",
     )
+
+
+def _run_modal_candidate_smoke(
+    *,
+    root: Path,
+    run_id: str,
+    envelope,
+    trial: dict[str, object],
+    modal_env: str | None,
+    modal_client: TrustedAutoresearchClient | None,
+) -> dict[str, object]:
+    checked = AutoFoldTrial.model_validate(trial)
+    if checked.trial_kind != TrialKind.TRAINING:
+        raise AutoresearchLoopError("live autoresearch smoke currently supports training candidates only")
+    client = modal_client if modal_client is not None else DeployedTrustedAutoresearchClient(environment_name=modal_env)
+    try:
+        payload = client.submit_and_poll_trial(checked.model_dump(mode="json"))
+    except Exception as exc:  # noqa: BLE001 - normalize delegated runner failures.
+        raise AutoresearchLoopError(f"live autoresearch trusted-orchestrator trial failed: {exc}") from exc
+    return _record_modal_candidate_payload(root=root, run_id=run_id, envelope=envelope, payload=payload)
+
+
+class DeployedTrustedAutoresearchClient:
+    """Modal SDK client for one trusted-orchestrator trial submission."""
+
+    def __init__(self, *, environment_name: str | None = None) -> None:
+        self.environment_name = environment_name
+        try:
+            import modal
+        except ModuleNotFoundError as exc:
+            raise AutoresearchLoopError("Modal SDK is required for live Modal autoresearch") from exc
+        self._modal = modal
+
+    def submit_and_poll_trial(self, trial: dict[str, object]) -> dict[str, object]:
+        orchestrator_cls = self._modal.Cls.from_name(
+            APP_NAME,
+            TRUSTED_ORCHESTRATOR_CLASS,
+            environment_name=self.environment_name,
+        )
+        orchestrator = orchestrator_cls()
+        submitted = orchestrator.submit_trial.remote(trial)
+        if not isinstance(submitted, dict):
+            raise AutoresearchLoopError("TrustedOrchestrator.submit_trial returned a non-object payload")
+        worker_call_id = _worker_call_id(submitted)
+        call = self._modal.FunctionCall.from_id(worker_call_id)
+        payload = call.get(timeout=0)
+        if not isinstance(payload, dict):
+            raise AutoresearchLoopError("trusted-orchestrator worker call returned a non-object payload")
+        return payload
+
+
+def _record_modal_candidate_payload(
+    *,
+    root: Path,
+    run_id: str,
+    envelope,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    del run_id
+    trial_id = envelope.trial_id
+    status = str(payload.get("status") or "UNKNOWN")
+    wrote_files: list[str] = []
+    decision: dict[str, object] = {
+        "execution_status": status,
+        "trial_artifact_dir": str(root / "runs" / "trials" / trial_id),
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "official_benchmark_result": False,
+    }
+    if _is_short_training_manifest(payload):
+        if payload.get("trial_id") != trial_id:
+            raise AutoresearchLoopError("live autoresearch short-training manifest trial_id mismatch")
+        wrote_files.extend(write_candidate_evidence(envelope, training_manifest=payload))
+        decision.update(
+            {
+                "training_manifest_path": str(envelope.training_manifest_path),
+                "benchmark_decision": "NOT_SCORED",
+            }
+        )
+        return {"decision": decision, "wrote_files": wrote_files}
+    try:
+        result = AutoFoldResult.model_validate(payload)
+    except ValueError as exc:
+        raise AutoresearchLoopError(f"live autoresearch returned invalid trial payload: {exc}") from exc
+    if result.trial_id != trial_id:
+        raise AutoresearchLoopError("live autoresearch result trial_id mismatch")
+    if result.status == TrialStatus.SCORED:
+        try:
+            comparison = compare_and_write_candidate_decision(
+                envelope,
+                candidate_result=result,
+                matched_budget_result=None,
+                repo_root=root,
+                baseline_dir="runs/baseline",
+                ledger_path="runs/ledger.jsonl",
+            )
+        except AutoresearchComparisonError as exc:
+            raise AutoresearchLoopError(f"live autoresearch comparison failed: {exc}") from exc
+        wrote_files.extend([str(envelope.metrics_path), str(envelope.decision_path), str(envelope.postmortem_path)])
+        decision.update(comparison.to_dict())
+        decision["decision_path"] = str(envelope.decision_path)
+        return {"decision": decision, "wrote_files": wrote_files}
+    if result.status in {TrialStatus.FAIL, TrialStatus.INFRA_FAIL}:
+        wrote_files.extend(write_candidate_evidence(envelope, error_report=result.model_dump(mode="json")))
+        write_candidate_decision(
+            envelope,
+            status=result.status.value,
+            matched_budget_delta=None,
+            global_baseline_delta=None,
+            reason=result.failure_signature or f"modal trial returned {result.status.value}",
+            postmortem=result.postmortem or f"Modal trial returned {result.status.value}.",
+        )
+        wrote_files.extend([str(envelope.error_report_path), str(envelope.decision_path), str(envelope.postmortem_path)])
+        decision["status"] = result.status.value
+        decision["decision_path"] = str(envelope.decision_path)
+        return {"decision": decision, "wrote_files": wrote_files}
+    raise AutoresearchLoopError(f"live autoresearch result status is not terminal: {result.status.value}")
+
+
+def _worker_call_id(payload: dict[str, object]) -> str:
+    artifacts = payload.get("artifacts")
+    if isinstance(artifacts, dict) and isinstance(artifacts.get("worker_call_id"), str):
+        return artifacts["worker_call_id"]
+    fold_cartographer = payload.get("fold_cartographer")
+    if isinstance(fold_cartographer, dict):
+        summary = fold_cartographer.get("summary")
+        if isinstance(summary, dict) and isinstance(summary.get("worker_call_id"), str):
+            return summary["worker_call_id"]
+    raise AutoresearchLoopError("TrustedOrchestrator.submit_trial did not return worker_call_id")
+
+
+def _is_short_training_manifest(payload: dict[str, object]) -> bool:
+    return payload.get("schema_version") == "autoaf3.short_training_manifest.v1"
 
 
 def _planned_candidates(
@@ -548,17 +709,7 @@ def _write_planned_candidate_index(*, root: Path, run_id: str, records: list[dic
     summary_path = run_dir / "summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     candidates = [
-        {
-            "trial_id": record["trial_id"],
-            "candidate_id": record["candidate_id"],
-            "status": TrialStatus.DRAFT.value,
-            "planning_status": record["planning_status"],
-            "decision_path": None,
-            "postmortem_path": None,
-            "matched_budget_delta": None,
-            "global_baseline_delta": None,
-            "provisional_keep": False,
-        }
+        _planned_summary_record(record)
         for record in records
     ]
     summary["candidates"] = candidates
@@ -582,16 +733,46 @@ def _write_planned_candidate_index(*, root: Path, run_id: str, records: list[dic
                 [
                     record["trial_id"],
                     record["candidate_id"],
-                    TrialStatus.DRAFT.value,
+                    record.get("status", TrialStatus.DRAFT.value),
                     "best_val_calpha_lddt",
-                    "",
-                    "",
-                    "false",
-                    "",
+                    _tsv_optional(record.get("matched_budget_delta")),
+                    _tsv_optional(record.get("global_baseline_delta")),
+                    str(bool(record.get("provisional_keep", False))).lower(),
+                    record.get("decision_path") or "",
                 ]
             )
     results_tmp.replace(run_dir / "results.tsv")
     _atomic_write_json(summary_path, summary)
+
+
+def _planned_summary_record(record: dict[str, object]) -> dict[str, object]:
+    summary_record = {
+        "trial_id": record["trial_id"],
+        "candidate_id": record["candidate_id"],
+        "status": record.get("status", TrialStatus.DRAFT.value),
+        "planning_status": record["planning_status"],
+        "decision_path": record.get("decision_path"),
+        "postmortem_path": record.get("postmortem_path"),
+        "matched_budget_delta": record.get("matched_budget_delta"),
+        "global_baseline_delta": record.get("global_baseline_delta"),
+        "provisional_keep": bool(record.get("provisional_keep", False)),
+    }
+    for key in (
+        "execution_status",
+        "training_manifest_path",
+        "trial_artifact_dir",
+        "benchmark_decision",
+        "writes_ledger",
+        "writes_discovery_ledger",
+        "official_benchmark_result",
+    ):
+        if key in record:
+            summary_record[key] = record[key]
+    return summary_record
+
+
+def _tsv_optional(value: object) -> object:
+    return "" if value is None else value
 
 
 def _atomic_write_json(path: Path, payload: dict[str, object]) -> None:

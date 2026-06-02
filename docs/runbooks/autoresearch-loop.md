@@ -933,6 +933,25 @@ execution. If it emits `NO_IMPLEMENTED_PLANNER_REMAINING`, the next step is new
 strategy design outside the existing implemented planner catalog, followed by a
 new dry-run planner PR and a fresh bench-readiness-review.
 
+To define that first post-exhaustion strategy without starting search, generate
+the PRD artifact:
+
+```bash
+python3 -m autoalphafold3.agent post-exhaustion-strategy \
+  --bench-readiness-review runs/autoresearch/bench_readiness_review/T176-bench-blocked-with-no-go-post-pr116.json \
+  --strategy-exhaustion-audit runs/autoresearch/strategy_exhaustion_audit/T176-global-implemented-planner-audit-post-pr116.json \
+  --output runs/autoresearch/post_exhaustion_strategy/T176-evidence-guided-failure-mode-bridge-prd.json
+```
+
+This command is also offline only. It approves only a strategy PRD, not a live
+candidate and not the open-ended bench. The approved post-exhaustion direction
+is `evidence_guided_failure_mode_bridge`: a pre-live evidence bridge that uses
+real scorer-sensitivity and prediction-geometry evidence to kill repeated
+failure modes before any future Modal spend. A follow-up planner PR must still
+emit exactly one dry-run artifact-only candidate, keep `starts_search=false`,
+keep ledger writes false, and rerun the composite bench gate before any bounded
+live smoke.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

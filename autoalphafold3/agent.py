@@ -32,6 +32,10 @@ from autoalphafold3.post_discard_diagnosis import (
     PostDiscardDiagnosisError,
     diagnose_post_discard_evidence,
 )
+from autoalphafold3.post_exhaustion_strategy import (
+    PostExhaustionStrategyError,
+    design_post_exhaustion_strategy,
+)
 from autoalphafold3.prediction_geometry import PredictionGeometryError, audit_prediction_geometry
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.scorer_sensitivity import ScorerSensitivityError, run_scorer_sensitivity
@@ -239,6 +243,12 @@ def main(argv: list[str] | None = None) -> int:
     strategy_exhaustion_parser.add_argument("--evidence-root", default="runs/autoresearch")
     strategy_exhaustion_parser.add_argument("--bench-readiness-review", default=None)
     strategy_exhaustion_parser.add_argument("--output", default=None)
+
+    post_exhaustion_parser = subparsers.add_parser("post-exhaustion-strategy")
+    post_exhaustion_parser.add_argument("--repo-root", default=".")
+    post_exhaustion_parser.add_argument("--bench-readiness-review", required=True)
+    post_exhaustion_parser.add_argument("--strategy-exhaustion-audit", required=True)
+    post_exhaustion_parser.add_argument("--output", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -627,6 +637,22 @@ def main(argv: list[str] | None = None) -> int:
                 bench_readiness_review=args.bench_readiness_review,
             )
         except StrategyExhaustionAuditError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "post-exhaustion-strategy":
+        try:
+            result = design_post_exhaustion_strategy(
+                repo_root=args.repo_root,
+                bench_readiness_review=args.bench_readiness_review,
+                strategy_exhaustion_audit=args.strategy_exhaustion_audit,
+            )
+        except PostExhaustionStrategyError as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()

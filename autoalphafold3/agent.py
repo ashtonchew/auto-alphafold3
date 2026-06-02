@@ -30,6 +30,7 @@ from autoalphafold3.post_discard_diagnosis import (
     PostDiscardDiagnosisError,
     diagnose_post_discard_evidence,
 )
+from autoalphafold3.prediction_geometry import PredictionGeometryError, audit_prediction_geometry
 from autoalphafold3.readiness import build_readiness_report, readiness_exit_code
 from autoalphafold3.scorer_sensitivity import ScorerSensitivityError, run_scorer_sensitivity
 from autoalphafold3.sampler_loop import APPROVAL_TEXT as SAMPLER_LOOP_APPROVAL_TEXT
@@ -154,6 +155,11 @@ def main(argv: list[str] | None = None) -> int:
     compare_predictions_parser.add_argument("--left-metrics", default=None)
     compare_predictions_parser.add_argument("--right-metrics", default=None)
     compare_predictions_parser.add_argument("--output", default=None)
+
+    prediction_geometry_parser = subparsers.add_parser("prediction-geometry-audit")
+    prediction_geometry_parser.add_argument("--prediction", action="append", required=True)
+    prediction_geometry_parser.add_argument("--reference-predictions", default=None)
+    prediction_geometry_parser.add_argument("--output", default=None)
 
     fetch_trial_artifacts_parser = subparsers.add_parser("fetch-modal-trial-artifacts")
     fetch_trial_artifacts_parser.add_argument("--trial-id", required=True)
@@ -410,6 +416,20 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         payload = result.to_dict()
+        if args.output is not None:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "prediction-geometry-audit":
+        try:
+            payload = audit_prediction_geometry(
+                predictions=args.prediction,
+                reference_predictions=args.reference_predictions,
+            )
+        except PredictionGeometryError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
         if args.output is not None:
             Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

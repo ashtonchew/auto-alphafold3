@@ -330,12 +330,15 @@ class AutoFoldTrial(BaseModel):
                 "sampler_noise_scale": self.sampler_noise_scale,
                 "sampler_step_scale": self.sampler_step_scale,
                 "sampler_schedule_shape": self.sampler_schedule_shape,
-                "sampler_num_samples": self.sampler_num_samples,
-                "sampler_selection_policy": self.sampler_selection_policy,
             }
             present = [name for name, value in sampler_fields.items() if value is not None]
             if present:
                 raise ValueError(f"{self.trial_kind.value} trials must not set sampler-only fields: {present}")
+        if (
+            self.trial_kind not in {TrialKind.SAMPLER, TrialKind.TRAINING}
+            and (self.sampler_num_samples is not None or self.sampler_selection_policy is not None)
+        ):
+            raise ValueError(f"{self.trial_kind.value} trials must not set post-training sampler selection fields")
         if self.sampler_coordinate_normalization is not None and self.trial_kind not in {
             TrialKind.SAMPLER,
             TrialKind.TRAINING,

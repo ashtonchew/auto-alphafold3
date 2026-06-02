@@ -411,6 +411,7 @@ def run_autoresearch_loop(
         "coordinate_scale_locality_diagnostic",
         "coordinate_normalized_sampler_diagnostic",
         "calibrated_coordinate_normalized_sampler_diagnostic",
+        "calibrated_sampler_locality_selection_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
@@ -563,6 +564,14 @@ def _run_modal_candidate_smoke(
         _require_deployed_runtime_capability(
             client,
             capability="post_training_sampler_coordinate_scale",
+        )
+    if (
+        checked.sampler_num_samples is not None
+        or checked.sampler_selection_policy is not None
+    ):
+        _require_deployed_runtime_capability(
+            client,
+            capability="post_training_sampler_selection",
         )
     try:
         payload = client.submit_and_poll_trial(_modal_trial_payload(checked))
@@ -888,6 +897,8 @@ def _modal_short_training_payload(trial: AutoFoldTrial) -> dict[str, object]:
         config_payload=trial.config_payload,
         sampler_coordinate_normalization=trial.sampler_coordinate_normalization,
         sampler_coordinate_scale=trial.sampler_coordinate_scale,
+        sampler_num_samples=trial.sampler_num_samples,
+        sampler_selection_policy=trial.sampler_selection_policy,
     )
 
 
@@ -976,6 +987,15 @@ def _planned_candidates(
         )
     if planner == "calibrated_coordinate_normalized_sampler_diagnostic":
         return _calibrated_coordinate_normalized_sampler_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
+    if planner == "calibrated_sampler_locality_selection_diagnostic":
+        return _calibrated_sampler_locality_selection_diagnostic_candidates(
             root=root,
             start_trial_id=start_trial_id,
             max_candidates=max_candidates,
@@ -1791,6 +1811,170 @@ def _calibrated_sampler_coordinate_scale(geometry: dict[str, object]) -> float:
     return round(min(20.0, max(1.0, 1.0 / mean_ratio)), 6)
 
 
+def _calibrated_sampler_locality_selection_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("calibrated_sampler_locality_selection_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError(
+            "calibrated_sampler_locality_selection_diagnostic planner requires --diagnostic-report"
+        )
+    geometry = _prediction_geometry_audit_summary(
+        root=root,
+        diagnostic_report=diagnostic_report,
+        require_reference_scale_flags=False,
+    )
+    _require_controlled_coordinate_scale(geometry)
+    source_trial_id = _single_candidate_trial_id(geometry, planner="calibrated_sampler_locality_selection_diagnostic")
+    source_sampler = _source_sampler_manifest_summary(root=root, trial_id=source_trial_id)
+    scale = source_sampler["sampler_coordinate_scale"]
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_calibrated_sampler_locality_selection_diagnostic.json"
+    config_payload = _coordinate_scale_locality_diagnostic_config_payload(root)
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.DIFFUSION_SAMPLER_GOLF,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded calibrated sampler locality-selection diagnostic should test whether the "
+            "T168 scorer regression is caused by taking the first label-free sample after scale "
+            "calibration. It preserves the proven C-alpha scale, increases only label-free "
+            "post-training sampler samples, selects by local geometry, and keeps labels, manifests, "
+            "scorer, templates, Modal resources, and ledger authority unchanged."
+        ),
+    )
+    trial["agent_session_id"] = "calibrated-sampler-locality-selection-diagnostic-planner"
+    trial["seed"] = 98000 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.DISTOGRAM_GOOD_LDDT_FLAT.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["sampler_coordinate_normalization"] = "ca_bond"
+    trial["sampler_coordinate_scale"] = scale
+    trial["sampler_num_samples"] = 4
+    trial["sampler_selection_policy"] = "geometry"
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="label_free_sampler_geometry_selection",
+        predicted_axis=FalsificationAxis.DISTOGRAM_VS_3D,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.006),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.calibrated_sampler_locality_selection_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "source_geometry_audit": str(diagnostic_report),
+        "source_trial_id": source_trial_id,
+        "source_sampler_manifest": source_sampler["path"],
+        "source_verdict": geometry["recommendation_status"],
+        "reference_trial_id": geometry["reference_trial_id"],
+        "candidate_trial_ids": geometry["candidate_trial_ids"],
+        "scale_flags": geometry["scale_flags"],
+        "reference_deltas": geometry["reference_deltas"],
+        "worst_targets": [],
+        "sampler_coordinate_normalization": "ca_bond",
+        "sampler_coordinate_scale": scale,
+        "sampler_num_samples": 4,
+        "sampler_selection_policy": "geometry",
+        "config_payload_overrides": {
+            "residue_crop_size": config_payload["residue_crop_size"],
+            "num_msa_samples": config_payload["num_msa_samples"],
+            "learning_rate": config_payload["learning_rate"],
+            "lr_start_factor": config_payload["lr_start_factor"],
+            "lr_warmup": config_payload["lr_warmup"],
+            "clip_norm": config_payload["clip_norm"],
+            "diffusion_loss_weight": config_payload["diffusion_loss_weight"],
+            "distogram_loss_weight": config_payload["distogram_loss_weight"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+            "diffusion_steps": config_payload["diffusion_steps"],
+        },
+        "failed_shapes_avoided": [
+            "unbounded live search",
+            "another first-sample-only calibrated sampler output",
+            "scorer, label, manifest, fingerprint, baseline, Modal resource, or ledger edits",
+        ],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded calibrated sampler locality-selection diagnostic",
+            ),
+        }
+    ]
+
+
+def _require_controlled_coordinate_scale(geometry: dict[str, object]) -> None:
+    deltas = geometry.get("reference_deltas")
+    if not isinstance(deltas, list) or len(deltas) != 1 or not isinstance(deltas[0], dict):
+        raise AutoresearchLoopError("calibrated sampler locality-selection diagnostic requires one geometry delta")
+    ratio = deltas[0].get("mean_radius_scale_ratio")
+    pair_delta = deltas[0].get("mean_pair_distance_delta")
+    if not isinstance(ratio, int | float) or not 0.8 <= float(ratio) <= 1.2:
+        raise AutoresearchLoopError("calibrated sampler locality-selection diagnostic requires controlled radius scale")
+    if not isinstance(pair_delta, int | float) or abs(float(pair_delta)) > 5.0:
+        raise AutoresearchLoopError("calibrated sampler locality-selection diagnostic requires controlled pair-distance scale")
+    flags = set(str(flag) for flag in geometry.get("scale_flags", []))
+    if {"adjacent_ca_distance_collapsed", "reference_radius_scale_shift", "reference_pair_distance_shift_gt_20A"} & flags:
+        raise AutoresearchLoopError("calibrated sampler locality-selection diagnostic requires scale failure to be resolved")
+
+
+def _single_candidate_trial_id(geometry: dict[str, object], *, planner: str) -> str:
+    candidate_trial_ids = geometry.get("candidate_trial_ids")
+    if not isinstance(candidate_trial_ids, list) or len(candidate_trial_ids) != 1:
+        raise AutoresearchLoopError(f"{planner} requires exactly one source candidate trial")
+    trial_id = str(candidate_trial_ids[0])
+    if not trial_id:
+        raise AutoresearchLoopError(f"{planner} requires a source candidate trial id")
+    return trial_id
+
+
+def _source_sampler_manifest_summary(*, root: Path, trial_id: str) -> dict[str, object]:
+    path = Path("runs/autoresearch/modal_artifacts") / trial_id / "sampler_manifest.json"
+    _refuse_plan_path_symlinks(root, path)
+    try:
+        payload = json.loads((root / path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(
+            "calibrated sampler locality-selection diagnostic requires fetched source sampler manifest"
+        ) from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != "autoaf3.sampler_manifest.v1":
+        raise AutoresearchLoopError("source sampler manifest must be autoaf3.sampler_manifest.v1")
+    for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "writes_baseline"):
+        if payload.get(key) is True:
+            raise AutoresearchLoopError(f"source sampler manifest must not claim {key}=true")
+    if payload.get("trial_id") != trial_id:
+        raise AutoresearchLoopError("source sampler manifest trial_id does not match geometry candidate")
+    if payload.get("sampler_coordinate_normalization") != "ca_bond":
+        raise AutoresearchLoopError("source sampler manifest must use sampler_coordinate_normalization=ca_bond")
+    scale = payload.get("sampler_coordinate_scale")
+    if not isinstance(scale, int | float) or not 0.0 < float(scale) <= 20.0:
+        raise AutoresearchLoopError("source sampler manifest must contain a valid sampler_coordinate_scale")
+    return {"path": path.as_posix(), "sampler_coordinate_scale": float(scale)}
+
+
 def _manual_candidates(*, root: Path, candidate_plan: str | Path | None) -> list[dict[str, object]]:
     if candidate_plan is None:
         raise AutoresearchLoopError("manual planner requires --candidate-plan")
@@ -2172,7 +2356,12 @@ def _next_surface_review_summary(*, root: Path, diagnostic_report: str | Path) -
     }
 
 
-def _prediction_geometry_audit_summary(*, root: Path, diagnostic_report: str | Path) -> dict[str, object]:
+def _prediction_geometry_audit_summary(
+    *,
+    root: Path,
+    diagnostic_report: str | Path,
+    require_reference_scale_flags: bool = True,
+) -> dict[str, object]:
     path = _diagnostic_report_path(root=root, diagnostic_report=diagnostic_report)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -2190,7 +2379,7 @@ def _prediction_geometry_audit_summary(*, root: Path, diagnostic_report: str | P
         raise AutoresearchLoopError("prediction-geometry audit must stop live spend and open-ended loop")
     flags = [str(flag) for flag in recommendation.get("flags")] if isinstance(recommendation.get("flags"), list) else []
     required_flags = {"reference_radius_scale_shift", "reference_pair_distance_shift_gt_20A"}
-    if not required_flags.issubset(set(flags)):
+    if require_reference_scale_flags and not required_flags.issubset(set(flags)):
         raise AutoresearchLoopError("coordinate_normalized_sampler_diagnostic requires reference coordinate-scale flags")
     reference = payload.get("reference") if isinstance(payload.get("reference"), dict) else {}
     artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else []

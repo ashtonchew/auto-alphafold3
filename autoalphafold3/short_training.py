@@ -49,6 +49,8 @@ def short_training_payload(
     local_only: bool = False,
     predict_after_training: bool = False,
     config_payload: dict[str, object] | None = None,
+    sampler_num_samples: int | None = None,
+    sampler_selection_policy: str | None = None,
     sampler_coordinate_normalization: str | None = None,
     sampler_coordinate_scale: float | None = None,
 ) -> dict[str, object]:
@@ -77,6 +79,15 @@ def short_training_payload(
     }
     if config_payload is not None:
         payload["config_payload"] = config_payload
+    if sampler_num_samples is not None:
+        checked_num_samples = int(sampler_num_samples)
+        if not 1 <= checked_num_samples <= 4:
+            raise ShortTrainingError("sampler_num_samples must be in [1, 4]")
+        payload["sampler_num_samples"] = checked_num_samples
+    if sampler_selection_policy is not None:
+        if sampler_selection_policy not in {"first", "geometry", "compact_geometry"}:
+            raise ShortTrainingError("sampler_selection_policy must be first, geometry, or compact_geometry")
+        payload["sampler_selection_policy"] = sampler_selection_policy
     if sampler_coordinate_normalization is not None:
         if sampler_coordinate_normalization not in {"none", "ca_bond"}:
             raise ShortTrainingError("sampler_coordinate_normalization must be none or ca_bond")

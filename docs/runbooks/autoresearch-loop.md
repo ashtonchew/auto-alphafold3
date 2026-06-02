@@ -387,6 +387,41 @@ If the live candidate is `DISCARD`, archive the candidate evidence and pivot
 the next plan using the new scorer-sensitivity report. If it is a provisional
 `KEEP`, do not claim a result; run the Falsification Gate path first.
 
+If the targeted diagnostic regresses across all targets, do not increase local
+geometry pressure again. Use `schedule_diagnostic` for one narrower
+optimizer/schedule candidate that backs off the failed geometry-loss shape:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner schedule_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/scorer_sensitivity/T088-vs-T160-targeted-diagnostic.json \
+  --run-id schedule-diagnostic-trial-001 \
+  --start-trial-id T161
+```
+
+Review the generated `T161` envelope before live execution. It must still be a
+single NanoFold-style AlphaFold3-lite trial-budget training candidate with
+`max_templates=0`, no ledger writes, no Discovery Ledger writes, and no Modal
+resource changes. The planner changes only validated inline config values such
+as learning rate, warmup, clipping, and a lower local-geometry loss weight.
+
+The matching one-candidate live command is:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode modal \
+  --planner schedule_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/scorer_sensitivity/T088-vs-T160-targeted-diagnostic.json \
+  --run-id schedule-diagnostic-trial-001-live \
+  --start-trial-id T161 \
+  --modal-env main \
+  --failure-streak-limit 1 \
+  --approve I_APPROVE_AUTORESEARCH_LIVE_SEARCH
+```
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

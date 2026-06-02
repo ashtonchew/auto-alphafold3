@@ -395,7 +395,7 @@ def run_autoresearch_loop(
         raise AutoresearchLoopError("candidate_budget must be smoke or trial")
     if mode not in {"dry-run", "modal"}:
         raise AutoresearchLoopError(f"unsupported autoresearch mode: {mode}")
-    if planner not in {"manual", "deterministic", "targeted_diagnostic", "llm"}:
+    if planner not in {"manual", "deterministic", "targeted_diagnostic", "schedule_diagnostic", "llm"}:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
     if mode == "modal":
         if approval != APPROVAL_TEXT:
@@ -864,6 +864,15 @@ def _planned_candidates(
             candidate_budget=candidate_budget,
             diagnostic_report=diagnostic_report,
         )
+    if planner == "schedule_diagnostic":
+        return _schedule_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
     if planner == "llm":
         return _llm_candidates(
             root=root,
@@ -990,6 +999,89 @@ def _targeted_diagnostic_candidates(
             "trial": trial,
             "config": config,
             "patch_text": _targeted_diagnostic_patch_text(root=root, config_path=config_path, config=config),
+        }
+    ]
+
+
+def _schedule_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("schedule_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("schedule_diagnostic planner requires --diagnostic-report")
+    target_summary = _targeted_diagnostic_summary(root=root, diagnostic_report=diagnostic_report)
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_schedule_diagnostic.json"
+    config_payload = _schedule_diagnostic_config_payload(root)
+    worst_targets = target_summary["worst_targets"]
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.OPTIMIZER_SCHEDULER,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded optimizer/schedule diagnostic should test whether the all-target "
+            f"T160 regression ({', '.join(worst_targets)}) was caused by unstable update "
+            "dynamics rather than insufficient local-geometry pressure, while preserving "
+            "labels, manifests, scorer, templates, Modal resources, and ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "schedule-diagnostic-planner"
+    trial["seed"] = 91000 + _trial_number(trial_id)
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="optimizer_schedule_stability",
+        predicted_axis=FalsificationAxis.LOCAL_GEOMETRY,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.01),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.schedule_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "reference_trial_id": target_summary["reference_trial_id"],
+        "candidate_trial_ids": target_summary["candidate_trial_ids"],
+        "worst_targets": worst_targets,
+        "target_loss_summary": target_summary["target_loss_summary"],
+        "config_payload_overrides": {
+            "learning_rate": config_payload["learning_rate"],
+            "lr_warmup": config_payload["lr_warmup"],
+            "lr_start_factor": config_payload["lr_start_factor"],
+            "clip_norm": config_payload["clip_norm"],
+            "distogram_loss_weight": config_payload["distogram_loss_weight"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+        },
+        "failed_shape_avoided": "T160 stronger local-geometry pressure",
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded optimizer/schedule training diagnostic",
+            ),
         }
     ]
 
@@ -1324,14 +1416,48 @@ def _targeted_diagnostic_config_payload(root: Path) -> dict[str, object]:
     return payload
 
 
+def _schedule_diagnostic_config_payload(root: Path) -> dict[str, object]:
+    config_path = root / "configs" / "experiments" / "local_calpha_geometry_smoke.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError("schedule_diagnostic planner requires local_calpha_geometry_smoke config") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("local_calpha_geometry_smoke config must be a JSON object")
+    payload = dict(payload)
+    payload["max_templates"] = 0
+    payload["learning_rate"] = 0.0008
+    payload["lr_start_factor"] = 0.01
+    payload["lr_warmup"] = 250
+    payload["clip_norm"] = 3.0
+    payload["distogram_loss_weight"] = 0.03
+    payload["local_calpha_geometry_loss_weight"] = 0.1
+    return payload
+
+
 def _targeted_diagnostic_patch_text(*, root: Path, config_path: str, config: dict[str, object]) -> str:
+    return _diagnostic_note_patch_text(
+        root=root,
+        config_path=config_path,
+        config=config,
+        candidate_intent="bounded local-geometry training diagnostic",
+    )
+
+
+def _diagnostic_note_patch_text(
+    *,
+    root: Path,
+    config_path: str,
+    config: dict[str, object],
+    candidate_intent: str,
+) -> str:
     note = {
         "schema_version": config["schema_version"],
         "source_diagnostic_report": config["source_diagnostic_report"],
         "reference_trial_id": config["reference_trial_id"],
         "worst_targets": config["worst_targets"],
         "candidate_trial_ids": config["candidate_trial_ids"],
-        "candidate_intent": "bounded local-geometry training diagnostic",
+        "candidate_intent": candidate_intent,
     }
     lines = json.dumps(note, allow_nan=False, indent=2, sort_keys=True).splitlines()
     patch = [

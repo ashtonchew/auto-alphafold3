@@ -81,6 +81,29 @@ def test_surface_design_approves_feature_handling_after_blocked_strategy(tmp_pat
     assert payload["required_next_pr"]["planner"] == "feature_ref_pos_scale_diagnostic"
 
 
+def test_surface_design_approves_memory_runtime_after_blocked_strategy(tmp_path: Path) -> None:
+    strategy = _write_strategy_review(
+        tmp_path,
+        unimplemented_candidate_surfaces=["memory_runtime"],
+        exhausted_surfaces=["auxiliary_loss", "feature_handling", "pairformer_attention"],
+    )
+
+    report = review_surface_design(
+        repo_root=tmp_path,
+        strategy_review=strategy,
+        proposed_surface="memory_runtime",
+    )
+
+    payload = report.to_dict()
+    assert payload["decision"] == "APPROVE_DRY_RUN_PLANNER_IMPLEMENTATION_ONLY"
+    assert payload["approved_next_surface"] == "memory_runtime"
+    assert payload["approved_planner"] == "gradient_checkpointing_runtime_diagnostic"
+    assert payload["candidate_limit"] == 1
+    assert payload["may_start_live_candidate"] is False
+    assert payload["may_start_open_ended_loop"] is False
+    assert payload["required_next_pr"]["planner"] == "gradient_checkpointing_runtime_diagnostic"
+
+
 def test_surface_design_refuses_exhausted_or_unlisted_surface(tmp_path: Path) -> None:
     exhausted = _write_strategy_review(
         tmp_path,
@@ -131,6 +154,19 @@ def test_surface_design_refuses_exhausted_or_unlisted_surface(tmp_path: Path) ->
             repo_root=tmp_path,
             strategy_review=exhausted_feature_alias,
             proposed_surface="feature_handling",
+        )
+
+    exhausted_memory_alias = _write_strategy_review(
+        tmp_path,
+        name="exhausted-memory-alias.json",
+        unimplemented_candidate_surfaces=["memory_runtime"],
+        exhausted_surfaces=["gradient_checkpointing_runtime"],
+    )
+    with pytest.raises(SurfaceDesignReviewError, match="already exhausted"):
+        review_surface_design(
+            repo_root=tmp_path,
+            strategy_review=exhausted_memory_alias,
+            proposed_surface="memory_runtime",
         )
 
 

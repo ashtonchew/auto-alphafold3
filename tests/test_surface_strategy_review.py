@@ -50,7 +50,7 @@ def test_surface_strategy_blocks_after_t171_no_surface_approved(tmp_path: Path) 
     assert "feature_handling" not in payload["unimplemented_candidate_surfaces"]
     assert "pairformer_attention" not in payload["unimplemented_candidate_surfaces"]
     assert "auxiliary_loss" not in payload["unimplemented_candidate_surfaces"]
-    assert "memory_runtime" in payload["unimplemented_candidate_surfaces"]
+    assert "memory_runtime" not in payload["unimplemented_candidate_surfaces"]
     assert payload["starts_search"] is False
     assert payload["writes_ledger"] is False
     assert payload["writes_discovery_ledger"] is False
@@ -97,6 +97,26 @@ def test_surface_strategy_refuses_exhausted_approved_surface(tmp_path: Path) -> 
     assert report.approved_next_surface is None
     assert report.candidate_limit == 0
     assert "already exhausted" in str(report.bench_blocked_reason)
+
+
+def test_surface_strategy_allows_memory_runtime_planner_aliases(tmp_path: Path) -> None:
+    review = _write_next_surface_review(
+        tmp_path,
+        decision="APPROVE_OFFLINE_PLANNER_PR_ONLY",
+        approved_next_surface="memory_runtime",
+        planner="gradient_checkpointing_runtime_diagnostic",
+        candidate_limit=1,
+        rejected_surfaces=["feature_handling"],
+    )
+
+    report = review_surface_strategy(repo_root=tmp_path, next_surface_reviews=[review])
+
+    assert report.decision == "APPROVE_OFFLINE_PLANNER_PR_ONLY"
+    assert report.approved_next_surface == "memory_runtime"
+    assert report.approved_planner == "gradient_checkpointing_runtime_diagnostic"
+    assert report.candidate_limit == 1
+    assert report.may_start_live_candidate is False
+    assert report.may_start_open_ended_loop is False
 
 
 def test_surface_strategy_refuses_authority_claims(tmp_path: Path) -> None:

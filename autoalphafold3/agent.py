@@ -144,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
             "pairformer_attention_diagnostic",
             "auxiliary_contact_loss_diagnostic",
             "feature_ref_pos_scale_diagnostic",
+            "gradient_checkpointing_runtime_diagnostic",
             "llm",
         ),
         default="deterministic",

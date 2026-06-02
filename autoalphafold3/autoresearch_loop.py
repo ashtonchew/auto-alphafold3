@@ -402,6 +402,7 @@ def run_autoresearch_loop(
         "schedule_diagnostic",
         "capacity_diagnostic",
         "topology_recycling_diagnostic",
+        "feature_curriculum_diagnostic",
         "llm",
     }:
         raise AutoresearchLoopError(f"unsupported autoresearch planner for this PR: {planner}")
@@ -899,6 +900,15 @@ def _planned_candidates(
             candidate_budget=candidate_budget,
             diagnostic_report=diagnostic_report,
         )
+    if planner == "feature_curriculum_diagnostic":
+        return _feature_curriculum_diagnostic_candidates(
+            root=root,
+            start_trial_id=start_trial_id,
+            max_candidates=max_candidates,
+            base_commit=base_commit,
+            candidate_budget=candidate_budget,
+            diagnostic_report=diagnostic_report,
+        )
     if planner == "llm":
         return _llm_candidates(
             root=root,
@@ -1295,6 +1305,101 @@ def _topology_recycling_diagnostic_candidates(
     ]
 
 
+def _feature_curriculum_diagnostic_candidates(
+    *,
+    root: Path,
+    start_trial_id: str,
+    max_candidates: int,
+    base_commit: str,
+    candidate_budget: str,
+    diagnostic_report: str | Path | None,
+) -> list[dict[str, object]]:
+    if max_candidates != 1:
+        raise AutoresearchLoopError("feature_curriculum_diagnostic planner requires max_candidates=1")
+    if diagnostic_report is None:
+        raise AutoresearchLoopError("feature_curriculum_diagnostic planner requires --diagnostic-report")
+    collapse_summary = _post_discard_diagnostic_summary(root=root, diagnostic_report=diagnostic_report)
+    budget_shape = _candidate_budget_shape(candidate_budget)
+    budget = BudgetTier(str(budget_shape["budget"]))
+    trial_id = start_trial_id
+    config_path = f"configs/experiments/{trial_id}_feature_curriculum_diagnostic.json"
+    config_payload = _feature_curriculum_diagnostic_config_payload(root)
+    exhausted = collapse_summary["exhausted_surfaces"]
+    trial = _trial_payload(
+        trial_id=trial_id,
+        base_commit=base_commit,
+        kind=TrialKind.TRAINING,
+        budget=budget,
+        move_family=MoveFamily.CURRICULUM,
+        max_steps=int(budget_shape["max_steps"]),
+        config_path=config_path,
+        hypothesis=(
+            "A bounded feature/curriculum diagnostic should test whether the "
+            "short-training-family scorer collapse is caused by unstable artifact scale "
+            "rather than another local geometry, sampler, capacity, or recycling tweak. "
+            "It lowers crop/MSA load while preserving labels, manifests, scorer, templates, "
+            "Modal resources, and ledger authority."
+        ),
+    )
+    trial["agent_session_id"] = "feature-curriculum-diagnostic-planner"
+    trial["seed"] = 94000 + _trial_number(trial_id)
+    trial["diagnostic_target"] = DiagnosticTarget.STABILITY_COMPUTE.value
+    trial["max_wall_minutes"] = budget_shape["max_wall_minutes"]
+    trial["timeout_cap"] = budget_shape["timeout_cap"]
+    trial["config_payload"] = config_payload
+    trial["prediction"] = RegisteredPrediction(
+        causal_component="reduced_crop_msa_curriculum",
+        predicted_axis=FalsificationAxis.STABILITY_COMPUTE,
+        predicted_direction=PredictionDirection.UP,
+        expected_lddt_delta_band=(0.001, 0.006),
+    ).model_dump(mode="json")
+    config = {
+        "schema_version": "autoaf3.feature_curriculum_diagnostic_plan.v1",
+        "config_path": config_path,
+        "max_templates": 0,
+        "source_diagnostic_report": str(diagnostic_report),
+        "reference_trial_id": collapse_summary["reference_trial_id"],
+        "candidate_trial_ids": collapse_summary["candidate_trial_ids"],
+        "worst_targets": [collapse_summary["worst_target"]] if collapse_summary["worst_target"] else [],
+        "target_loss_summary": collapse_summary["target_loss_summary"],
+        "post_discard_verdict": collapse_summary["verdict"],
+        "exhausted_surfaces": exhausted,
+        "config_payload_overrides": {
+            "residue_crop_size": config_payload["residue_crop_size"],
+            "num_msa_samples": config_payload["num_msa_samples"],
+            "learning_rate": config_payload["learning_rate"],
+            "lr_start_factor": config_payload["lr_start_factor"],
+            "lr_warmup": config_payload["lr_warmup"],
+            "clip_norm": config_payload["clip_norm"],
+            "distogram_loss_weight": config_payload["distogram_loss_weight"],
+            "local_calpha_geometry_loss_weight": config_payload["local_calpha_geometry_loss_weight"],
+        },
+        "failed_shapes_avoided": [
+            "T160 stronger local-geometry pressure",
+            "T161 optimizer/schedule backoff",
+            "T113 sampler-only pivot",
+            "T162 width/depth capacity",
+            "T163 topology/recycling",
+        ],
+        "not_a_benchmark_claim": True,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+    }
+    return [
+        {
+            "hypothesis": trial["hypothesis"],
+            "trial": trial,
+            "config": config,
+            "patch_text": _diagnostic_note_patch_text(
+                root=root,
+                config_path=config_path,
+                config=config,
+                candidate_intent="bounded feature/curriculum short-training diagnostic",
+            ),
+        }
+    ]
+
+
 def _manual_candidates(*, root: Path, candidate_plan: str | Path | None) -> list[dict[str, object]]:
     if candidate_plan is None:
         raise AutoresearchLoopError("manual planner requires --candidate-plan")
@@ -1598,6 +1703,46 @@ def _targeted_diagnostic_summary(*, root: Path, diagnostic_report: str | Path) -
     }
 
 
+def _post_discard_diagnostic_summary(*, root: Path, diagnostic_report: str | Path) -> dict[str, object]:
+    path = _diagnostic_report_path(root=root, diagnostic_report=diagnostic_report)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(f"cannot read post-discard diagnostic report: {diagnostic_report}") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("post-discard diagnostic report must be a JSON object")
+    if payload.get("schema_version") != "autoaf3.post_discard_diagnosis.v1":
+        raise AutoresearchLoopError("feature_curriculum_diagnostic requires a post-discard diagnosis report")
+    if payload.get("status") != "PASS":
+        raise AutoresearchLoopError("post-discard diagnosis report must have status=PASS")
+    if payload.get("verdict") != "SHORT_TRAINING_FAMILY_SCORER_COLLAPSE":
+        raise AutoresearchLoopError("feature_curriculum_diagnostic requires SHORT_TRAINING_FAMILY_SCORER_COLLAPSE")
+    for key in ("starts_search", "writes_ledger", "writes_discovery_ledger", "official_benchmark_result"):
+        if payload.get(key) is True:
+            raise AutoresearchLoopError(f"post-discard diagnosis report must not claim {key}=true")
+    score_summary = payload.get("score_summary") if isinstance(payload.get("score_summary"), dict) else {}
+    per_target = score_summary.get("per_target_delta_summary") if isinstance(score_summary.get("per_target_delta_summary"), dict) else {}
+    candidate_trial_ids = payload.get("candidate_trial_ids")
+    exhausted_surfaces = payload.get("exhausted_surfaces")
+    return {
+        "verdict": str(payload.get("verdict")),
+        "reference_trial_id": str(payload.get("reference_trial_id") or ""),
+        "candidate_trial_ids": [str(item) for item in candidate_trial_ids] if isinstance(candidate_trial_ids, list) else [],
+        "exhausted_surfaces": [str(item) for item in exhausted_surfaces] if isinstance(exhausted_surfaces, list) else [],
+        "worst_target": str(per_target.get("worst_target")) if per_target.get("worst_target") else None,
+        "target_loss_summary": [
+            {
+                "target_id": str(per_target.get("worst_target")),
+                "negative_count": int(per_target.get("negative_delta_count") or 0),
+                "sum_negative_delta": None,
+                "min_delta": float(per_target.get("worst_delta")),
+            }
+        ]
+        if isinstance(per_target.get("worst_delta"), int | float) and per_target.get("worst_target")
+        else [],
+    }
+
+
 def _diagnostic_report_path(*, root: Path, diagnostic_report: str | Path) -> Path:
     path = Path(diagnostic_report)
     if path.is_absolute() or ".." in path.parts:
@@ -1686,6 +1831,27 @@ def _topology_recycling_diagnostic_config_payload(root: Path) -> dict[str, objec
     payload["lr_warmup"] = 250
     payload["clip_norm"] = 3.0
     payload["distogram_loss_weight"] = 0.06
+    payload["local_calpha_geometry_loss_weight"] = 0.0
+    return payload
+
+
+def _feature_curriculum_diagnostic_config_payload(root: Path) -> dict[str, object]:
+    config_path = root / "configs" / "experiments" / "local_calpha_geometry_smoke.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError("feature_curriculum_diagnostic planner requires local_calpha_geometry_smoke config") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("local_calpha_geometry_smoke config must be a JSON object")
+    payload = dict(payload)
+    payload["max_templates"] = 0
+    payload["residue_crop_size"] = 16
+    payload["num_msa_samples"] = 2
+    payload["learning_rate"] = 0.0007
+    payload["lr_start_factor"] = 0.01
+    payload["lr_warmup"] = 250
+    payload["clip_norm"] = 3.0
+    payload["distogram_loss_weight"] = 0.03
     payload["local_calpha_geometry_loss_weight"] = 0.0
     return payload
 

@@ -452,6 +452,74 @@ def _write_topology_recycling_diagnostic_inputs(tmp_path: Path) -> Path:
     return report.relative_to(tmp_path)
 
 
+def _write_feature_curriculum_diagnostic_inputs(
+    tmp_path: Path,
+    *,
+    verdict: str = "SHORT_TRAINING_FAMILY_SCORER_COLLAPSE",
+    report_name: str = "T113-T162-T163.json",
+) -> Path:
+    config_dir = tmp_path / "configs/experiments"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.joinpath("local_calpha_geometry_smoke.json").write_text(
+        (REPO_ROOT / "configs/experiments/local_calpha_geometry_smoke.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    report = tmp_path / "runs/autoresearch/post_discard_diagnosis" / report_name
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.post_discard_diagnosis.v1",
+                "status": "PASS",
+                "verdict": verdict,
+                "reference_trial_id": "T088",
+                "candidate_trial_ids": ["T113", "T162", "T163"],
+                "exhausted_surfaces": [
+                    "sampler",
+                    "local_geometry",
+                    "optimizer_schedule",
+                    "width_depth",
+                    "recycling",
+                ],
+                "score_summary": {
+                    "primary_metric": "best_val_calpha_lddt",
+                    "candidate_scores": {
+                        "T113": 0.008276756926787072,
+                        "T162": 0.008276756926787072,
+                        "T163": 0.008276756926787072,
+                    },
+                    "candidate_scores_identical": True,
+                    "all_candidate_per_target_deltas_negative": True,
+                    "per_target_delta_summary": {
+                        "candidate_delta_sets": 3,
+                        "target_count": 16,
+                        "negative_delta_count": 48,
+                        "positive_delta_count": 0,
+                        "zero_delta_count": 0,
+                        "worst_target": "1MBD_A",
+                        "worst_delta": -0.0213496566139146,
+                    },
+                },
+                "artifact_summary": {
+                    "comparison_count": 3,
+                    "all_comparisons_changed": True,
+                    "any_all_predictions_identical": False,
+                },
+                "recommendation": {
+                    "stop_live_trial_budget": True,
+                    "do_not_start_open_ended_loop": True,
+                },
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report.relative_to(tmp_path)
+
+
 def test_deterministic_autoresearch_ladder_plans_t120_to_t125(tmp_path: Path) -> None:
     result = run_autoresearch_loop(
         repo_root=tmp_path,
@@ -831,6 +899,115 @@ def test_topology_recycling_diagnostic_requires_single_candidate_and_report(tmp_
 
     assert not (tmp_path / "runs/autoresearch/topology-recycling-too-many").exists()
     assert not (tmp_path / "runs/autoresearch/topology-recycling-missing-report").exists()
+
+
+def test_feature_curriculum_diagnostic_plans_one_curriculum_candidate(tmp_path: Path) -> None:
+    report = _write_feature_curriculum_diagnostic_inputs(tmp_path)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="feature-curriculum-diagnostic",
+        mode="dry-run",
+        planner="feature_curriculum_diagnostic",
+        start_trial_id="T164",
+        max_candidates=1,
+        candidate_budget="trial",
+        diagnostic_report=report,
+    )
+
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T164"]
+    assert result.starts_search is False
+    assert result.writes_ledger is False
+    assert result.writes_discovery_ledger is False
+    candidate_dir = Path(result.run_dir) / "candidates/T164"
+    trial = json.loads((candidate_dir / "trial.json").read_text(encoding="utf-8"))
+    config = json.loads((candidate_dir / "config.json").read_text(encoding="utf-8"))
+    patch_text = (candidate_dir / "patch.diff").read_text(encoding="utf-8")
+    assert trial["trial_kind"] == "training"
+    assert trial["budget"] == "trial"
+    assert trial["max_steps"] == 250
+    assert trial["max_wall_minutes"] == 45
+    assert trial["timeout_cap"] == 2700
+    assert trial["move_family"] == "curriculum"
+    assert trial["diagnostic_target"] == "stability_compute"
+    assert trial["prediction"]["causal_component"] == "reduced_crop_msa_curriculum"
+    assert trial["prediction"]["predicted_axis"] == "stability_compute"
+    assert trial["config_path"] == "configs/experiments/T164_feature_curriculum_diagnostic.json"
+    assert trial["config_payload"]["max_templates"] == 0
+    assert trial["config_payload"]["residue_crop_size"] == 16
+    assert trial["config_payload"]["num_msa_samples"] == 2
+    assert trial["config_payload"]["learning_rate"] == pytest.approx(0.0007)
+    assert trial["config_payload"]["local_calpha_geometry_loss_weight"] == pytest.approx(0.0)
+    assert config["schema_version"] == "autoaf3.feature_curriculum_diagnostic_plan.v1"
+    assert config["post_discard_verdict"] == "SHORT_TRAINING_FAMILY_SCORER_COLLAPSE"
+    assert config["exhausted_surfaces"] == [
+        "sampler",
+        "local_geometry",
+        "optimizer_schedule",
+        "width_depth",
+        "recycling",
+    ]
+    assert config["failed_shapes_avoided"] == [
+        "T160 stronger local-geometry pressure",
+        "T161 optimizer/schedule backoff",
+        "T113 sampler-only pivot",
+        "T162 width/depth capacity",
+        "T163 topology/recycling",
+    ]
+    assert config["worst_targets"] == ["1MBD_A"]
+    assert config["writes_ledger"] is False
+    assert config["writes_discovery_ledger"] is False
+    assert "configs/experiments/T164_feature_curriculum_diagnostic.json" in patch_text
+    assert "bounded feature/curriculum short-training diagnostic" in patch_text
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+    assert not (tmp_path / "runs/discovery_ledger.jsonl").exists()
+    assert not (tmp_path / "runs/trials").exists()
+
+
+def test_feature_curriculum_diagnostic_requires_single_candidate_and_collapse_report(tmp_path: Path) -> None:
+    report = _write_feature_curriculum_diagnostic_inputs(tmp_path)
+    mixed_report = _write_feature_curriculum_diagnostic_inputs(
+        tmp_path,
+        verdict="MIXED_EVIDENCE_REVIEW_REQUIRED",
+        report_name="mixed-evidence.json",
+    )
+
+    with pytest.raises(AutoresearchLoopError, match="max_candidates=1"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="feature-curriculum-too-many",
+            mode="dry-run",
+            planner="feature_curriculum_diagnostic",
+            start_trial_id="T164",
+            max_candidates=2,
+            diagnostic_report=report,
+        )
+
+    with pytest.raises(AutoresearchLoopError, match="requires --diagnostic-report"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="feature-curriculum-missing-report",
+            mode="dry-run",
+            planner="feature_curriculum_diagnostic",
+            start_trial_id="T164",
+            max_candidates=1,
+        )
+
+    with pytest.raises(AutoresearchLoopError, match="SHORT_TRAINING_FAMILY_SCORER_COLLAPSE"):
+        run_autoresearch_loop(
+            repo_root=tmp_path,
+            run_id="feature-curriculum-wrong-verdict",
+            mode="dry-run",
+            planner="feature_curriculum_diagnostic",
+            start_trial_id="T164",
+            max_candidates=1,
+            diagnostic_report=mixed_report,
+        )
+
+    assert not (tmp_path / "runs/autoresearch/feature-curriculum-too-many").exists()
+    assert not (tmp_path / "runs/autoresearch/feature-curriculum-missing-report").exists()
+    assert not (tmp_path / "runs/autoresearch/feature-curriculum-wrong-verdict").exists()
 
 
 def test_deterministic_sampler_checkpoint_follows_start_trial_id(tmp_path: Path) -> None:

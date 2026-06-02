@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import types
 from argparse import Namespace
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from autoalphafold3.autoresearch_loop import (
     AutoresearchCandidatePlan,
     DeployedTrustedAutoresearchClient,
     MODAL_WORKER_RESULT_TIMEOUT_S,
+    OpenAIAutoresearchPlanner,
     AutoresearchLoopError,
     run_autoresearch_loop,
 )
@@ -1240,35 +1242,84 @@ def test_llm_autoresearch_refuses_patch_path_mismatch_and_authority_flags(tmp_pa
     assert not (tmp_path / "runs/autoresearch/llm-authority-patch").exists()
 
 
-def test_llm_autoresearch_cli_requires_recorded_plan(tmp_path: Path) -> None:
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "autoalphafold3.agent",
-            "autoresearch-loop",
-            "--repo-root",
-            str(tmp_path),
-            "--run-id",
-            "cli-llm-missing",
-            "--mode",
-            "dry-run",
-            "--planner",
-            "llm",
-            "--max-candidates",
-            "1",
-        ],
-        cwd=REPO_ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
+def test_llm_autoresearch_uses_live_planner_when_no_recorded_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = _llm_candidate_payload()
+    calls: list[dict[str, object]] = []
+
+    class FakeLivePlanner:
+        def __init__(self, *, repo_root: str | Path = ".", model: str = "ignored") -> None:
+            calls.append({"repo_root": Path(repo_root), "model": model})
+
+        def plan(self, **kwargs: object) -> AutoresearchCandidatePlan:
+            calls.append(kwargs)
+            return AutoresearchCandidatePlan.model_validate(payload)
+
+    monkeypatch.setattr("autoalphafold3.autoresearch_loop.OpenAIAutoresearchPlanner", FakeLivePlanner)
+
+    result = run_autoresearch_loop(
+        repo_root=tmp_path,
+        run_id="llm-live-planner",
+        mode="dry-run",
+        planner="llm",
+        max_candidates=1,
     )
 
-    assert result.returncode == 1
-    payload = json.loads(result.stdout)
-    assert payload["status"] == "FAIL"
-    assert "requires --candidate-plan" in payload["error"]
-    assert not (tmp_path / "runs/autoresearch/cli-llm-missing").exists()
+    assert result.status == "PLANNED"
+    assert result.generated_trials == ["T120"]
+    assert result.llm_policy is not None
+    assert calls[0]["repo_root"] == tmp_path
+    assert calls[1]["trial_id"] == "T120"
+    assert calls[1]["base_commit"] == "unknown"
+    assert (tmp_path / "runs/autoresearch/llm-live-planner/candidates/T120/trial.json").exists()
+    assert not (tmp_path / "runs/ledger.jsonl").exists()
+
+
+def test_openai_autoresearch_planner_falls_back_to_modal_harness_secret(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payloads: list[dict[str, object]] = []
+
+    fake_openai = types.ModuleType("openai")
+
+    class MissingKeyOpenAI:
+        def __init__(self) -> None:
+            raise RuntimeError("The api_key client option must be set by environment variable")
+
+    fake_openai.OpenAI = MissingKeyOpenAI
+
+    class FakeRemoteMethod:
+        def remote(self, payload: dict[str, object]) -> dict[str, object]:
+            payloads.append(payload)
+            return _llm_candidate_payload()
+
+    class FakeOrchestrator:
+        plan_autoresearch_candidate = FakeRemoteMethod()
+
+    class FakeCls:
+        @staticmethod
+        def from_name(app_name: str, class_name: str):
+            assert app_name == "autoalphafold3-modal"
+            assert class_name == "TrustedOrchestrator"
+            return FakeOrchestrator
+
+    fake_modal = types.ModuleType("modal")
+    fake_modal.Cls = FakeCls
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+    monkeypatch.setitem(sys.modules, "modal", fake_modal)
+
+    plan = OpenAIAutoresearchPlanner(repo_root=tmp_path).plan(
+        run_id="llm-modal-secret",
+        trial_id="T120",
+        candidate_index=0,
+        model="gpt-5.4-mini",
+        policy={"patch_planning": {"tools": []}},
+        base_commit="abc1234",
+    )
+
+    assert plan.trial["trial_id"] == "T120"
+    assert payloads[0]["trial_id"] == "T120"
+    assert "NanoFold-style AlphaFold3-lite" in str(payloads[0]["prompt"])
 
 
 def test_llm_autoresearch_cli_consumes_recorded_plan(tmp_path: Path) -> None:

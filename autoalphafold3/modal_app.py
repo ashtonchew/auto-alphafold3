@@ -727,6 +727,34 @@ if modal is not None:
             return _extract_parsed_plan(response).model_dump(mode="json")
 
         @modal.method()
+        def plan_autoresearch_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
+            """Plan one bounded autoresearch candidate with the harness-only OpenAI secret."""
+
+            from openai import OpenAI
+
+            from autoalphafold3.autoresearch_loop import (
+                AutoresearchCandidatePlan,
+                _AUTORESEARCH_PLANNER_SYSTEM_PROMPT,
+                _extract_autoresearch_parsed_plan,
+            )
+            from autoalphafold3.llm_policy import AgentSearchPhase, default_llm_phase_policy
+
+            policy = default_llm_phase_policy(
+                AgentSearchPhase.PATCH_PLANNING,
+                model=str(payload.get("model", "gpt-5.4-mini")),
+            )
+            kwargs = policy.to_responses_create_kwargs()
+            response = OpenAI().responses.parse(
+                **kwargs,
+                input=[
+                    {"role": "system", "content": _AUTORESEARCH_PLANNER_SYSTEM_PROMPT},
+                    {"role": "user", "content": str(payload["prompt"])},
+                ],
+                text_format=AutoresearchCandidatePlan,
+            )
+            return _extract_autoresearch_parsed_plan(response).model_dump(mode="json")
+
+        @modal.method()
         def submit_trial(self, trial_json: dict[str, Any]) -> dict[str, Any]:
             role = WorkerRole.SAMPLER.value if trial_json.get("trial_kind") == "sampler" else WorkerRole.TRIAL.value
             validate_execution_payload(trial_json, role=role)

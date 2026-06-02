@@ -467,6 +467,53 @@ training/sampler evidence as insufficient for broader autonomous search. The
 next step should be a new explicit design review of allowed architecture or
 data/feature surfaces, not another local variant of T160/T161/T113.
 
+After that design review, the next distinct one-candidate surface is
+`topology_recycling_diagnostic`. It tests the allowed recycling move family
+instead of repeating sampler tuning, local-geometry pressure, optimizer/schedule
+backoff, or width/depth capacity. The candidate changes only validated inline
+config values: one extra trunk recycle, conservative optimizer settings,
+`max_templates=0`, and no source, scorer, manifest, fingerprint, Modal resource,
+baseline, canonical ledger, or Discovery Ledger edits.
+
+Dry-run the candidate plan first:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode dry-run \
+  --planner topology_recycling_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/scorer_sensitivity/T088-vs-T162-capacity-diagnostic.json \
+  --run-id topology-recycling-diagnostic-trial-001 \
+  --start-trial-id T163
+```
+
+Review the generated `T163` envelope. It must remain a single
+NanoFold-style AlphaFold3-lite trial-budget training candidate with
+`diagnostic_target=long_range_topology_weak`, `move_family=recycling`,
+`num_recycle=2`, `max_templates=0`, `budget=trial`, `max_steps=250`,
+`max_wall_minutes=45`, and `timeout_cap=2700`.
+
+Only after readiness remains green, run at most one live recycling candidate:
+
+```bash
+python3 -m autoalphafold3.agent autoresearch-loop \
+  --mode modal \
+  --planner topology_recycling_diagnostic \
+  --candidate-budget trial \
+  --diagnostic-report runs/autoresearch/scorer_sensitivity/T088-vs-T162-capacity-diagnostic.json \
+  --run-id topology-recycling-diagnostic-trial-001-live \
+  --start-trial-id T163 \
+  --modal-env main \
+  --failure-streak-limit 1 \
+  --approve I_APPROVE_AUTORESEARCH_LIVE_SEARCH
+```
+
+If the recycling diagnostic is also `DISCARD`, pause live trial-budget spend.
+At that point the repo has negative scorer-backed evidence across sampler,
+local-geometry, optimizer/schedule, width/depth capacity, and recycling
+surfaces. The next phase should be a new issue for a different allowed surface
+or a deeper artifact diagnosis, not another immediate live candidate.
+
 ## Review And UI Render
 
 Before each implementation or source-behavior PR:

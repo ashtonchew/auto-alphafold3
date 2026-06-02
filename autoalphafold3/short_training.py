@@ -56,6 +56,7 @@ def short_training_payload(
     sampler_selection_policy: str | None = None,
     sampler_coordinate_normalization: str | None = None,
     sampler_coordinate_scale: float | None = None,
+    sampler_locality_guard: str | None = None,
 ) -> dict[str, object]:
     """Return a JSON-friendly bounded short-training payload."""
 
@@ -116,6 +117,10 @@ def short_training_payload(
         if sampler_coordinate_normalization != "ca_bond":
             raise ShortTrainingError("sampler_coordinate_scale requires sampler_coordinate_normalization=ca_bond")
         payload["sampler_coordinate_scale"] = scale
+    if sampler_locality_guard is not None:
+        if sampler_locality_guard not in {"none", "reject_exploded"}:
+            raise ShortTrainingError("sampler_locality_guard must be none or reject_exploded")
+        payload["sampler_locality_guard"] = sampler_locality_guard
     return payload
 
 

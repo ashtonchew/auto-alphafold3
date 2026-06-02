@@ -14,6 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from autoalphafold3.config_contract import validate_config_payload as validate_nanofold_config_payload
 from autoalphafold3.llm_policy import DEFAULT_LLM_MODEL, AgentSearchPhase, default_llm_phase_policy
+from autoalphafold3.live_smoke_gate import (
+    APPROVED_CANDIDATE as LIVE_SMOKE_APPROVED_CANDIDATE,
+    APPROVAL_TOKEN as LIVE_SMOKE_APPROVAL_TOKEN,
+    SCHEMA_VERSION as LIVE_SMOKE_GATE_SCHEMA,
+)
 from autoalphafold3.patch_policy import PatchPolicyError, validate_patch_scope
 from autoalphafold3.autoresearch_candidates import (
     create_candidate_envelope,
@@ -44,6 +49,7 @@ from autoalphafold3.short_training import short_training_payload
 from autoalphafold3.short_training_runner import DEFAULT_MODAL_FEATURES_PATH
 
 APPROVAL_TEXT = "I_APPROVE_AUTORESEARCH_LIVE_SEARCH"
+APPROVED_LIVE_SMOKE_GUARD = "reject_exploded"
 MODAL_WORKER_RESULT_TIMEOUT_S = 900
 FORBIDDEN_TRUE_PLAN_FLAGS = {
     "official_benchmark_result",
@@ -399,6 +405,7 @@ def run_autoresearch_loop(
     diagnostic_report: str | Path | None = None,
     scorer_report: str | Path | None = None,
     geometry_report: str | Path | None = None,
+    live_smoke_gate: str | Path | None = None,
 ) -> AutoresearchLoopResult:
     """Plan autoresearch candidates and optionally run one approved Modal candidate."""
 
@@ -462,6 +469,14 @@ def run_autoresearch_loop(
         trial = AutoFoldTrial.model_validate(candidate["trial"])
         _validate_trial_artifacts(trial.model_dump(mode="json"))
     _validate_unique_trial_ids(planned)
+    _validate_live_smoke_gate_for_planned_candidates(
+        root=root,
+        mode=mode,
+        planned=planned,
+        max_candidates=max_candidates,
+        approval=approval,
+        live_smoke_gate=live_smoke_gate,
+    )
     run_manifest = create_run_manifest(
         repo_root=root,
         run_id=run_id,
@@ -601,6 +616,11 @@ def _run_modal_candidate_smoke(
         _require_deployed_runtime_capability(
             client,
             capability="post_training_sampler_schedule",
+        )
+    if checked.sampler_locality_guard == APPROVED_LIVE_SMOKE_GUARD:
+        _require_deployed_runtime_capability(
+            client,
+            capability="post_training_sampler_locality_guard",
         )
     try:
         payload = client.submit_and_poll_trial(_modal_trial_payload(checked))
@@ -926,6 +946,7 @@ def _modal_short_training_payload(trial: AutoFoldTrial) -> dict[str, object]:
         config_payload=trial.config_payload,
         sampler_coordinate_normalization=trial.sampler_coordinate_normalization,
         sampler_coordinate_scale=trial.sampler_coordinate_scale,
+        sampler_locality_guard=trial.sampler_locality_guard,
         sampler_noise_scale=trial.sampler_noise_scale,
         sampler_step_scale=trial.sampler_step_scale,
         sampler_schedule_shape=trial.sampler_schedule_shape,
@@ -2918,6 +2939,74 @@ def _manual_candidates(*, root: Path, candidate_plan: str | Path | None) -> list
             }
         )
     return checked
+
+
+def _validate_live_smoke_gate_for_planned_candidates(
+    *,
+    root: Path,
+    mode: str,
+    planned: list[dict[str, object]],
+    max_candidates: int,
+    approval: str | None,
+    live_smoke_gate: str | Path | None,
+) -> None:
+    """Require the offline live-smoke gate before executing the approved guard candidate."""
+
+    guarded_trials: list[AutoFoldTrial] = []
+    for candidate in planned:
+        if candidate.get("trial") is None:
+            continue
+        trial = AutoFoldTrial.model_validate(candidate["trial"])
+        if trial.sampler_locality_guard == APPROVED_LIVE_SMOKE_GUARD:
+            guarded_trials.append(trial)
+    if not guarded_trials and live_smoke_gate is None:
+        return
+    if mode != "modal":
+        raise AutoresearchLoopError("live-smoke gate may only be consumed by modal autoresearch")
+    if not guarded_trials:
+        raise AutoresearchLoopError("live-smoke gate requires a sampler_locality_guard candidate")
+    if live_smoke_gate is None:
+        raise AutoresearchLoopError("sampler_locality_guard live smoke requires --live-smoke-gate")
+    if approval != LIVE_SMOKE_APPROVAL_TOKEN:
+        raise AutoresearchLoopError(f"live-smoke gate requires --approve {LIVE_SMOKE_APPROVAL_TOKEN}")
+    if max_candidates != 1 or len(planned) != 1:
+        raise AutoresearchLoopError("live-smoke gate authorizes exactly one candidate")
+    trial = guarded_trials[0]
+    if trial.trial_kind != TrialKind.SAMPLER:
+        raise AutoresearchLoopError("live-smoke gate authorizes sampler_locality_guard sampler candidates only")
+    payload = _read_live_smoke_gate(root=root, live_smoke_gate=live_smoke_gate)
+    expected = {
+        "schema_version": LIVE_SMOKE_GATE_SCHEMA,
+        "decision": "APPROVE_BOUNDED_LIVE_SMOKE_ONLY",
+        "approved_candidate": LIVE_SMOKE_APPROVED_CANDIDATE,
+        "candidate_limit": 1,
+        "required_approval_token": LIVE_SMOKE_APPROVAL_TOKEN,
+        "may_start_live_candidate": True,
+        "may_start_open_ended_loop": False,
+        "starts_search": False,
+        "writes_ledger": False,
+        "writes_discovery_ledger": False,
+        "official_benchmark_result": False,
+    }
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            raise AutoresearchLoopError(f"live-smoke gate must contain {key}={value!r}")
+
+
+def _read_live_smoke_gate(*, root: Path, live_smoke_gate: str | Path) -> dict[str, object]:
+    path = Path(live_smoke_gate)
+    if path.is_absolute() or ".." in path.parts:
+        raise AutoresearchLoopError("live-smoke gate must be a repo-relative path without traversal")
+    if not path.as_posix().startswith("runs/autoresearch/live_smoke_gate/"):
+        raise AutoresearchLoopError("live-smoke gate must live under runs/autoresearch/live_smoke_gate/")
+    _refuse_plan_path_symlinks(root, path)
+    try:
+        payload = json.loads((root / path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutoresearchLoopError(f"could not read live-smoke gate: {path}") from exc
+    if not isinstance(payload, dict):
+        raise AutoresearchLoopError("live-smoke gate must be a JSON object")
+    return payload
 
 
 def _llm_candidates(

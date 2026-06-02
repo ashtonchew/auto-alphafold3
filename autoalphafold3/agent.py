@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 
 from autoalphafold3.orchestrator import poll_trial, submit_trial
+from autoalphafold3.autoresearch_loop import AutoresearchLoopError, run_autoresearch_loop
+from autoalphafold3.autoresearch_candidates import CandidateArtifactError
 from autoalphafold3.baseline_lock import BaselineLockError, lock_baseline_from_scored_artifacts
 from autoalphafold3.baseline_runner import BaselineRunError, run_baseline
 from autoalphafold3.checkpoint_runner import CheckpointRunError, run_one_batch_checkpoint
@@ -101,6 +103,16 @@ def main(argv: list[str] | None = None) -> int:
     short_training_parser.add_argument("--mode", choices=("dry-run", "local-fixture", "modal"), default="dry-run")
     short_training_parser.add_argument("--modal-env", default=None)
     short_training_parser.add_argument("--approve", default=None)
+
+    autoresearch_loop_parser = subparsers.add_parser("autoresearch-loop")
+    autoresearch_loop_parser.add_argument("--repo-root", default=".")
+    autoresearch_loop_parser.add_argument("--run-id", required=True)
+    autoresearch_loop_parser.add_argument("--mode", choices=("dry-run", "modal"), default="dry-run")
+    autoresearch_loop_parser.add_argument("--planner", choices=("manual", "deterministic"), default="deterministic")
+    autoresearch_loop_parser.add_argument("--start-trial-id", default="T120")
+    autoresearch_loop_parser.add_argument("--max-candidates", type=int, default=6)
+    autoresearch_loop_parser.add_argument("--candidate-plan", default=None)
+    autoresearch_loop_parser.add_argument("--approve", default=None)
 
     sampler_loop_parser = subparsers.add_parser("autonomous-sampler-loop")
     sampler_loop_parser.add_argument("--repo-root", default=".")
@@ -277,6 +289,23 @@ def main(argv: list[str] | None = None) -> int:
                 modal_env=args.modal_env,
             )
         except ShortTrainingRunError as exc:
+            print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "autoresearch-loop":
+        try:
+            result = run_autoresearch_loop(
+                repo_root=args.repo_root,
+                run_id=args.run_id,
+                mode=args.mode,
+                planner=args.planner,
+                start_trial_id=args.start_trial_id,
+                max_candidates=args.max_candidates,
+                candidate_plan=args.candidate_plan,
+                approval=args.approve,
+            )
+        except (AutoresearchLoopError, CandidateArtifactError, OSError, ValueError) as exc:
             print(json.dumps({"status": "FAIL", "error": str(exc)}, indent=2, sort_keys=True))
             return 1
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))

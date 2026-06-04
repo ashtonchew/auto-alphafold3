@@ -10,6 +10,7 @@ BENCH_READINESS_SCHEMA = "autoaf3.bench_readiness_review.v1"
 LIVE_SMOKE_RESULT_SCHEMA = "autoaf3.live_smoke_result_review.v1"
 METRICS_SCHEMA = "autoaf3.autoresearch_comparison_metrics.v1"
 SAMPLER_MANIFEST_SCHEMA = "autoaf3.sampler_manifest.v1"
+TRAINING_MANIFEST_SCHEMA = "autoaf3.short_training_manifest.v1"
 SCHEMA_VERSION = "autoaf3.post_smoke_strategy_review.v1"
 
 APPROVED_STRATEGY_FAMILY = "sampler_low_noise_locality_refinement"
@@ -101,17 +102,14 @@ def review_post_smoke_strategy(
     trial_id = _required_text(live_result.get("reviewed_trial_id"), "reviewed_trial_id")
     candidate_dir = run_dir / "candidates" / trial_id
     metrics = _read_run_file(candidate_dir / "metrics.json", expected_schema=METRICS_SCHEMA, label="metrics")
-    sampler = _read_run_file(
-        candidate_dir / "sampler_manifest.json",
-        expected_schema=SAMPLER_MANIFEST_SCHEMA,
-        label="sampler manifest",
-    )
+    sampler, sampler_source = _read_sampler_or_training_manifest(candidate_dir)
     next_noise_scale = _next_sampler_noise_scale(sampler)
     blocked = _blocked_reasons(
         live_result=live_result,
         bench=bench,
         metrics=metrics,
         sampler=sampler,
+        sampler_source=sampler_source,
         next_noise_scale=next_noise_scale,
     )
     approved = not blocked
@@ -137,7 +135,7 @@ def review_post_smoke_strategy(
         global_current_best_score=current_best,
         num_scored_targets=num_scored,
         num_failed_targets=num_failed,
-        sampler_manifest_summary=_sampler_summary(sampler),
+        sampler_manifest_summary=_sampler_summary(sampler, source=sampler_source),
         next_candidate_plan=_next_candidate_plan(trial_id=trial_id, next_noise_scale=next_noise_scale) if approved else {},
         blocked_reasons=blocked,
         required_objectives=_required_objectives(approved=approved, trial_id=trial_id),
@@ -203,6 +201,31 @@ def _read_run_file(path: Path, *, expected_schema: str, label: str) -> dict[str,
     return payload
 
 
+def _read_sampler_or_training_manifest(candidate_dir: Path) -> tuple[dict[str, object], str]:
+    sampler_path = candidate_dir / "sampler_manifest.json"
+    if sampler_path.exists() or sampler_path.is_symlink():
+        return (
+            _read_run_file(
+                sampler_path,
+                expected_schema=SAMPLER_MANIFEST_SCHEMA,
+                label="sampler manifest",
+            ),
+            "sampler_manifest",
+        )
+    training = _read_run_file(
+        candidate_dir / "training_manifest.json",
+        expected_schema=TRAINING_MANIFEST_SCHEMA,
+        label="training manifest",
+    )
+    nested = training.get("sampler_manifest")
+    if not isinstance(nested, dict):
+        raise PostSmokeStrategyReviewError("training manifest must contain sampler_manifest when no sampler manifest exists")
+    if nested.get("schema_version") != SAMPLER_MANIFEST_SCHEMA:
+        raise PostSmokeStrategyReviewError("training manifest sampler_manifest schema mismatch")
+    _refuse_authority_claims(nested, label="training manifest sampler_manifest")
+    return nested, "training_manifest.sampler_manifest"
+
+
 def _read_json(path: Path, *, label: str) -> dict[str, object]:
     if path.is_symlink():
         raise PostSmokeStrategyReviewError(f"{label} must not be a symlink")
@@ -227,6 +250,7 @@ def _blocked_reasons(
     bench: dict[str, object],
     metrics: dict[str, object],
     sampler: dict[str, object],
+    sampler_source: str,
     next_noise_scale: float | None,
 ) -> list[str]:
     blocked: list[str] = []
@@ -248,6 +272,8 @@ def _blocked_reasons(
         blocked.append("discarded smoke must not have failed scored targets before strategy refinement")
     if _optional_int(metric_values.get("num_scored_targets")) != _optional_int(metric_values.get("num_targets")):
         blocked.append("discarded smoke must score every target before strategy refinement")
+    if sampler_source != "sampler_manifest":
+        blocked.append("scored smoke is not a standalone sampler locality refinement source")
     if sampler.get("status") != "SAMPLER_PREDICTED":
         blocked.append("sampler manifest must report SAMPLER_PREDICTED")
     if sampler.get("sampler_locality_guard") != APPROVED_GUARD:
@@ -273,7 +299,7 @@ def _metrics(payload: dict[str, object]) -> dict[str, object]:
     return metrics if isinstance(metrics, dict) else {}
 
 
-def _sampler_summary(payload: dict[str, object]) -> dict[str, object]:
+def _sampler_summary(payload: dict[str, object], *, source: str) -> dict[str, object]:
     keys = [
         "sampler_noise_scale",
         "sampler_num_samples",
@@ -284,7 +310,7 @@ def _sampler_summary(payload: dict[str, object]) -> dict[str, object]:
         "max_templates",
         "prediction_count",
     ]
-    return {key: payload.get(key) for key in keys}
+    return {"source": source, **{key: payload.get(key) for key in keys}}
 
 
 def _next_candidate_plan(*, trial_id: str, next_noise_scale: float | None) -> dict[str, object]:

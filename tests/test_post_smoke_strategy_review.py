@@ -77,6 +77,28 @@ def test_post_smoke_strategy_blocks_when_noise_ladder_is_exhausted(tmp_path: Pat
     assert "sampler noise refinement ladder is exhausted for this source smoke" in report.blocked_reasons
 
 
+def test_post_smoke_strategy_blocks_training_smoke_without_standalone_sampler_manifest(tmp_path: Path) -> None:
+    live_result = _write_live_smoke_result(tmp_path, trial_id="T182", run_dir="runs/autoresearch/live-smoke-t182")
+    bench = _write_bench_readiness(tmp_path)
+    _write_training_smoke_run(tmp_path, trial_id="T182", run_dir="runs/autoresearch/live-smoke-t182")
+
+    report = review_post_smoke_strategy(
+        repo_root=tmp_path,
+        live_smoke_result_review=live_result,
+        bench_readiness_review=bench,
+    )
+
+    assert report.decision == "BLOCK_POST_SMOKE_STRATEGY_REVIEW"
+    assert report.candidate_limit == 0
+    assert report.sampler_manifest_summary["source"] == "training_manifest.sampler_manifest"
+    assert "scored smoke is not a standalone sampler locality refinement source" in report.blocked_reasons
+    assert "sampler manifest must report SAMPLER_PREDICTED" in report.blocked_reasons
+    assert report.starts_search is False
+    assert report.writes_ledger is False
+    assert report.writes_discovery_ledger is False
+    assert report.official_benchmark_result is False
+
+
 def test_post_smoke_strategy_blocks_provisional_keep(tmp_path: Path) -> None:
     live_result = _write_live_smoke_result(
         tmp_path,
@@ -270,6 +292,77 @@ def _write_live_smoke_run(
                 "writes_ledger": False,
                 "writes_discovery_ledger": False,
                 "official_benchmark_result": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_training_smoke_run(
+    tmp_path: Path,
+    *,
+    trial_id: str,
+    run_dir: str,
+) -> None:
+    candidate_dir = tmp_path / run_dir / "candidates" / trial_id
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "metrics.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.autoresearch_comparison_metrics.v1",
+                "trial_id": trial_id,
+                "result_status": "SCORED",
+                "comparison": {
+                    "candidate_score": 0.008276756926787072,
+                    "global_baseline_delta": -0.07113554745864897,
+                    "global_current_best_score": 0.07941230438543605,
+                    "status": "DISCARD",
+                    "provisional_keep": False,
+                    "writes_ledger": False,
+                    "writes_discovery_ledger": False,
+                },
+                "metrics": {
+                    "best_val_calpha_lddt": 0.008276756926787072,
+                    "num_targets": 16,
+                    "num_scored_targets": 16,
+                    "num_failed_targets": 0,
+                },
+                "official_benchmark_result": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (candidate_dir / "training_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "autoaf3.short_training_manifest.v1",
+                "trial_id": trial_id,
+                "status": "SHORT_TRAINING_READY",
+                "budget": "smoke",
+                "max_templates": 0,
+                "real_training_performed": True,
+                "official_benchmark_result": False,
+                "starts_search": False,
+                "writes_ledger": False,
+                "writes_discovery_ledger": False,
+                "sampler_manifest": {
+                    "schema_version": "autoaf3.sampler_manifest.v1",
+                    "trial_id": trial_id,
+                    "status": "SHORT_TRAINING_PREDICTED",
+                    "sampler_noise_scale": 1.0,
+                    "sampler_num_samples": 1,
+                    "sampler_selection_policy": "first",
+                    "sampler_coordinate_normalization": "none",
+                    "sampler_coordinate_scale": 1.0,
+                    "sampler_locality_guard": "none",
+                    "max_templates": 0,
+                    "prediction_count": 16,
+                    "starts_search": False,
+                    "writes_ledger": False,
+                    "writes_discovery_ledger": False,
+                },
             }
         ),
         encoding="utf-8",
